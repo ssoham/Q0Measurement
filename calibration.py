@@ -4,7 +4,9 @@ from matplotlib import pyplot as plt
 from numpy import mean, std, polyfit
 from sys import maxint, stderr
 
+
 VALVE_LOCKED_POS = 17
+
 
 # Could probably figure out a way to use numpy arrays if I get the line count
 # from the CSV
@@ -16,9 +18,6 @@ heaterPower = []
 downstreamLevel = []
 upstreamLevel = []
 
-def appendToBuffers(dataBuffers, startIdx, endIdx):
-    for (runBuffer, dataBuffer) in dataBuffers:
-        runBuffer.append(dataBuffer[startIdx : endIdx])
 
 def parseData(fileName, cryoModule):
 
@@ -54,9 +53,14 @@ def parseData(fileName, cryoModule):
                 idxBuffDict["buffer"].append(float(row[idxBuffDict["idx"]]))
 
 
+# Analyzing change in downstream liquid level vs heat load (we're not using the
+# mass flow rate because SLAC doesn't have that particular diagnostic)
 def getLiquidLevelChange():
     parseData("LL_test_cropped.csv", "2")
     
+    # The readings get wonky when the upstream liquid level dips below 66, and
+    # when the  valve position is +/- 1.2 from our locked position (found
+    # empirically)
     runs, timeRuns, heaterVals = populateRuns(heaterPower, downstreamLevel, 66,
                                  1.2)
                                  
@@ -91,10 +95,14 @@ def getLiquidLevelChange():
     ax2.legend(loc='upper right')
     
     plt.show()
+
     
+# Analyzing mass flow rate vs heat load
 def getAverage():
     parseData("data_new.csv", "3")
     
+    # The liquid level was constant and the JT valve position was changing for
+    # this test, so we put conditions that are never met in order to bypass them
     runs, timeRuns, heaterVals = populateRuns(heaterPower, flowRate, 0, maxint)
 
     print "Heater Values: " + str(heaterVals)
@@ -119,7 +127,7 @@ def getAverage():
 
 
 # Sometimes the heater takes a little while to settle, especially after large
-# jumps, which renders the points taken during that time worthless
+# jumps, which renders the points taken during that time useless
 def adjustForHeaterSettle(heaterVals, runs, timeRuns):
     for idx, heaterVal in enumerate(heaterVals):
 
@@ -133,38 +141,38 @@ def adjustForHeaterSettle(heaterVals, runs, timeRuns):
         runs[idx] = runs[idx][cutoff:]
         timeRuns[idx] = timeRuns[idx][cutoff:]
 
-        currVal = heaterVal
-
 
 def populateRuns(inputBuffer, outputBuffer, levelLimit, valvePosLimit):
-    currVal = inputBuffer[0]
+
+    def appendToBuffers(dataBuffers, startIdx, endIdx):
+        for (runBuffer, dataBuffer) in dataBuffers:
+            runBuffer.append(dataBuffer[startIdx: endIdx])
+
+    runStartIdx = 0
+
     runs = []
     timeRuns = []
-    currIdx = 0
     inputVals = []
     
     for idx, val in enumerate(inputBuffer):
+
+        prevInputVal = inputBuffer[idx - 1] if idx > 0 else val
             
         # A "break" condition defining the end of a run
-        if (val != currVal or upstreamLevel[idx] < levelLimit
-            or abs(valvePos[idx] - VALVE_LOCKED_POS) > valvePosLimit):
+        if (val != prevInputVal or upstreamLevel[idx] < levelLimit
+                or abs(valvePos[idx] - VALVE_LOCKED_POS) > valvePosLimit
+                or idx == len(inputBuffer) - 1):
 
             # Keeping only those runs with at least 1000 points
-            if idx - currIdx > 1000:
-                inputVals.append(currVal)
+            if idx - runStartIdx > 1000:
+                inputVals.append(prevInputVal)
                 appendToBuffers([(runs, outputBuffer), (timeRuns, unixTime)],
-                                currIdx, idx)
+                                runStartIdx, idx)
             
-            currIdx = idx
-            
-        currVal = val
-    
-    if len(inputBuffer) - currIdx > 1000:
-        inputVals.append(inputBuffer[len(inputBuffer) - 1])
-        appendToBuffers([(runs, outputBuffer), (timeRuns, unixTime)], currIdx,
-                        len(inputBuffer))
+            runStartIdx = idx
 
     return runs, timeRuns, inputVals
+
 
 def genAxis(title, xlabel, ylabel):
     fig = plt.figure()
@@ -173,6 +181,7 @@ def genAxis(title, xlabel, ylabel):
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     return ax
+
 
 getLiquidLevelChange()
 #getAverage()
