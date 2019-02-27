@@ -53,6 +53,8 @@ def parseData(fileName, cryoModule):
                 idxBuffDict["buffer"].append(float(row[idxBuffDict["idx"]]))
 
 
+# Analyzing change in downstream liquid level vs heat load (we're not using the
+# mass flow rate because SLAC doesn't have that particular diagnostic)
 def getLiquidLevelChange():
     parseData("LL_test_cropped.csv", "2")
     
@@ -95,11 +97,12 @@ def getLiquidLevelChange():
     plt.show()
 
     
+# Analyzing mass flow rate vs heat load
 def getAverage():
     parseData("data_new.csv", "3")
     
-    # The liquid levels and valve positions don't matter, so we put conditions
-    # that are never met
+    # The liquid level was constant and the JT valve position was changing for
+    # this test, so we put conditions that are never met in order to bypass them
     runs, timeRuns, heaterVals = populateRuns(heaterPower, flowRate, 0, maxint)
 
     print "Heater Values: " + str(heaterVals)
