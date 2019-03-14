@@ -1,16 +1,12 @@
 from __future__ import division
-from csv import reader
+from csv import reader, writer
 from datetime import datetime
+import subprocess
+import re
 from matplotlib import pyplot as plt
 from numpy import mean, std, polyfit, linspace
 from sys import maxint, stderr
 from scipy.stats import linregress
-
-
-VALVE_LOCKED_POS = 17
-REF_HEATER_VAL = 1.91
-
-EPOCH = datetime.utcfromtimestamp(0)
 
 
 # Could probably figure out a way to use numpy arrays if I get the line count
@@ -50,11 +46,12 @@ def parseData(fileName, cryoModule, cavity):
                 print >> stderr, "Column " + col + " not found in CSV"
 
         timeIdx = header.index("time")
+        timeZero = datetime.utcfromtimestamp(0)
 
         for row in csvReader:
 
             time.append((datetime.strptime(row[timeIdx], "%Y-%m-%d %H:%M:%S")
-                         - EPOCH).total_seconds())
+                         - timeZero).total_seconds())
                                           
             for col, idxBuffDict in columnDict.iteritems():
                 idxBuffDict["buffer"].append(float(row[idxBuffDict["idx"]]))
@@ -123,13 +120,13 @@ def getLiquidLevelChange(dataFile, cryoModule, refHeaterVal, refValvePos,
 
     
 # Analyzing mass flow rate vs heat load
-def getAverage():
+def getAvgMassFlow():
     parseData("data_new.csv", "3")
     
     # The liquid level was constant and the JT valve position was changing for
     # this test, so we put conditions that are never met in order to bypass them
     runs, timeRuns, heaterVals = populateRuns(heatLoad, flowRate, 0,
-                                              VALVE_LOCKED_POS, maxint)
+                                              calValveLockedPos, maxint)
 
     print "Heat loads: " + str(heaterVals)
     adjustForHeaterSettle(heaterVals, runs, timeRuns)
@@ -193,7 +190,7 @@ def populateRuns(inputBuffer, outputBuffer, levelLimit, refValvePos,
                 or abs(valvePos[idx] - refValvePos) > valvePosTolerance
                 or idx == len(inputBuffer) - 1):
 
-            # Keeping only those runs with at least 1000 points
+            # Keeping only those runs with at least <cutoff> points
             if idx - runStartIdx > cutoff:
                 inputVals.append(prevInputVal - adjustment)
                 appendToBuffers([(runs, outputBuffer), (timeRuns, time)],
@@ -216,11 +213,52 @@ def genAxis(title, xlabel, ylabel):
 def calcQ0(gradient, inputHeatLoad, refGradient=16.0, refHeatLoad=9.6,
            refQ0=2.7E10):
     return refQ0 * (refHeatLoad / inputHeatLoad) * ((gradient / refGradient)**2)
-    
 
-m, b, ax, calibrationVals = getLiquidLevelChange("calib_2019-2-25_11_25_18672_CM12.csv",
-                                                 "2", REF_HEATER_VAL,
-                                                 VALVE_LOCKED_POS, 1.2, True,
+
+def getArchiveData(startTime, nSecs, signals):
+    # startTime & endTime are datetime objects, signals is a list of PV names
+    cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
+           + ['-s', '1s', '-n'] + [str(nSecs)] + signals)
+    return subprocess.check_output(cmd)
+
+
+def reformatDate(row):
+    try:
+        regex = re.compile(
+            "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
+        res = re.findall(regex, row)[0].replace(" ", "-")
+        reformattedRow = regex.sub(res, row)
+        return "\t".join(reformattedRow.strip().split())
+    except IndexError:
+        print row
+        return "\t".join(row.strip().split())
+
+
+def generateCSV(startTime, endTime, signals, cryomodule, cavity=0, calib=True):
+    # startTime & endTime are datetime objects, signals is a list of PV names
+    nSecs = int((endTime - startTime).total_seconds())
+    rawData = getArchiveData(startTime, nSecs, signals)
+    rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
+    reader = csv.reader(rows, delimiter='\t')
+    if calib == True:
+        fileName = ('calib_' + startTime.strftime("%Y-%m-%d--%H-%M_")
+                    + str(nSecs) + '_CM' + str(cryomodule) + '.csv')
+    else:
+        fileName = ('q0meas_' + startTime.strftime("%Y-%m-%d--%H-%M_")
+                    + '_CM' + str(cryomodule) + '_cav' + str(cavity) + '.csv')
+    with open(fileName, 'wb') as f:
+        writer = csv.writer(f, delimiter='\t')
+        for row in reader:
+            writer.writerow(row)
+
+
+calValveLockedPos = 17
+calRefHeaterVal = 1.91
+calValvePosTol = 1.2
+
+m, b, ax, calibrationVals = getLiquidLevelChange("calib_2019-02-25--11-25_18672_CM12.csv",
+                                                 "2", calRefHeaterVal,
+                                                 calValveLockedPos, calValvePosTol, True,
                                                  "1")
 
 del time[:]
@@ -233,16 +271,16 @@ del upstreamLevel[:]
 
 # refHeaterVal = float(raw_input("Reference Heater Value: "))
 # valveLockedPos = float(raw_input("JT Valve locked position: "))
-# valvePosTolerace = float(raw_input("JT Valve position tolerance: "))
+# valvePosTolerance = float(raw_input("JT Valve position tolerance: "))
 
 refHeaterVal = 1.91
 valveLockedPos = 17.5
-valvePosTolerace = 1
+valvePosTol = 1
 
 slopes = getLiquidLevelChange("3_3_2019_1.csv", "2", refHeaterVal,
-                              valveLockedPos, valvePosTolerace, False, "2", 500)
+                              valveLockedPos, valvePosTol, False, "2", 500)
 
-# slopes = getAverage()
+# slopes = getAvgMassFlow()
 
 heaterVals = []
 for dLL in slopes:
