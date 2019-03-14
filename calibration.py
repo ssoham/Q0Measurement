@@ -3,10 +3,12 @@ from csv import reader, writer
 from datetime import datetime
 import subprocess
 import re
+import os
 from matplotlib import pyplot as plt
 from numpy import mean, std, polyfit, linspace
 from sys import maxint, stderr
 from scipy.stats import linregress
+import user_input
 
 
 # Could probably figure out a way to use numpy arrays if I get the line count
@@ -240,12 +242,20 @@ def generateCSV(startTime, endTime, signals, cryomodule, cavity=0, calib=True):
     rawData = getArchiveData(startTime, nSecs, signals)
     rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
     reader = csv.reader(rows, delimiter='\t')
+    # Define a file name for the CSV we're saving. There are calibration files
+    # and q0 measurement files. Both include a time stamp in the format
+    # year-month-day--hour-minute. They also indicate the number of data points.
     if calib == True:
         fileName = ('calib_' + startTime.strftime("%Y-%m-%d--%H-%M_")
                     + str(nSecs) + '_CM' + str(cryomodule) + '.csv')
     else:
         fileName = ('q0meas_' + startTime.strftime("%Y-%m-%d--%H-%M_")
                     + '_CM' + str(cryomodule) + '_cav' + str(cavity) + '.csv')
+    if os.path.isfile(fileName):
+        response = user_input.get_str('Overwrite previous CSV file (y/n)? ',
+                                      True, ['y', 'n'])
+        if response is 'n':
+            return
     with open(fileName, 'wb') as f:
         writer = csv.writer(f, delimiter='\t')
         for row in reader:
