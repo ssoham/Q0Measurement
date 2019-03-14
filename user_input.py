@@ -10,7 +10,7 @@ def get_input(prompt, desired_type):
     """
     acceptable_input = False
     while not acceptable_input:
-        response = input(prompt)
+        response = raw_input(prompt)
         if not response:
             print("You've gotta give me SOMETHING!")
             continue
