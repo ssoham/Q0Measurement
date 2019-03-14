@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """user_input.py -- Contains the get_input function. Has debugging
 functionality if called as __main__.
 """
