@@ -14,7 +14,6 @@ class Cryomodule:
         self.usLevelPV = "CLL:CM0" + jlabNumStr + ":2601:US:LVL"
 
         self.calTime = []
-        # self.calUnixTime = []
         self.calValvePos = []
         self.calHeatLoad = []
         self.calDownstreamLevel = []
@@ -26,6 +25,10 @@ class Cryomodule:
 
         self.cavities = [self.Cavity(self, i) for i in xrange(1, 9)]
 
+    def getPVs(self):
+        return [self.valvePV, self.dsLevelPV, self.usLevelPV,
+                self.cavities[self.calCavNum - 1].heaterPV]
+
     class Cavity:
         def __init__(self, _parent, _cavNumber, _q0MeasFileName=""):
             self.parent = _parent
@@ -36,7 +39,6 @@ class Cryomodule:
                              + str(_cavNumber) + "55:HV:POWER")
 
             self.q0MeasTime = []
-            # self.q0MeasUnixTime = []
             self.q0MeasValvePos = []
             self.q0MeasHeatLoad = []
             self.q0MeasDownstreamLevel = []

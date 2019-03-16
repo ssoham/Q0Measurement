@@ -304,10 +304,10 @@ def generateCSV(startTime, endTime, signals, cryomodule, cavity=0, calib=True):
         fileName = ('q0meas_' + cryoModStr + '_cav' + str(cavity) + suffix)
 
     if isfile(fileName):
-        response = get_str('Overwrite previous CSV file (y/n)? ',
-                           True, ['y', 'n'])
-        if response is 'n':
-            return
+        overwriteFile = get_str('Overwrite previous CSV file (y/n)? ', True,
+                                ['y', 'n']) == 'y'
+        if not overwriteFile:
+            return fileName
 
     rawData = getArchiveData(startTime, nSecs, signals)
     rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
@@ -317,6 +317,8 @@ def generateCSV(startTime, endTime, signals, cryomodule, cavity=0, calib=True):
         csvWriter = writer(f, delimiter='\t')
         for row in csvReader:
             csvWriter.writerow(row)
+
+    return fileName
 
 
 def demo():
@@ -333,7 +335,7 @@ def demo():
 
     # We're running this on cavity 2, which is index 1 because of 0-indexing
     cavityObj = cryoModuleObj.cavities[1]
-    cavityObj.q0MeasFileName = "3_3_2019_1.csv"
+    cavityObj.q0MeasFileName = "q0meas_CM12_cav2_2019-03-03--12-00_10800.csv"
 
     slopes = processQ0MeasData(cavityObj, calValvePosTol)
 
@@ -391,69 +393,148 @@ def buildDatetimeFromInput(prompt):
     return datetime(year, month, day, hour, minute)
 
 
+def buildCalibFile():
+    print ("\n***Now we'll start building a calibration file " +
+           "- please be patient***\n")
+
+    startTimeCalib = buildDatetimeFromInput("calibration run began: ")
+    endTimeCalib = buildDatetimeFromInput("calibration run ended: ")
+
+    cryoModuleObj = Cryomodule(cryomoduleSLAC, cryomoduleLERF, None,
+                               valveLockedPos, refHeaterVal)
+
+    cryoModuleObj.calFileName = generateCSV(startTimeCalib,
+                                            endTimeCalib,
+                                            cryoModuleObj.getPVs(),
+                                            cryomoduleSLAC)
+
+    return cryoModuleObj
+
+
 if __name__ == "__main__":
-    demo()
+    # demo()
 
-    # refHeaterVal = 2
-    # valveLockedPos = 17.5
-    #
-    # cryomoduleSLAC = 12
-    # cryomoduleLERF = 2
-    #
-    # # refHeaterVal = get_float("Reference Heater Value: ", True, 0, 15)
-    # # valveLockedPos = get_float("JT Valve locked position: ", True, 0, 100)
-    # #
-    # # cryomoduleSLAC = get_int("SLAC Cryomodule Number: ", True, 1, 33)
-    # # cryomoduleLERF = get_int("LERF Cryomodule Number: ", True, 2, 3)
-    #
-    # calibFiles = {}
-    # for root, dirs, files in walk(abspath(dirname(__file__))):
-    #     for idx, name in enumerate(files):
-    #         if fnmatch(name, "calib_CM" + str(cryomoduleSLAC) + "*"):
-    #             calibFiles[idx] = name
-    #             # calibFiles[idx] = join(root, name)
-    #             # calibFiles.append(join(root, name))
-    #
-    # if calibFiles:
-    #     print "\n" + dumps(calibFiles, indent=4) + "\n"
-    #
-    #     useCalib = get_str('Use one of the existing calibration files (y/n)? ',
-    #                        True, ['y', 'n']) == "y"
-    #
-    #     if useCalib:
-    #         idx = get_int("Which file? ", False)
-    #
-    #         while idx not in calibFiles.keys():
-    #             idx = get_int("Please provide one of the listed indices: ",
-    #                           False)
-    #
-    #         m, b, ax, calibrationVals = getLiquidLevelChange(calibFiles[idx],
-    #                                                          cryomoduleLERF,
-    #                                                          refHeaterVal,
-    #                                                          valveLockedPos, 1,
-    #                                                          True, "1")
-    #
-    #     else:
-    #         print ("\n***Now we'll start building a calibration file " +
-    #                "- please be patient***\n")
-    #
-    #         startTimeCalib = buildDatetimeFromInput("calibration run began: ")
-    #         endTimeCalib = buildDatetimeFromInput("calibration run ended: ")
-    #
-    #         generateCSV(startTimeCalib, endTimeCalib, [], cryomoduleSLAC)
-    #
-    # else:
-    #     print "also not implemented"
+    refHeaterVal = 2
+    valveLockedPos = 17.5
+    calValvePosTol = 1.2
 
+    cryomoduleSLAC = 12
+    cryomoduleLERF = 2
 
-    # numCavs = get_int("Number of cavities to analyze: ", True, 1, 8)
+    # refHeaterVal = get_float("Reference Heater Value: ", True, 0, 15)
+    # valveLockedPos = get_float("JT Valve locked position: ", True, 0, 100)
     #
-    # cavities = []
-    # for _ in xrange(numCavs):
-    #     cavity = get_int("Next cavity to analyze: ", True, 1, 8)
-    #     while cavity in cavities:
-    #         cavity = get_int("Please enter a cavity not previously entered: ",
-    #                          True, 1, 8)
-    #     cavities.append(cavity)
+    # cryomoduleSLAC = get_int("SLAC Cryomodule Number: ", True, 1, 33)
+    # cryomoduleLERF = get_int("LERF Cryomodule Number: ", True, 2, 3)
 
+    calibFiles = {}
+    for root, dirs, files in walk(abspath(dirname(__file__))):
+        for idx, name in enumerate(files):
+            if fnmatch(name, "calib_CM" + str(cryomoduleSLAC) + "*"):
+                calibFiles[idx] = name
+                # calibFiles[idx] = join(root, name)
+                # calibFiles.append(join(root, name))
 
+    if calibFiles:
+        print "\n" + dumps(calibFiles, indent=4) + "\n"
+
+        useCalib = get_str('Use one of the existing calibration files (y/n)? ',
+                           True, ['y', 'n']) == "y"
+
+        if useCalib:
+            idx = get_int("Which file? ", False)
+
+            while idx not in calibFiles.keys():
+                idx = get_int("Please provide one of the listed indices: ",
+                              False)
+
+            cryoModuleObj = Cryomodule(cryomoduleSLAC, cryomoduleLERF,
+                                       calibFiles[idx], valveLockedPos,
+                                       refHeaterVal)
+
+            m, b, ax, calibrationVals = processCalibrationData(cryoModuleObj,
+                                                               calValvePosTol)
+
+        else:
+            cryoModuleObj = buildCalibFile()
+
+    else:
+        cryoModuleObj = buildCalibFile()
+
+    numCavs = get_int("Number of cavities to analyze: ", True, 0, 8)
+
+    cavities = []
+    for _ in xrange(numCavs):
+        cavity = get_int("Next cavity to analyze: ", True, 1, 8)
+        while cavity in cavities:
+            cavity = get_int("Please enter a cavity not previously entered: ",
+                             True, 1, 8)
+        cavities.append(cavity)
+
+    for cav in cavities:
+        # 0 indexing means we have to subtract 1 from the cavity number
+        cavityObj = cryoModuleObj.cavities[cav - 1]
+
+        q0MeasFiles = {}
+        for root, dirs, files in walk(abspath(dirname(__file__))):
+            for idx, name in enumerate(files):
+                if fnmatch(name, "q0meas_CM" + str(cryomoduleSLAC) + "_cav"
+                                 + str(cav) + "*"):
+                    q0MeasFiles[idx] = name
+
+        if q0MeasFiles:
+            print "\n" + dumps(q0MeasFiles, indent=4) + "\n"
+
+            useQ0Meas = get_str('Use one of the existing Q0 Measurement files'
+                                ' (y/n)? ', True, ['y', 'n']) == "y"
+
+            if useQ0Meas:
+                idx = get_int("Which file? ", False)
+
+                while idx not in q0MeasFiles.keys():
+                    idx = get_int("Please provide one of the listed indices: ",
+                                  False)
+
+                    cavityObj.q0MeasFileName = q0MeasFiles[idx]
+
+            else:
+                print "not implemented"
+
+        else:
+            print "not implemented"
+
+        # cavityObj.q0MeasFileName = "3_3_2019_1.csv"
+
+        slopes = processQ0MeasData(cavityObj, calValvePosTol)
+
+        heaterVals = []
+
+        for dLL in slopes:
+            heaterVal = (dLL - b) / m
+            heaterVals.append(heaterVal)
+
+        print heaterVals
+
+        ax.plot(heaterVals, slopes, marker="o", linestyle="None",
+                label="Projected Data")
+        ax.legend(loc="lower left")
+
+        minHeatProjected = min(heaterVals)
+        minCalibrationHeat = min(calibrationVals)
+
+        if minHeatProjected < minCalibrationHeat:
+            yRange = linspace(minHeatProjected, minCalibrationHeat)
+            ax.plot(yRange, [m * i + b for i in yRange])
+
+        maxHeatProjected = max(heaterVals)
+        maxCalibrationHeat = max(calibrationVals)
+
+        if maxHeatProjected > maxCalibrationHeat:
+            yRange = linspace(maxCalibrationHeat, maxHeatProjected)
+            ax.plot(yRange, [m * i + b for i in yRange])
+
+        for heatLoad in heaterVals:
+            print calcQ0(18.0, heatLoad)
+
+    plt.draw()
+    plt.show()
