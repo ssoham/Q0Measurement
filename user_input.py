@@ -2,6 +2,8 @@
 functionality if called as __main__.
 """
 
+ERROR_MESSAGE = "Please provide valid input: "
+
 
 def get_input(prompt, desired_type):
     """Uses the supplied prompt to pester the user until they give
@@ -27,6 +29,13 @@ def get_input(prompt, desired_type):
                 print("Please enter an integer!")
                 continue
             acceptable_input = True
+        elif desired_type == float:
+            try:
+                response = float(response)
+            except ValueError:
+                print("Please enter a float!")
+                continue
+            acceptable_input = True
         else:
             raise TypeError('Unsupported input type requested.')
     return response
@@ -41,7 +50,7 @@ def get_str(prompt, constrained=False, acceptable_strings=[]):
     while not acceptable_input:
         response = get_input(prompt, str)
         if constrained and response not in acceptable_strings:
-            print("That is not an acceptable answer.")
+            print(ERROR_MESSAGE)
         else:
             acceptable_input = True
     return response
@@ -56,11 +65,24 @@ def get_int(prompt, constrained=False, low_lim=0, high_lim=1):
     while not acceptable_input:
         response = get_input(prompt, int)
         if constrained and (response < low_lim or response > high_lim):
-            print("That is not an acceptable answer.")
+            print(ERROR_MESSAGE)
         else:
             acceptable_input = True
     return response
 
+def get_float(prompt, constrained=False, low_lim=0.0, high_lim=1.0):
+    """Uses the supplied prompt to pester the user until they yield a
+    float. If the constrained arg is True, only accepts input that is
+    >= low_lim and <= high_lim.
+    """
+    acceptable_input = False
+    while not acceptable_input:
+        response = get_input(prompt, float)
+        if constrained and (response < low_lim or response > high_lim):
+            print(ERROR_MESSAGE)
+        else:
+            acceptable_input = True
+    return response
 
 def main():
     """Tests various functions defined in this module."""
@@ -72,7 +94,8 @@ def main():
     int_input1 = get_int('Give me any integer: ')
     int_input2 = get_int('Give me a number between 1 and 10: ',
                              True, 1, 10)
-
+    float_input1 = get_float('Give me any float: ')
+    float_input2 = get_float('Give me a float between 0 and 1: ', True, 0, 1)
 
 if __name__ == '__main__':
     main()
