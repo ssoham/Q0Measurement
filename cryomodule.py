@@ -38,17 +38,22 @@ class Cryomodule:
             self.heaterPV = ("CHTR:CM0" + str(_parent.jlabNum) + ":1"
                              + str(_cavNumber) + "55:HV:POWER")
 
+            self.gradientPV = ("ACCL:L1B:0" + str(_parent.jlabNum)
+                               + str(_cavNumber) + "0:GACT")
+
             self.q0MeasTime = []
             self.q0MeasValvePos = []
             self.q0MeasHeatLoad = []
             self.q0MeasDownstreamLevel = []
             self.q0MeasUpstreamLevel = []
+            self.q0MeasGradient = []
 
             self.pvBufferMap = {self.parent.valvePV: self.q0MeasValvePos,
                                 self.parent.dsLevelPV:
                                     self.q0MeasDownstreamLevel,
                                 self.parent.usLevelPV: self.q0MeasUpstreamLevel,
-                                self.heaterPV: self.q0MeasHeatLoad}
+                                self.heaterPV: self.q0MeasHeatLoad,
+                                self.gradientPV: self.q0MeasGradient}
         
 
 def main():

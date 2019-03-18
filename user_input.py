@@ -2,42 +2,22 @@
 functionality if called as __main__.
 """
 
-ERROR_MESSAGE = "Please provide valid input: "
+ERROR_MESSAGE = "Please provide valid input"
 
 
 def get_input(prompt, desired_type):
     """Uses the supplied prompt to pester the user until they give
     input of the desired type.
     """
-    acceptable_input = False
-    while not acceptable_input:
-        response = raw_input(prompt)
-        if not response:
-            print("You've gotta give me SOMETHING!")
-            continue
-        if desired_type == str:
-            try:
-                response = str(response)
-            except ValueError:
-                print("Please enter a string!")
-                continue
-            acceptable_input = True
-        elif desired_type == int:
-            try:
-                response = int(response)
-            except ValueError:
-                print("Please enter an integer!")
-                continue
-            acceptable_input = True
-        elif desired_type == float:
-            try:
-                response = float(response)
-            except ValueError:
-                print("Please enter a float!")
-                continue
-            acceptable_input = True
-        else:
-            raise TypeError('Unsupported input type requested.')
+
+    response = raw_input(prompt)
+
+    try:
+        response = desired_type(response)
+    except ValueError:
+        print ERROR_MESSAGE
+        return get_input(prompt, desired_type)
+
     return response
 
 
@@ -61,14 +41,15 @@ def get_int(prompt, constrained=False, low_lim=0, high_lim=1):
     integer. If the constrained arg is True, only accepts input that is
     >= low_lim and <= high_lim.
     """
-    acceptable_input = False
-    while not acceptable_input:
-        response = get_input(prompt, int)
-        if constrained and (response < low_lim or response > high_lim):
-            print(ERROR_MESSAGE)
-        else:
-            acceptable_input = True
+
+    response = get_input(prompt, int)
+    if constrained:
+        while response < low_lim or response > high_lim:
+            print ERROR_MESSAGE
+            response = get_input(prompt, int)
+
     return response
+
 
 def get_float(prompt, constrained=False, low_lim=0.0, high_lim=1.0):
     """Uses the supplied prompt to pester the user until they yield a
@@ -83,6 +64,7 @@ def get_float(prompt, constrained=False, low_lim=0.0, high_lim=1.0):
         else:
             acceptable_input = True
     return response
+
 
 def main():
     """Tests various functions defined in this module."""

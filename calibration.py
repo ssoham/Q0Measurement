@@ -47,7 +47,10 @@ def parseDataFromCSV(fileName, bufferMap, timeBuffer, isCalibration=False,
                                - timeZero).total_seconds())
 
             for col, idxBuffDict in columnDict.iteritems():
-                idxBuffDict["buffer"].append(float(row[idxBuffDict["idx"]]))
+                try:
+                    idxBuffDict["buffer"].append(float(row[idxBuffDict["idx"]]))
+                except ValueError:
+                    print >> stderr, "Could not parse row: " + str(row)
 
 
 def parseCalibData(cryMod):
@@ -87,19 +90,21 @@ def genAndPlotRuns(heaterVals, runs, timeRuns, isCalibration):
     for timeRun in timeRuns:
         print "Duration of run: " + str((timeRun[-1] - timeRun[0]) / 60.0)
 
-    ax1 = genAxis("Liquid Level as a Function of Time",
+    ax1 = genAxis("Liquid Level as a Function of Time"
+                  + (" (Calibration)" if isCalibration else ""),
                   "Unix Time (s)", "Downstream Liquid Level (%)")
 
     slopes = []
 
     for idx, run in enumerate(runs):
         m, b, r_val, p_val, std_err = linregress(timeRuns[idx], run)
-        print r_val ** 2
+        print"R^2: " + str(r_val ** 2)
 
         slopes.append(m)
 
         ax1.plot(timeRuns[idx], run, label=(str(round(m, 6)) + "%/s @ "
-                                            + str(heaterVals[idx]) + " W"))
+                                            + str(heaterVals[idx])
+                                            + "W Electric Load"))
 
         ax1.plot(timeRuns[idx], [m * x + b for x in timeRuns[idx]])
 
@@ -244,12 +249,22 @@ def reformatDate(row):
         return "\t".join(row.strip().split())
 
 
-# def writeDataToCSV(fileName, startTime, nSecs, signals):
+# def getQ0MeasCSV(startTime, endTime, signals, cryomodule, cavity):
+#     nSecs = int((endTime - startTime).total_seconds())
+#
+#     # Define a file name for the CSV we're saving. There are calibration files
+#     # and q0 measurement files. Both include a time stamp in the format
+#     # year-month-day--hour-minute. They also indicate the number of data points.
+#     suffix = startTime.strftime("_%Y-%m-%d--%H-%M_") + str(nSecs) + '.csv'
+#     cryoModStr = 'CM' + str(cryomodule)
+#
+#     fileName = ('q0meas_' + cryoModStr + '_cav' + str(cavity) + suffix)
+#
 #     if isfile(fileName):
-#         response = get_str('Overwrite previous CSV file (y/n)? ',
-#                                       True, ['y', 'n'])
-#         if response is 'n':
-#             return
+#         overwriteFile = get_str('Overwrite previous CSV file (y/n)? ', True,
+#                                 ['y', 'n']) == 'y'
+#         if not overwriteFile:
+#             return fileName
 #
 #     rawData = getArchiveData(startTime, nSecs, signals)
 #     rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
@@ -260,26 +275,36 @@ def reformatDate(row):
 #         for row in csvReader:
 #             csvWriter.writerow(row)
 #
+#     return fileName
 #
-# def generateCalibrationCSV(startTime, endTime, signals, cryomodule):
+#
+# def getCalibCSV(startTime, endTime, signals, cryomodule):
 #     nSecs = int((endTime - startTime).total_seconds())
 #
 #     # Define a file name for the CSV we're saving. There are calibration files
 #     # and q0 measurement files. Both include a time stamp in the format
 #     # year-month-day--hour-minute. They also indicate the number of data points.
-#     fileName = ('calib_' + startTime.strftime("%Y-%m-%d--%H-%M_")
-#                 + str(nSecs) + '_CM' + str(cryomodule) + '.csv')
+#     suffix = startTime.strftime("_%Y-%m-%d--%H-%M_") + str(nSecs) + '.csv'
+#     cryoModStr = 'CM' + str(cryomodule)
 #
-#     writeDataToCSV(fileName, startTime, nSecs, signals)
+#     fileName = ('calib_' + cryoModStr + suffix)
 #
+#     if isfile(fileName):
+#         overwriteFile = get_str('Overwrite previous CSV file (y/n)? ', True,
+#                                 ['y', 'n']) == 'y'
+#         if not overwriteFile:
+#             return fileName
 #
-# def genQ0MeasurementCSV(startTime, endTime, signals, cryomodule, cavity):
-#     nSecs = int((endTime - startTime).total_seconds())
+#     rawData = getArchiveData(startTime, nSecs, signals)
+#     rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
+#     csvReader = reader(rows, delimiter='\t')
 #
-#     fileName = ('q0meas_' + startTime.strftime("%Y-%m-%d--%H-%M_")
-#                 + '_CM' + str(cryomodule) + '_cav' + str(cavity) + '.csv')
+#     with open(fileName, 'wb') as f:
+#         csvWriter = writer(f, delimiter='\t')
+#         for row in csvReader:
+#             csvWriter.writerow(row)
 #
-#     writeDataToCSV(fileName, startTime, nSecs, signals)
+#     return fileName
 
 
 ################################################################################
@@ -289,7 +314,7 @@ def reformatDate(row):
 # @param startTime, endTime: datetime objects
 # @param signals: list of PV strings
 ################################################################################
-def generateCSV(startTime, endTime, signals, cryomodule, cavity=0, calib=True):
+def generateCSV(startTime, endTime, signals, cryomodule, cavity=0, isCalib=True):
     nSecs = int((endTime - startTime).total_seconds())
 
     # Define a file name for the CSV we're saving. There are calibration files
@@ -298,7 +323,7 @@ def generateCSV(startTime, endTime, signals, cryomodule, cavity=0, calib=True):
     suffix = startTime.strftime("_%Y-%m-%d--%H-%M_") + str(nSecs) + '.csv'
     cryoModStr = 'CM' + str(cryomodule)
 
-    if calib:
+    if isCalib:
         fileName = ('calib_' + cryoModStr + suffix)
     else:
         fileName = ('q0meas_' + cryoModStr + '_cav' + str(cavity) + suffix)
@@ -411,55 +436,54 @@ def buildCalibFile():
     return cryoModuleObj
 
 
-if __name__ == "__main__":
-    # demo()
+def findDataFiles(prefix):
+    fileDict = {}
+    # If the directory is empty
+    numFiles = 1
+    for root, dirs, files in walk(abspath(dirname(__file__))):
+        for idx, name in enumerate(files):
+            if fnmatch(name, prefix + "*"):
+                fileDict[numFiles] = name
+                # fileDict[idx] = join(root, name)
+                numFiles += 1
+    fileDict[numFiles] = "Generate a new CSV"
+    return fileDict
 
-    refHeaterVal = 2
+
+def getQ0Measurements():
+    global refHeaterVal, valveLockedPos, cryomoduleSLAC, cryomoduleLERF
+    refHeaterVal = 1.91
     valveLockedPos = 17.5
     calValvePosTol = 1.2
-
     cryomoduleSLAC = 12
     cryomoduleLERF = 2
-
     # refHeaterVal = get_float("Reference Heater Value: ", True, 0, 15)
     # valveLockedPos = get_float("JT Valve locked position: ", True, 0, 100)
     #
     # cryomoduleSLAC = get_int("SLAC Cryomodule Number: ", True, 1, 33)
     # cryomoduleLERF = get_int("LERF Cryomodule Number: ", True, 2, 3)
 
-    calibFiles = {}
-    for root, dirs, files in walk(abspath(dirname(__file__))):
-        for idx, name in enumerate(files):
-            if fnmatch(name, "calib_CM" + str(cryomoduleSLAC) + "*"):
-                calibFiles[idx] = name
-                # calibFiles[idx] = join(root, name)
-                # calibFiles.append(join(root, name))
+    print "\n---------- CRYOMODULE " + str(cryomoduleSLAC) + " ----------\n"
 
-    if calibFiles:
-        print "\n" + dumps(calibFiles, indent=4) + "\n"
+    calibFiles = findDataFiles("calib_CM" + str(cryomoduleSLAC))
 
-        useCalib = get_str('Use one of the existing calibration files (y/n)? ',
-                           True, ['y', 'n']) == "y"
+    print "Options for Calibration Data:"
 
-        if useCalib:
-            idx = get_int("Which file? ", False)
+    print "\n" + dumps(calibFiles, indent=4) + "\n"
 
-            while idx not in calibFiles.keys():
-                idx = get_int("Please provide one of the listed indices: ",
-                              False)
+    option = get_int("Please choose one of the options above: ", True, 1,
+                     len(calibFiles))
 
-            cryoModuleObj = Cryomodule(cryomoduleSLAC, cryomoduleLERF,
-                                       calibFiles[idx], valveLockedPos,
-                                       refHeaterVal)
-
-            m, b, ax, calibrationVals = processCalibrationData(cryoModuleObj,
-                                                               calValvePosTol)
-
-        else:
-            cryoModuleObj = buildCalibFile()
+    if option == len(calibFiles):
+        cryoModuleObj = buildCalibFile()
 
     else:
-        cryoModuleObj = buildCalibFile()
+        cryoModuleObj = Cryomodule(cryomoduleSLAC, cryomoduleLERF,
+                                   calibFiles[option], valveLockedPos,
+                                   refHeaterVal)
+
+    m, b, ax, calibrationVals = processCalibrationData(cryoModuleObj,
+                                                       calValvePosTol)
 
     numCavs = get_int("Number of cavities to analyze: ", True, 0, 8)
 
@@ -472,38 +496,26 @@ if __name__ == "__main__":
         cavities.append(cavity)
 
     for cav in cavities:
+        print "\n---------- CAVITY " + str(cav) + " ----------\n"
         # 0 indexing means we have to subtract 1 from the cavity number
         cavityObj = cryoModuleObj.cavities[cav - 1]
 
-        q0MeasFiles = {}
-        for root, dirs, files in walk(abspath(dirname(__file__))):
-            for idx, name in enumerate(files):
-                if fnmatch(name, "q0meas_CM" + str(cryomoduleSLAC) + "_cav"
-                                 + str(cav) + "*"):
-                    q0MeasFiles[idx] = name
+        q0MeasFiles = findDataFiles("q0meas_CM" + str(cryomoduleSLAC) + "_cav"
+                                    + str(cav))
 
-        if q0MeasFiles:
-            print "\n" + dumps(q0MeasFiles, indent=4) + "\n"
+        print "Options for Q0 Meaurement Data:"
 
-            useQ0Meas = get_str('Use one of the existing Q0 Measurement files'
-                                ' (y/n)? ', True, ['y', 'n']) == "y"
+        print "\n" + dumps(q0MeasFiles, indent=4) + "\n"
 
-            if useQ0Meas:
-                idx = get_int("Which file? ", False)
+        option = get_int("Please choose one of the options above: ", True, 1,
+                         len(q0MeasFiles))
 
-                while idx not in q0MeasFiles.keys():
-                    idx = get_int("Please provide one of the listed indices: ",
-                                  False)
-
-                    cavityObj.q0MeasFileName = q0MeasFiles[idx]
-
-            else:
-                print "not implemented"
+        if option == len(q0MeasFiles):
+            print "not implemented"
+            return
 
         else:
-            print "not implemented"
-
-        # cavityObj.q0MeasFileName = "3_3_2019_1.csv"
+            cavityObj.q0MeasFileName = q0MeasFiles[option]
 
         slopes = processQ0MeasData(cavityObj, calValvePosTol)
 
@@ -513,10 +525,8 @@ if __name__ == "__main__":
             heaterVal = (dLL - b) / m
             heaterVals.append(heaterVal)
 
-        print heaterVals
-
         ax.plot(heaterVals, slopes, marker="o", linestyle="None",
-                label="Projected Data")
+                label="Projected Data for Cavity " + str(cav))
         ax.legend(loc="lower left")
 
         minHeatProjected = min(heaterVals)
@@ -534,7 +544,13 @@ if __name__ == "__main__":
             ax.plot(yRange, [m * i + b for i in yRange])
 
         for heatLoad in heaterVals:
-            print calcQ0(18.0, heatLoad)
+            print "Calculated Heat Load: " + str(heatLoad)
+            print "    Q0: " + str(calcQ0(16.05, heatLoad))
 
     plt.draw()
     plt.show()
+
+
+if __name__ == "__main__":
+    # demo()
+    getQ0Measurements()
