@@ -1,5 +1,7 @@
 """user_input.py -- Contains the get_input function. Has debugging
 functionality if called as __main__.
+Author: Ben Ripman
+Editor: Lisa Zacarias
 """
 
 ERROR_MESSAGE = "Please provide valid input"
@@ -26,13 +28,13 @@ def get_str(prompt, constrained=False, acceptable_strings=[]):
     string. If the constrained arg is True, only accepts input that is
     contained within the acceptable_strings list.
     """
-    acceptable_input = False
-    while not acceptable_input:
-        response = get_input(prompt, str)
-        if constrained and response not in acceptable_strings:
-            print(ERROR_MESSAGE)
-        else:
-            acceptable_input = True
+
+    response = get_input(prompt, str)
+    if constrained:
+        while response not in acceptable_strings:
+            print ERROR_MESSAGE
+            response = get_input(prompt, str)
+
     return response
 
 
@@ -56,13 +58,13 @@ def get_float(prompt, constrained=False, low_lim=0.0, high_lim=1.0):
     float. If the constrained arg is True, only accepts input that is
     >= low_lim and <= high_lim.
     """
-    acceptable_input = False
-    while not acceptable_input:
-        response = get_input(prompt, float)
-        if constrained and (response < low_lim or response > high_lim):
-            print(ERROR_MESSAGE)
-        else:
-            acceptable_input = True
+
+    response = get_input(prompt, float)
+    if constrained:
+        while response < low_lim or response > high_lim:
+            print ERROR_MESSAGE
+            response = get_input(prompt, float)
+
     return response
 
 
