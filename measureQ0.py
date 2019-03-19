@@ -30,7 +30,8 @@ UPSTREAM_LL_LOWER_LIMIT = 66
 # the runs it detects are usable data and not just noise)
 RUN_LENGTH_LOWER_LIMIT = 500
 
-# True if using a known data set for debugging and/or demoing
+# Set True to use a known data set for debugging and/or demoing
+# Set False to prompt the user for real data
 IS_DEMO = True
 
 
@@ -71,7 +72,7 @@ def parseDataFromCSV(obj):
             # TODO use this to make the plots more human-friendly
             obj.timeBuffer.append(dt)
 
-            # we use the unix time to make the math easier during data
+            # We use the unix time to make the math easier during data
             # processing
             obj.unixTimeBuffer.append((dt - timeZero).total_seconds())
 
@@ -132,7 +133,7 @@ def plotAndFitData(heatLoads, runs, timeRuns, obj):
     for idx, run in enumerate(runs):
         m, b, r_val, p_val, std_err = linregress(timeRuns[idx], run)
 
-        # A way to diagnose whether or not we had a long enough run of data
+        # Print R^2 to diagnose whether or not we had a long enough data run
         if IS_DEMO:
             print"R^2: " + str(r_val ** 2)
 
@@ -166,8 +167,9 @@ def plotAndFitData(heatLoads, runs, timeRuns, obj):
         return slopes
 
 
-# Sometimes the heater takes a little while to settle, especially after large
-# jumps, which renders the points taken during that time useless
+# Sometimes the heat load takes a little while to settle, especially after large
+# jumps in the heater settings, which renders the points taken during that time
+# useless
 def adjustForHeaterSettle(heaterVals, runs, timeRuns):
     for idx, heaterVal in enumerate(heaterVals):
 
@@ -184,6 +186,12 @@ def adjustForHeaterSettle(heaterVals, runs, timeRuns):
         timeRuns[idx] = timeRuns[idx][cutoff:]
 
 
+################################################################################
+# populateRuns takes the data in an object's buffers and slices it into data
+# "runs" based on cavity heater settings.
+#
+# @param obj: Either a Cryomodule or Cavity object
+################################################################################
 def populateRuns(obj):
     def appendToBuffers(dataBuffers, startIdx, endIdx):
         for (runBuffer, dataBuffer) in dataBuffers:
@@ -193,14 +201,19 @@ def populateRuns(obj):
 
     runs = []
     timeRuns = []
-    inputVals = []
+    heatLoads = []
 
     for idx, val in enumerate(obj.heatLoadBuffer):
 
-        prevInputVal = obj.heatLoadBuffer[idx - 1] if idx > 0 else val
+        # Find inflection points for the desired heater setting
+        prevHeaterSetting = obj.heatLoadBuffer[idx - 1] if idx > 0 else val
 
-        # A "break" condition defining the end of a run
-        if (val != prevInputVal
+        # A "break" condition defining the end of a run if the desired heater
+        # value changed, or if the upstream liquid level dipped below the
+        # minimum, or if the valve position moved outside the tolerance, or if
+        # we reached the end (which is a kinda jank way of "flushing" the last
+        # run)
+        if (val != prevHeaterSetting
                 or obj.upstreamLevelBuffer[idx] < UPSTREAM_LL_LOWER_LIMIT
                 or (abs(obj.valvePosBuffer[idx] - obj.refValvePos)
                     > VALVE_POSITION_TOLERANCE)
@@ -208,14 +221,15 @@ def populateRuns(obj):
 
             # Keeping only those runs with at least <cutoff> points
             if idx - runStartIdx > RUN_LENGTH_LOWER_LIMIT:
-                inputVals.append(prevInputVal - obj.refHeaterVal)
+                heatLoads.append(prevHeaterSetting - obj.refHeaterVal)
+
                 appendToBuffers([(runs, obj.downstreamLevelBuffer),
                                  (timeRuns, obj.unixTimeBuffer)],
                                 runStartIdx, idx)
 
             runStartIdx = idx
 
-    return runs, timeRuns, inputVals
+    return runs, timeRuns, heatLoads
 
 
 def genAxis(title, xlabel, ylabel):
@@ -227,22 +241,42 @@ def genAxis(title, xlabel, ylabel):
     return ax
 
 
+# Given a gradient and a heat load, we can "calculate" Q0 by scaling a known
+# Q0 value taken at a reference gradient and heat load
 def calcQ0(gradient, inputHeatLoad, refGradient=16.0, refHeatLoad=9.6,
            refQ0=2.7E10):
     return refQ0 * (refHeatLoad / inputHeatLoad) * ((gradient / refGradient)**2)
 
 
-def getArchiveData(startTime, nSecs, signals):
-    # startTime & endTime are datetime objects, signals is a list of PV names
+################################################################################
+# getArchiveData runs a shell command to get archive data. The syntax we're
+# using is:
+#
+#     mySampler -b "%Y-%m-%d %H:%M:%S" -s 1s -n[numPoints] [pv1] [pv2] ...[pvn]
+#
+# where the "-b" denotes the start time, "-s 1s" says that the desired time step
+# between data points is 1 second, -n[numPoints] tells us how many points we
+# want, and [pv1]...[pvn] are the PVs we want archived
+#
+# Ex:
+#     mySampler -b "201-03-28 14:16" -s 30s -n11 R121PMES R221PMES
+#
+# @param startTime: datetime object
+# @param signals: list of PV strings
+################################################################################
+def getArchiveData(startTime, numPoints, signals):
     cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
-           + ['-s', '1s', '-n'] + [str(nSecs)] + signals)
+           + ['-s', '1s', '-n'] + [str(numPoints)] + signals)
     return check_output(cmd)
 
 
 def reformatDate(row):
     try:
-        regex = compile(
-            "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
+        # This clusterfuck regex is pretty much just trying to find strings that
+        # match %Y-%m-%d %H:%M:%S and making them %Y-%m-%d-%H:%M:%S instead
+        # (otherwise the csv parser interprets it as two different columns)
+        regex = compile("[0-9]{4}-[0-9]{2}-[0-9]{2}"
+                        + " [0-9]{2}:[0-9]{2}:[0-9]{2}")
         res = findall(regex, row)[0].replace(" ", "-")
         reformattedRow = regex.sub(res, row)
         return "\t".join(reformattedRow.strip().split())
@@ -253,25 +287,28 @@ def reformatDate(row):
 
 ################################################################################
 # generateCSV is a function that takes either a Cryomodule or Cavity object and
-# generates a CSV data file if one doesn't already exist
+# generates a CSV data file for it if one doesn't already exist (or overwrites
+# the previously existing file if the user desires)
 #
 # @param startTime, endTime: datetime objects
 # @param object: Cryomodule or Cryomodule.Cavity
 ################################################################################
 def generateCSV(startTime, endTime, obj):
-    nSecs = int((endTime - startTime).total_seconds())
+    numPoints = int((endTime - startTime).total_seconds())
 
     # Define a file name for the CSV we're saving. There are calibration files
     # and q0 measurement files. Both include a time stamp in the format
     # year-month-day--hour-minute. They also indicate the number of data points.
-    suffix = startTime.strftime("_%Y-%m-%d--%H-%M_") + str(nSecs) + '.csv'
+    suffix = startTime.strftime("_%Y-%m-%d--%H-%M_") + str(numPoints) + '.csv'
     cryoModStr = 'CM' + str(obj.cryModNumSLAC)
 
     if isinstance(obj, Cryomodule.Cavity):
+        # e.g. q0meas_CM12_cav2_2019-03-03--12-00_10800.csv
         fileName = ('q0meas_' + cryoModStr + '_cav' + str(obj.cavityNumber)
                     + suffix)
 
     else:
+        # e.g. calib_CM12_2019-02-25--11-25_18672.csv
         fileName = ('calib_' + cryoModStr + suffix)
 
     if isfile(fileName):
@@ -280,7 +317,7 @@ def generateCSV(startTime, endTime, obj):
         if not overwriteFile:
             return fileName
 
-    rawData = getArchiveData(startTime, nSecs, obj.getPVs())
+    rawData = getArchiveData(startTime, numPoints, obj.getPVs())
     rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
     csvReader = reader(rows, delimiter='\t')
 
@@ -310,6 +347,7 @@ def buildDatetimeFromInput(prompt):
 
 def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
                    refHeaterVal):
+
     print ("\n***Now we'll start building a calibration file " +
            "- please be patient***\n")
 
@@ -325,6 +363,8 @@ def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
     return cryoModuleObj
 
 
+# Finds files whose names start with prefix and indexes them consecutively
+# (instead of just using its index in the directory)
 def findDataFiles(prefix):
     fileDict = {}
     numFiles = 1

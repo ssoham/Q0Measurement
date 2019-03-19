@@ -1,10 +1,13 @@
 ################################################################################
-# Utility classes to hold calibration data for a cryomodule and Q0 measurement
+# Utility classes to hold calibration data for a cryomodule, and Q0 measurement
 # data for each of that cryomodule's cavities
 # Authors: Lisa Zacarias, Ben Ripman
 ################################################################################
 
+
 class Cryomodule:
+    # We're assuming that the convention is going to be to run the calibration
+    # on cavity 1, but we're leaving some wiggle room in case
     def __init__(self, _cryModNumSLAC, _cryModNumJLAB, _calFileName,
                  _refValvePos, _refHeaterVal, _calCavNum=1):
 
@@ -20,7 +23,7 @@ class Cryomodule:
         self.dsLevelPV = "CLL:CM0" + jlabNumStr + ":2301:DS:LVL"
         self.usLevelPV = "CLL:CM0" + jlabNumStr + ":2601:US:LVL"
 
-        # These buffers store calibration data read from a CSV
+        # These buffers store calibration data read from the CSV dataFileName
         self.unixTimeBuffer = []
         self.timeBuffer = []
         self.valvePosBuffer = []
@@ -33,11 +36,14 @@ class Cryomodule:
                             self.dsLevelPV: self.downstreamLevelBuffer,
                             self.usLevelPV: self.upstreamLevelBuffer}
 
+        # Give each cryomodule 8 cavities
         self.cavities = {i: self.Cavity(self, i) for i in xrange(1, 9)}
 
+    # Returns a list of the PVs used for its data acquisition, including
+    # the PV of the cavity heater used for calibration
     def getPVs(self):
         return [self.valvePV, self.dsLevelPV, self.usLevelPV,
-                self.cavities[self.calCavNum - 1].heaterPV]
+                self.cavities[self.calCavNum].heaterPV]
 
     class Cavity:
         def __init__(self, _parent, _cavNumber, _q0MeasFileName=""):
@@ -52,7 +58,8 @@ class Cryomodule:
             self.gradientPV = ("ACCL:L1B:0" + str(_parent.cryModNumJLAB)
                                + str(_cavNumber) + "0:GACT")
 
-            # These buffers store Q0 measurement data read from a CSV
+            # These buffers store Q0 measurement data read from the CSV
+            # dataFileName
             self.unixTimeBuffer = []
             self.timeBuffer = []
             self.valvePosBuffer = []
@@ -70,10 +77,16 @@ class Cryomodule:
                                 self.heaterPV: self.heatLoadBuffer,
                                 self.gradientPV: self.gradientBuffer}
 
+        # Similar to the Cryomodule function, it just has the gradient PV
+        # instead of the heater one
         def getPVs(self):
             return [self.parent.valvePV, self.parent.dsLevelPV,
                     self.parent.usLevelPV, self.gradientPV]
 
+        # The @property annotation is effectively a shortcut for defining a
+        # class variable and giving it a custom getter function (so now
+        # whenever someone calls Cavity.refValvePos, it'll return the parent
+        # value)
         @property
         def refValvePos(self):
             return self.parent.refValvePos
