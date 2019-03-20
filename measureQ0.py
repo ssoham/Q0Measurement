@@ -104,8 +104,10 @@ def generateCSV(startTime, endTime, obj):
     # Define a file name for the CSV we're saving. There are calibration files
     # and q0 measurement files. Both include a time stamp in the format
     # year-month-day--hour-minute. They also indicate the number of data points.
-    suffix = startTime.strftime("_%Y-%m-%d--%H-%M_") + str(numPoints) + '.csv'
-    cryoModStr = 'CM' + str(obj.cryModNumSLAC)
+    suffixStr = "{start}{nPoints}.csv"
+    suffix = suffixStr.format(start=startTime.strftime("_%Y-%m-%d--%H-%M_"),
+                              nPoints=numPoints)
+    cryoModStr = "CM{cryMod}".format(cryMod=obj.cryModNumSLAC)
 
     if isinstance(obj, cryomodule.Cryomodule.Cavity):
         # e.g. q0meas_CM12_cav2_2019-03-03--12-00_10800.csv
@@ -117,7 +119,7 @@ def generateCSV(startTime, endTime, obj):
     else:
         # e.g. calib_CM12_2019-02-25--11-25_18672.csv
         fileNameString = "calib_{cryoMod}{suff}"
-        fileName = fileNameString.format(cryoMod=cryoModStr, suffix=suffix)
+        fileName = fileNameString.format(cryoMod=cryoModStr, suff=suffix)
 
     if isfile(fileName):
         overwrite = get_str_limited('Overwrite previous CSV file (y/n)? ',
@@ -387,8 +389,8 @@ def genAxis(title, xlabel, ylabel):
 # Q0 value taken at a reference gradient and heat load
 def calcQ0(gradient, inputHeatLoad, refGradient=16.0, refHeatLoad=9.6,
            refQ0=2.7E10):
-    return refQ0 * (refHeatLoad / inputHeatLoad) * (
-            (gradient / refGradient) ** 2)
+    return (refQ0 * (refHeatLoad / inputHeatLoad)
+            * ((gradient / refGradient) ** 2))
 
 
 def getQ0Measurements():

@@ -37,7 +37,7 @@ class Cryomodule:
                             self.usLevelPV: self.upstreamLevelBuffer}
 
         # Give each cryomodule 8 cavities
-        self.cavities = {i: self.Cavity(self, cavNumber=i)
+        self.cavities = {i: self.Cavity(parent=self, cavNumber=i)
                          for i in xrange(1, 9)}
 
     # Returns a list of the PVs used for its data acquisition, including
@@ -53,13 +53,13 @@ class Cryomodule:
             self.cavityNumber = cavNumber
             self.dataFileName = q0MeasFileName
 
-            heaterPV = "CHTR:CM0{cryModNum}:1{cavNum}55:HV:POWER"
-            self.heaterPV = heaterPV.format(cryModNum=parent.cryModNumJLAB,
-                                            cavNum=cavNumber)
+            heaterPVStr = "CHTR:CM0{cryModNum}:1{cavNum}55:HV:POWER"
+            self.heaterPV = heaterPVStr.format(cryModNum=parent.cryModNumJLAB,
+                                               cavNum=cavNumber)
 
-            gradientPV = "ACCL:L1B:0{cryModNum}{cavNum}0:GACT"
-            self.gradientPV = gradientPV.format(cryModNum=parent.cryModNumJLAB,
-                                                cavNum=cavNumber)
+            gradientPVStr = "ACCL:L1B:0{cryModNum}{cavNum}0:GACT"
+            self.gradientPV = gradientPVStr.format(cryModNum=parent.cryModNumJLAB,
+                                                   cavNum=cavNumber)
 
             # These buffers store Q0 measurement data read from the CSV
             # dataFileName
