@@ -347,7 +347,7 @@ def plotAndFitData(heatLoads, runs, timeRuns, obj):
 
         # Print R^2 to diagnose whether or not we had a long enough data run
         if IS_DEMO:
-            print"R^2: " + str(r_val ** 2)
+            print "R^2: " + str(r_val ** 2)
 
         slopes.append(m)
 
