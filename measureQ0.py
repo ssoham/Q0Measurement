@@ -6,7 +6,7 @@
 
 from __future__ import division
 from csv import reader, writer
-from datetime import datetime
+from datetime import datetime, timedelta
 from subprocess import check_output
 from re import compile, findall
 from os import walk
@@ -32,7 +32,7 @@ RUN_LENGTH_LOWER_LIMIT = 500
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
-IS_DEMO = True
+IS_DEMO = False
 
 
 # Finds files whose names start with prefix and indexes them consecutively
@@ -54,11 +54,13 @@ def findDataFiles(prefix):
 
 def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
                    refHeaterVal):
-    print ("\n***Now we'll start building a calibration file " +
-           "- please be patient***\n")
+    print ("\n*** Now we'll start building a calibration file " +
+           "- please be patient ***\n")
 
-    startTimeCalib = buildDatetimeFromInput("calibration run began: ")
-    endTimeCalib = buildDatetimeFromInput("calibration run ended: ")
+    startTimeCalib = buildDatetimeFromInput("Start time for calibration run:")
+    duration = get_float_limited("Duration of calibration run (hours): ", 0,
+                                 1000)
+    endTimeCalib = startTimeCalib + timedelta(duration)
 
     cryoModuleObj = cryomodule.Cryomodule(cryModNumSLAC=cryomoduleSLAC,
                                           cryModNumJLAB=cryomoduleLERF,
@@ -73,19 +75,21 @@ def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
 
 
 def buildDatetimeFromInput(prompt):
+    print prompt
+
     now = datetime.now()
     # The signature is: get_int_limited(prompt, low_lim, high_lim)
-    year = get_int_limited("Year " + prompt, 2019, now.year)
+    year = get_int_limited("  Year: ", 2019, now.year)
 
-    month = get_int_limited("Month " + prompt, 1,
+    month = get_int_limited(" Month: ", 1,
                             now.month if year == now.year else 12)
 
-    day = get_int_limited("Day " + prompt, 1,
+    day = get_int_limited("   Day: ", 1,
                           now.day if (year == now.year
                                       and month == now.month) else 31)
 
-    hour = get_int_limited("Hour " + prompt, 0, 23)
-    minute = get_int_limited("Minute " + prompt, 0, 59)
+    hour = get_int_limited("  Hour: ", 0, 23)
+    minute = get_int_limited("Minute: ", 0, 59)
 
     return datetime(year, month, day, hour, minute)
 
