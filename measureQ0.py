@@ -6,8 +6,9 @@
 
 from __future__ import division
 from __future__ import print_function
-from csv import reader, writer
 from datetime import datetime, timedelta
+
+from csv import reader, writer
 from subprocess import check_output, CalledProcessError
 from re import compile, findall
 from os import walk
@@ -28,9 +29,11 @@ import cryomodule
 VALVE_POSITION_TOLERANCE = 1.2
 UPSTREAM_LL_LOWER_LIMIT = 66
 
+SAMPLING_INTERVAL = 1
+
 # The minimum run length was also found empirically (it's long enough to ensure
 # the runs it detects are usable data and not just noise)
-RUN_LENGTH_LOWER_LIMIT = 500
+RUN_LENGTH_LOWER_LIMIT = 500 / SAMPLING_INTERVAL
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -114,7 +117,7 @@ def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
     upperLimit = (datetime.now() - startTimeCalib).total_seconds() / 3600
     duration = get_float_lim("Duration of calibration run in hours: ",
                              RUN_LENGTH_LOWER_LIMIT / 3600, upperLimit)
-    endTimeCalib = startTimeCalib + timedelta(duration)
+    endTimeCalib = startTimeCalib + timedelta(hours=duration)
 
     cryoModuleObj = cryomodule.Cryomodule(cryModNumSLAC=cryomoduleSLAC,
                                           cryModNumJLAB=cryomoduleLERF,
@@ -128,8 +131,7 @@ def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
         return None
 
     else:
-        cryoModuleObj.dataFileName = generateCSV(startTimeCalib, endTimeCalib,
-                                                 cryoModuleObj)
+        cryoModuleObj.dataFileName = fileName
         return cryoModuleObj
 
 
@@ -162,7 +164,7 @@ def buildDatetimeFromInput(prompt):
 # @param object: Cryomodule or Cryomodule.Cavity
 ################################################################################
 def generateCSV(startTime, endTime, obj):
-    numPoints = int((endTime - startTime).total_seconds())
+    numPoints = int((endTime - startTime).total_seconds() / SAMPLING_INTERVAL)
 
     # Define a file name for the CSV we're saving. There are calibration files
     # and q0 measurement files. Both include a time stamp in the format
@@ -185,11 +187,13 @@ def generateCSV(startTime, endTime, obj):
         fileName = fileNameString.format(cryoMod=cryoModStr, suff=suffix)
 
     if isfile(fileName):
-        overwrite = get_str_lim('Overwrite previous CSV file (y/n)? ',
+        overwrite = get_str_lim("Overwrite previous CSV file '" + fileName
+                                + "' (y/n)? ",
                                 acceptable_strings=['y', 'n']) == 'y'
         if not overwrite:
             return fileName
 
+    print("\nGetting data from the archive...\n")
     rawData = getArchiveData(startTime, numPoints, obj.getPVs())
 
     if not rawData:
@@ -197,11 +201,13 @@ def generateCSV(startTime, endTime, obj):
 
     else:
 
-        rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
+        rawDataSplit = rawData.splitlines()
+        rows = ["\t".join(rawDataSplit.pop(0).strip().split())]
+        rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
         csvReader = reader(rows, delimiter='\t')
 
         with open(fileName, 'wb') as f:
-            csvWriter = writer(f, delimiter='\t')
+            csvWriter = writer(f, delimiter=',')
             for row in csvReader:
                 csvWriter.writerow(row)
 
@@ -226,7 +232,8 @@ def generateCSV(startTime, endTime, obj):
 ################################################################################
 def getArchiveData(startTime, numPoints, signals):
     cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
-           + ['-s', '1s', '-n'] + [str(numPoints)] + signals)
+           + ['-s', str(SAMPLING_INTERVAL) + 's', '-n'] + [str(numPoints)]
+           + signals)
     try:
         return check_output(cmd)
     except (CalledProcessError, OSError) as e:
@@ -270,11 +277,18 @@ def parseDataFromCSV(obj):
             heaterPV = obj.cavities[obj.calCavNum].heaterPV
             linkBufferToPV(heaterPV, obj.heatLoadBuffer, columnDict, header)
 
-        timeIdx = header.index("time")
+        try:
+            timeIdx = header.index("Date")
+            datetimeFormatStr = "%Y-%m-%d-%H:%M:%S"
+            
+        except ValueError:
+            timeIdx = header.index("time")
+            datetimeFormatStr = "%Y-%m-%d %H:%M:%S"
+            
         timeZero = datetime.utcfromtimestamp(0)
 
         for row in csvReader:
-            dt = datetime.strptime(row[timeIdx], "%Y-%m-%d %H:%M:%S")
+            dt = datetime.strptime(row[timeIdx], datetimeFormatStr)
 
             # TODO use this to make the plots more human-friendly
             obj.timeBuffer.append(dt)
