@@ -5,9 +5,10 @@
 ################################################################################
 
 from __future__ import division
+from __future__ import print_function
 from csv import reader, writer
 from datetime import datetime, timedelta
-from subprocess import check_output
+from subprocess import check_output, CalledProcessError
 from re import compile, findall
 from os import walk
 from os.path import isfile, join, abspath, dirname
@@ -17,8 +18,9 @@ from numpy import polyfit, linspace
 from sys import stderr
 from scipy.stats import linregress
 from json import dumps
-from user_input import get_float_limited, get_int_limited, get_str_limited
+from time import sleep
 import cryomodule
+
 
 # The LL readings get wonky when the upstream liquid level dips below 66, and
 # when the  valve position is +/- 1.2 from our locked position (found
@@ -33,6 +35,56 @@ RUN_LENGTH_LOWER_LIMIT = 500
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
 IS_DEMO = False
+
+# Trying to make this compatible with both 2.7 and 3 (input in 3 is the same as
+# raw_input in 2.7, but input in 2.7 calls evaluate)
+if hasattr(__builtins__, 'raw_input'):
+    input = raw_input
+
+ERROR_MESSAGE = "Please provide valid input"
+
+
+def get_float_lim(prompt, low_lim, high_lim):
+    return getNumericalInput(prompt, low_lim, high_lim, float)
+
+
+def getNumericalInput(prompt, lowLim, highLim, inputType):
+    response = get_input(prompt, inputType)
+
+    while response < lowLim or response > highLim:
+        stderr.write(ERROR_MESSAGE + "\n")
+        sleep(0.01)
+        response = get_input(prompt, inputType)
+
+    return response
+
+
+def get_input(prompt, desired_type):
+    response = input(prompt)
+
+    try:
+        response = desired_type(response)
+    except ValueError:
+        stderr.write(str(desired_type) + " required\n")
+        sleep(0.01)
+        return get_input(prompt, desired_type)
+
+    return response
+
+
+def get_int_lim(prompt, low_lim, high_lim):
+    return getNumericalInput(prompt, low_lim, high_lim, int)
+
+
+def get_str_lim(prompt, acceptable_strings):
+    response = get_input(prompt, str)
+
+    while response not in acceptable_strings:
+        stderr.write(ERROR_MESSAGE + "\n")
+        sleep(0.01)
+        response = get_input(prompt, str)
+
+    return response
 
 
 # Finds files whose names start with prefix and indexes them consecutively
@@ -58,8 +110,10 @@ def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
            "- please be patient ***\n")
 
     startTimeCalib = buildDatetimeFromInput("Start time for calibration run:")
-    duration = get_float_limited("Duration of calibration run (hours): ", 0,
-                                 1000)
+
+    upperLimit = (datetime.now() - startTimeCalib).total_seconds() / 3600
+    duration = get_float_lim("Duration of calibration run in hours: ",
+                             RUN_LENGTH_LOWER_LIMIT / 3600, upperLimit)
     endTimeCalib = startTimeCalib + timedelta(duration)
 
     cryoModuleObj = cryomodule.Cryomodule(cryModNumSLAC=cryomoduleSLAC,
@@ -68,28 +122,33 @@ def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
                                           refValvePos=valveLockedPos,
                                           refHeaterVal=refHeaterVal)
 
-    cryoModuleObj.dataFileName = generateCSV(startTimeCalib, endTimeCalib,
-                                             cryoModuleObj)
+    fileName = generateCSV(startTimeCalib, endTimeCalib, cryoModuleObj)
 
-    return cryoModuleObj
+    if not fileName:
+        return None
+
+    else:
+        cryoModuleObj.dataFileName = generateCSV(startTimeCalib, endTimeCalib,
+                                                 cryoModuleObj)
+        return cryoModuleObj
 
 
 def buildDatetimeFromInput(prompt):
-    print prompt
+    print(prompt)
 
     now = datetime.now()
     # The signature is: get_int_limited(prompt, low_lim, high_lim)
-    year = get_int_limited("  Year: ", 2019, now.year)
+    year = get_int_lim("Year: ".rjust(16), 2019, now.year)
 
-    month = get_int_limited(" Month: ", 1,
-                            now.month if year == now.year else 12)
+    month = get_int_lim("Month: ".rjust(16), 1,
+                        now.month if year == now.year else 12)
 
-    day = get_int_limited("   Day: ", 1,
-                          now.day if (year == now.year
-                                      and month == now.month) else 31)
+    day = get_int_lim("Day: ".rjust(16), 1,
+                      now.day if (year == now.year
+                                  and month == now.month) else 31)
 
-    hour = get_int_limited("  Hour: ", 0, 23)
-    minute = get_int_limited("Minute: ", 0, 59)
+    hour = get_int_lim("Hour: ".rjust(16), 0, 23)
+    minute = get_int_lim("Minute: ".rjust(16), 0, 59)
 
     return datetime(year, month, day, hour, minute)
 
@@ -126,21 +185,27 @@ def generateCSV(startTime, endTime, obj):
         fileName = fileNameString.format(cryoMod=cryoModStr, suff=suffix)
 
     if isfile(fileName):
-        overwrite = get_str_limited('Overwrite previous CSV file (y/n)? ',
-                                    acceptable_strings=['y', 'n']) == 'y'
+        overwrite = get_str_lim('Overwrite previous CSV file (y/n)? ',
+                                acceptable_strings=['y', 'n']) == 'y'
         if not overwrite:
             return fileName
 
     rawData = getArchiveData(startTime, numPoints, obj.getPVs())
-    rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
-    csvReader = reader(rows, delimiter='\t')
 
-    with open(fileName, 'wb') as f:
-        csvWriter = writer(f, delimiter='\t')
-        for row in csvReader:
-            csvWriter.writerow(row)
+    if not rawData:
+        return None
 
-    return fileName
+    else:
+
+        rows = list(map(lambda x: reformatDate(x), rawData.splitlines()))
+        csvReader = reader(rows, delimiter='\t')
+
+        with open(fileName, 'wb') as f:
+            csvWriter = writer(f, delimiter='\t')
+            for row in csvReader:
+                csvWriter.writerow(row)
+
+        return fileName
 
 
 ################################################################################
@@ -162,7 +227,11 @@ def generateCSV(startTime, endTime, obj):
 def getArchiveData(startTime, numPoints, signals):
     cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
            + ['-s', '1s', '-n'] + [str(numPoints)] + signals)
-    return check_output(cmd)
+    try:
+        return check_output(cmd)
+    except (CalledProcessError, OSError) as e:
+        stderr.write("mySampler failed with error: " + str(e) + "\n")
+        return None
 
 
 def reformatDate(row):
@@ -176,7 +245,7 @@ def reformatDate(row):
         reformattedRow = regex.sub(res, row)
         return "\t".join(reformattedRow.strip().split())
     except IndexError:
-        print >> stderr, "Could not reformat date for row: " + str(row)
+        stderr.write("Could not reformat date for row: " + str(row) + "\n")
         return "\t".join(row.strip().split())
 
 
@@ -219,14 +288,14 @@ def parseDataFromCSV(obj):
                 try:
                     idxBuffDict["buffer"].append(float(row[idxBuffDict["idx"]]))
                 except ValueError:
-                    print >> stderr, "Could not parse row: " + str(row)
+                    stderr.write("Could not parse row: " + str(row) + "\n")
 
 
 def linkBufferToPV(pv, dataBuffer, columnDict, header):
     try:
         columnDict[pv] = {"idx": header.index(pv), "buffer": dataBuffer}
     except ValueError:
-        print >> stderr, "Column " + pv + " not found in CSV"
+        stderr.write("Column " + pv + " not found in CSV\n")
 
 
 # @param obj: either a Cryomodule or Cavity object
@@ -237,10 +306,10 @@ def processData(obj):
     adjustForHeaterSettle(heatLoads, runs, timeRuns)
 
     if IS_DEMO:
-        print "Heat Loads: " + str(heatLoads)
+        print("Heat Loads: " + str(heatLoads))
 
         for timeRun in timeRuns:
-            print "Duration of run: " + str((timeRun[-1] - timeRun[0]) / 60.0)
+            print("Duration of run: " + str((timeRun[-1] - timeRun[0]) / 60.0))
 
     return plotAndFitData(heatLoads, runs, timeRuns, obj)
 
@@ -303,7 +372,7 @@ def adjustForHeaterSettle(heaterVals, runs, timeRuns):
                   if idx > 0 else 0)
 
         if IS_DEMO:
-            print "cutoff: " + str(cutoff)
+            print("cutoff: " + str(cutoff))
 
         # Adjusting both buffers to keep them "synchronous"
         runs[idx] = runs[idx][cutoff:]
@@ -347,7 +416,7 @@ def plotAndFitData(heatLoads, runs, timeRuns, obj):
 
         # Print R^2 to diagnose whether or not we had a long enough data run
         if IS_DEMO:
-            print "R^2: " + str(r_val ** 2)
+            print("R^2: " + str(r_val ** 2))
 
         slopes.append(m)
 
@@ -412,21 +481,27 @@ def getQ0Measurements():
         cavities = [2, 4]
 
     else:
+        print("Q0 Calibration Parameters:")
         # Signature is: get_float/get_int(prompt, low_lim, high_lim)
-        refHeaterVal = get_float_limited("Reference Heater Value: ", 0, 15)
-        valveLockedPos = get_float_limited("JT Valve locked position: ", 0, 100)
-        cryomoduleSLAC = get_int_limited("SLAC Cryomodule Number: ", 0, 33)
-        cryomoduleLERF = get_int_limited("LERF Cryomodule Number: ", 2, 3)
+        refHeaterVal = get_float_lim("Reference Heater Value: ".rjust(32),
+                                     0, 15)
+        valveLockedPos = get_float_lim("JT Valve locked position: ".rjust(32),
+                                       0, 100)
+        cryomoduleSLAC = get_int_lim("SLAC Cryomodule Number: ".rjust(32),
+                                     0, 33)
+        cryomoduleLERF = get_int_lim("LERF Cryomodule Number: ".rjust(32),
+                                     2, 3)
 
-        print "\n---------- CRYOMODULE " + str(cryomoduleSLAC) + " ----------\n"
+        print("\n---------- CRYOMODULE " + str(
+            cryomoduleSLAC) + " ----------\n")
 
         calibFiles = findDataFiles("calib_CM" + str(cryomoduleSLAC))
 
-        print "Options for Calibration Data:"
+        print("Options for Calibration Data:")
 
-        print "\n" + dumps(calibFiles, indent=4) + "\n"
+        print("\n" + dumps(calibFiles, indent=4) + "\n")
 
-        option = get_int_limited(
+        option = get_int_lim(
             "Please choose one of the options above: ", 1, len(calibFiles))
 
         if option == len(calibFiles):
@@ -440,36 +515,41 @@ def getQ0Measurements():
                                                   valveLockedPos,
                                                   refHeaterVal)
 
-        numCavs = get_int_limited("Number of cavities to analyze: ", 0, 8)
+        if not cryoModuleObj:
+            stderr.write("Calibration file generation failed - aborting\n")
+            return
 
-        cavities = []
-        for _ in xrange(numCavs):
-            cavity = get_int_limited("Next cavity to analyze: ", 1, 8)
-            while cavity in cavities:
-                cavity = get_int_limited(
-                    "Please enter a cavity not previously entered: ", 1, 8)
-            cavities.append(cavity)
+        else:
+            numCavs = get_int_lim("Number of cavities to analyze: ", 0, 8)
+
+            cavities = []
+            for _ in range(numCavs):
+                cavity = get_int_lim("Next cavity to analyze: ", 1, 8)
+                while cavity in cavities:
+                    cavity = get_int_lim(
+                        "Please enter a cavity not previously entered: ", 1, 8)
+                cavities.append(cavity)
 
     m, b, ax, calibrationVals = processData(cryoModuleObj)
 
     for cav in cavities:
         cavityObj = cryoModuleObj.cavities[cav]
 
-        print "\n---------- CAVITY " + str(cav) + " ----------\n"
+        print("\n---------- CAVITY " + str(cav) + " ----------\n")
 
         fileStr = "q0meas_CM{cryMod}_cav{cavNum}".format(cryMod=cryomoduleSLAC,
                                                          cavNum=cav)
         q0MeasFiles = findDataFiles(fileStr)
 
-        print "Options for Q0 Meaurement Data:"
+        print("Options for Q0 Meaurement Data:")
 
-        print "\n" + dumps(q0MeasFiles, indent=4) + "\n"
+        print("\n" + dumps(q0MeasFiles, indent=4) + "\n")
 
-        option = get_int_limited(
+        option = get_int_lim(
             "Please choose one of the options above: ", 1, len(q0MeasFiles))
 
         if option == len(q0MeasFiles):
-            print "not implemented"
+            print("not implemented")
             return
 
         else:
@@ -502,8 +582,8 @@ def getQ0Measurements():
             ax.plot(yRange, [m * i + b for i in yRange])
 
         for heatLoad in heaterVals:
-            print "Calculated Heat Load: " + str(heatLoad)
-            print "    Q0: " + str(calcQ0(16.05, heatLoad))
+            print("Calculated Heat Load: " + str(heatLoad))
+            print("    Q0: " + str(calcQ0(16.05, heatLoad)))
 
     plt.draw()
 
