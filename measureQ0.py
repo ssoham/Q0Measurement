@@ -22,19 +22,22 @@ from json import dumps
 from time import sleep
 from cryomodule import Cryomodule
 
-# The LL readings get wonky when the upstream liquid level dips below 66, and
-# when the  valve position is +/- 1.2 from our locked position (found
-# empirically)
-VALVE_POSITION_TOLERANCE = 1.2
+# The LL readings get wonky when the upstream liquid level dips below 66
 UPSTREAM_LL_LOWER_LIMIT = 66
 
+# Used to reject data where the JT valve wasn't at the correct position
+VALVE_POSITION_TOLERANCE = 2
+
+# Used to reject data where the cavity gradient wasn't at the correct value
 GRADIENT_TOLERANCE = 0.7
 
+# We fetch data from the JLab archiver with a program called mySampler, which
+# samples the chosen PVs at a user-specified time interval
 SAMPLING_INTERVAL = 1
 
-# The minimum run length was also found empirically (it's long enough to ensure
-# the runs it detects are usable data and not just noise)
-RUN_LENGTH_LOWER_LIMIT = 500 / SAMPLING_INTERVAL
+# The minimum run length was empirically found to be ~750 (long enough to
+# ensure the runs we detect are usable data and not just noise)
+RUN_LENGTH_LOWER_LIMIT = 750 / SAMPLING_INTERVAL
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -45,6 +48,7 @@ IS_DEMO = True
 if hasattr(__builtins__, 'raw_input'):
     input = raw_input
 
+# Used in custom input functions just below
 ERROR_MESSAGE = "Please provide valid input"
 
 
@@ -57,6 +61,8 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
 
     while response < lowLim or response > highLim:
         stderr.write(ERROR_MESSAGE + "\n")
+        # Need to pause briefly for some reason to make sure the error message
+        # shows up before the next prompt
         sleep(0.01)
         response = get_input(prompt, inputType)
 
@@ -295,10 +301,13 @@ def parseDataFromCSV(obj):
             linkBufferToPV(heaterPV, obj.heatLoadBuffer, columnDict, header)
 
         try:
+            # Data fetched from the JLab archiver has the timestamp column
+            # labeled "Date"
             timeIdx = header.index("Date")
             datetimeFormatStr = "%Y-%m-%d-%H:%M:%S"
 
         except ValueError:
+            # Data exported from MyaPlot has the timestamp column labeled "time"
             timeIdx = header.index("time")
             datetimeFormatStr = "%Y-%m-%d %H:%M:%S"
 
@@ -310,7 +319,7 @@ def parseDataFromCSV(obj):
             # TODO use this to make the plots more human-friendly
             obj.timeBuffer.append(dt)
 
-            # We use the unix time to make the math easier during data
+            # We use the Unix time to make the math easier during data
             # processing
             obj.unixTimeBuffer.append((dt - timeZero).total_seconds())
 
@@ -353,6 +362,15 @@ def processData(obj):
 ################################################################################
 def populateRuns(obj):
 
+    isCryomodule = isinstance(obj, Cryomodule)
+
+    runStartIdx = 0
+
+    runs = []
+    timeRuns = []
+    heatLoads = []
+
+    # noinspection PyShadowingNames
     def getCryModEndRunCondition(idx, val, prevHeaterSetting):
         heaterChanged = (val != prevHeaterSetting)
         liqLevelTooLow = (obj.upstreamLevelBuffer[idx]
@@ -367,20 +385,12 @@ def populateRuns(obj):
         # we reached the end (which is a kinda jank way of "flushing" the last
         # run)
         return (heaterChanged or liqLevelTooLow or valveOutsideTol
-                          or isLastElement)
+                or isLastElement)
 
-
-    isCryomodule = isinstance(obj, Cryomodule)
-
-    runStartIdx = 0
-
-    runs = []
-    timeRuns = []
-    heatLoads = []
-
+    # noinspection PyShadowingNames
     def checkAndFlushRun(endRunCondition, idx,
-                         prevHeaterSetting, runStartIdx,):
-        if (endRunCondition):
+                         prevHeaterSetting, runStartIdx):
+        if endRunCondition:
             # Keeping only those runs with at least <cutoff> points
             if idx - runStartIdx > RUN_LENGTH_LOWER_LIMIT:
                 heatLoads.append(prevHeaterSetting - obj.refHeaterVal)
@@ -393,12 +403,14 @@ def populateRuns(obj):
 
         return runStartIdx
 
+    # noinspection PyShadowingNames
     def getPrevHeatAndEndCond(idx, val):
         # Find inflection points for the desired heater setting
         prevHeatSetting = obj.heatLoadBuffer[idx - 1] if idx > 0 else val
 
+        # noinspection PyShadowingNames
         endOfCryModRun = getCryModEndRunCondition(idx, val, prevHeatSetting)
-        return (prevHeatSetting, endOfCryModRun)
+        return prevHeatSetting, endOfCryModRun
 
     if isCryomodule:
         for idx, val in enumerate(obj.heatLoadBuffer):
