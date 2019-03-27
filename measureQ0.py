@@ -20,14 +20,15 @@ from sys import stderr
 from scipy.stats import linregress
 from json import dumps
 from time import sleep
-import cryomodule
-
+from cryomodule import Cryomodule
 
 # The LL readings get wonky when the upstream liquid level dips below 66, and
 # when the  valve position is +/- 1.2 from our locked position (found
 # empirically)
 VALVE_POSITION_TOLERANCE = 1.2
 UPSTREAM_LL_LOWER_LIMIT = 66
+
+GRADIENT_TOLERANCE = 0.7
 
 SAMPLING_INTERVAL = 1
 
@@ -37,7 +38,7 @@ RUN_LENGTH_LOWER_LIMIT = 500 / SAMPLING_INTERVAL
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
-IS_DEMO = False
+IS_DEMO = True
 
 # Trying to make this compatible with both 2.7 and 3 (input in 3 is the same as
 # raw_input in 2.7, but input in 2.7 calls evaluate)
@@ -125,8 +126,8 @@ def addFileToCavity(cavity):
 
 def buildCryModObj(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
                    refHeaterVal):
-    print ("\n*** Now we'll start building a calibration file " +
-           "- please be patient ***\n")
+    print("\n*** Now we'll start building a calibration file " +
+          "- please be patient ***\n")
 
     startTimeCalib = buildDatetimeFromInput("Start time for calibration run:")
 
@@ -135,11 +136,11 @@ def buildCryModObj(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
                              RUN_LENGTH_LOWER_LIMIT / 3600, upperLimit)
     endTimeCalib = startTimeCalib + timedelta(hours=duration)
 
-    cryoModuleObj = cryomodule.Cryomodule(cryModNumSLAC=cryomoduleSLAC,
-                                          cryModNumJLAB=cryomoduleLERF,
-                                          calFileName=None,
-                                          refValvePos=valveLockedPos,
-                                          refHeaterVal=refHeaterVal)
+    cryoModuleObj = Cryomodule(cryModNumSLAC=cryomoduleSLAC,
+                               cryModNumJLAB=cryomoduleLERF,
+                               calFileName=None,
+                               refValvePos=valveLockedPos,
+                               refHeaterVal=refHeaterVal)
 
     fileName = generateCSV(startTimeCalib, endTimeCalib, cryoModuleObj)
 
@@ -190,7 +191,7 @@ def generateCSV(startTime, endTime, obj):
                               nPoints=numPoints)
     cryoModStr = "CM{cryMod}".format(cryMod=obj.cryModNumSLAC)
 
-    if isinstance(obj, cryomodule.Cryomodule.Cavity):
+    if isinstance(obj, Cryomodule.Cavity):
         # e.g. q0meas_CM12_cav2_2019-03-03--12-00_10800.csv
         fileNameString = "q0meas_{cryoMod}_cav{cavityNum}{suff}"
         fileName = fileNameString.format(cryoMod=cryoModStr,
@@ -286,7 +287,7 @@ def parseDataFromCSV(obj):
         for pv, dataBuffer in obj.pvBufferMap.items():
             linkBufferToPV(pv, dataBuffer, columnDict, header)
 
-        if isinstance(obj, cryomodule.Cryomodule):
+        if isinstance(obj, Cryomodule):
             # We do the calibration using a cavity heater (usually cavity 1)
             # instead of RF, so we use the heater PV to parse the calibration
             # data using the different heater settings
@@ -296,11 +297,11 @@ def parseDataFromCSV(obj):
         try:
             timeIdx = header.index("Date")
             datetimeFormatStr = "%Y-%m-%d-%H:%M:%S"
-            
+
         except ValueError:
             timeIdx = header.index("time")
             datetimeFormatStr = "%Y-%m-%d %H:%M:%S"
-            
+
         timeZero = datetime.utcfromtimestamp(0)
 
         for row in csvReader:
@@ -351,9 +352,25 @@ def processData(obj):
 # @param obj: Either a Cryomodule or Cavity object
 ################################################################################
 def populateRuns(obj):
-    def appendToBuffers(dataBuffers, startIdx, endIdx):
-        for (runBuffer, dataBuffer) in dataBuffers:
-            runBuffer.append(dataBuffer[startIdx: endIdx])
+
+    def getCryModEndRunCondition(idx, val, prevHeaterSetting):
+        heaterChanged = (val != prevHeaterSetting)
+        liqLevelTooLow = (obj.upstreamLevelBuffer[idx]
+                          < UPSTREAM_LL_LOWER_LIMIT)
+        valveOutsideTol = (abs(obj.valvePosBuffer[idx] - obj.refValvePos)
+                           > VALVE_POSITION_TOLERANCE)
+        isLastElement = (idx == len(obj.heatLoadBuffer) - 1)
+
+        # A "break" condition defining the end of a run if the desired heater
+        # value changed, or if the upstream liquid level dipped below the
+        # minimum, or if the valve position moved outside the tolerance, or if
+        # we reached the end (which is a kinda jank way of "flushing" the last
+        # run)
+        return (heaterChanged or liqLevelTooLow or valveOutsideTol
+                          or isLastElement)
+
+
+    isCryomodule = isinstance(obj, Cryomodule)
 
     runStartIdx = 0
 
@@ -361,31 +378,49 @@ def populateRuns(obj):
     timeRuns = []
     heatLoads = []
 
-    for idx, val in enumerate(obj.heatLoadBuffer):
-
-        # Find inflection points for the desired heater setting
-        prevHeaterSetting = obj.heatLoadBuffer[idx - 1] if idx > 0 else val
-
-        # A "break" condition defining the end of a run if the desired heater
-        # value changed, or if the upstream liquid level dipped below the
-        # minimum, or if the valve position moved outside the tolerance, or if
-        # we reached the end (which is a kinda jank way of "flushing" the last
-        # run)
-        if (val != prevHeaterSetting
-                or obj.upstreamLevelBuffer[idx] < UPSTREAM_LL_LOWER_LIMIT
-                or (abs(obj.valvePosBuffer[idx] - obj.refValvePos)
-                    > VALVE_POSITION_TOLERANCE)
-                or idx == len(obj.heatLoadBuffer) - 1):
-
+    def checkAndFlushRun(endRunCondition, idx,
+                         prevHeaterSetting, runStartIdx,):
+        if (endRunCondition):
             # Keeping only those runs with at least <cutoff> points
             if idx - runStartIdx > RUN_LENGTH_LOWER_LIMIT:
                 heatLoads.append(prevHeaterSetting - obj.refHeaterVal)
 
-                appendToBuffers([(runs, obj.downstreamLevelBuffer),
-                                 (timeRuns, obj.unixTimeBuffer)],
-                                runStartIdx, idx)
+                for (runBuffer, dataBuffer) in [(runs,
+                                                 obj.downstreamLevelBuffer),
+                                                (timeRuns, obj.unixTimeBuffer)]:
+                    runBuffer.append(dataBuffer[runStartIdx: idx])
+            return idx
 
-            runStartIdx = idx
+        return runStartIdx
+
+    def getPrevHeatAndEndCond(idx, val):
+        # Find inflection points for the desired heater setting
+        prevHeatSetting = obj.heatLoadBuffer[idx - 1] if idx > 0 else val
+
+        endOfCryModRun = getCryModEndRunCondition(idx, val, prevHeatSetting)
+        return (prevHeatSetting, endOfCryModRun)
+
+    if isCryomodule:
+        for idx, val in enumerate(obj.heatLoadBuffer):
+            prevHeaterSetting, endOfCryModRun = getPrevHeatAndEndCond(idx, val)
+
+            runStartIdx = checkAndFlushRun(endOfCryModRun, idx,
+                                           prevHeaterSetting, runStartIdx)
+
+    else:
+        for idx, val in enumerate(obj.heatLoadBuffer):
+            prevHeaterSetting, endOfCryModRun = getPrevHeatAndEndCond(idx, val)
+
+            try:
+                gradientChanged = (abs(obj.gradientBuffer[idx]
+                                       - obj.refGradientVal)
+                                   > GRADIENT_TOLERANCE)
+            except IndexError:
+                gradientChanged = False
+
+            runStartIdx = checkAndFlushRun(endOfCryModRun or gradientChanged,
+                                           idx, prevHeaterSetting,
+                                           runStartIdx)
 
     return runs, timeRuns, heatLoads
 
@@ -426,7 +461,7 @@ def adjustForHeaterSettle(heaterVals, runs, timeRuns):
 # noinspection PyTupleAssignmentBalance
 ################################################################################
 def plotAndFitData(heatLoads, runs, timeRuns, obj):
-    isCalibration = isinstance(obj, cryomodule.Cryomodule)
+    isCalibration = isinstance(obj, Cryomodule)
 
     if isCalibration:
 
@@ -504,9 +539,9 @@ def getQ0Measurements():
         cryomoduleLERF = 2
         fileName = "calib_CM12_2019-02-25--11-25_18672.csv"
 
-        cryoModuleObj = cryomodule.Cryomodule(cryomoduleSLAC, cryomoduleLERF,
-                                              fileName, valveLockedPos,
-                                              refHeaterVal)
+        cryoModuleObj = Cryomodule(cryomoduleSLAC, cryomoduleLERF,
+                                   fileName, valveLockedPos,
+                                   refHeaterVal)
 
         cavities = [2, 4]
 
@@ -539,11 +574,11 @@ def getQ0Measurements():
                                            valveLockedPos, refHeaterVal)
 
         else:
-            cryoModuleObj = cryomodule.Cryomodule(cryomoduleSLAC,
-                                                  cryomoduleLERF,
-                                                  calibFiles[option],
-                                                  valveLockedPos,
-                                                  refHeaterVal)
+            cryoModuleObj = Cryomodule(cryomoduleSLAC,
+                                       cryomoduleLERF,
+                                       calibFiles[option],
+                                       valveLockedPos,
+                                       refHeaterVal)
 
         if not cryoModuleObj:
             stderr.write("Calibration file generation failed - aborting\n")
@@ -566,6 +601,9 @@ def getQ0Measurements():
         cavityObj = cryoModuleObj.cavities[cav]
 
         print("\n---------- CAVITY " + str(cav) + " ----------\n")
+
+        cavityObj.refGradientVal = get_float_lim("Gradient used during Q0" +
+                                                 " measurement: ", 0, 22)
 
         fileStr = "q0meas_CM{cryMod}_cav{cavNum}".format(cryMod=cryomoduleSLAC,
                                                          cavNum=cav)
