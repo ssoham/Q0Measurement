@@ -107,7 +107,23 @@ def findDataFiles(prefix):
     return fileDict
 
 
-def buildCalibFile(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
+def addFileToCavity(cavity):
+    print("\n*** Now we'll start building a Q0 measurement file " +
+          "- please be patient ***\n")
+
+    startTimeQ0Meas = buildDatetimeFromInput("Start time for the data run:")
+
+    upperLimit = (datetime.now() - startTimeQ0Meas).total_seconds() / 3600
+
+    duration = get_float_lim("Duration of data run in hours: ",
+                             RUN_LENGTH_LOWER_LIMIT / 3600, upperLimit)
+
+    endTimeCalib = startTimeQ0Meas + timedelta(hours=duration)
+
+    cavity.dataFileName = generateCSV(startTimeQ0Meas, endTimeCalib, cavity)
+
+
+def buildCryModObj(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
                    refHeaterVal):
     print ("\n*** Now we'll start building a calibration file " +
            "- please be patient ***\n")
@@ -519,7 +535,7 @@ def getQ0Measurements():
             "Please choose one of the options above: ", 1, len(calibFiles))
 
         if option == len(calibFiles):
-            cryoModuleObj = buildCalibFile(cryomoduleSLAC, cryomoduleLERF,
+            cryoModuleObj = buildCryModObj(cryomoduleSLAC, cryomoduleLERF,
                                            valveLockedPos, refHeaterVal)
 
         else:
@@ -563,8 +579,11 @@ def getQ0Measurements():
             "Please choose one of the options above: ", 1, len(q0MeasFiles))
 
         if option == len(q0MeasFiles):
-            print("not implemented")
-            return
+            addFileToCavity(cavityObj)
+            if not cavityObj.dataFileName:
+                stderr.write("Q0 measurement file generation failed" +
+                             " - aborting\n")
+                return
 
         else:
             cavityObj.dataFileName = q0MeasFiles[option]
