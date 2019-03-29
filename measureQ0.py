@@ -7,6 +7,7 @@
 from __future__ import division
 from __future__ import print_function
 from datetime import datetime, timedelta
+from math import exp
 from csv import reader, writer
 from subprocess import check_output, CalledProcessError
 from re import compile, findall
@@ -14,7 +15,7 @@ from os import walk
 from os.path import isfile, join, abspath, dirname
 from fnmatch import fnmatch
 from matplotlib import pyplot as plt
-from numpy import polyfit, linspace
+from numpy import polyfit, linspace, mean
 from sys import stderr
 from scipy.stats import linregress
 from json import dumps
@@ -299,7 +300,6 @@ def parseDataFromCSV(obj):
         for row in csvReader:
             dt = datetime.strptime(row[timeIdx], datetimeFormatStr)
 
-            # TODO use this to make the plots more human-friendly
             obj.timeBuffer.append(dt)
 
             # We use the Unix time to make the math easier during data
@@ -326,7 +326,9 @@ def processData(obj):
 
     parseDataFromCSV(obj)
     populateRuns(obj)
+    # TODO need to adjust runs for gradient changes when working with a cavity
     adjustForHeaterSettle(obj)
+    # TODO add a processRuns function that fills in run details
 
     if IS_DEMO:
         for idx, run in enumerate(obj.runIndices):
@@ -355,7 +357,7 @@ def populateRuns(obj):
         prevHeaterVal = obj.heaterBuffer[idx - 1] if idx > 0 else heaterVal
 
         heaterChanged = (heaterVal != prevHeaterVal)
-        liqLevelTooLow = (obj.upstreamLevelBuffer[idx]
+        liqLevelTooLow = (obj.usLevelBuffer[idx]
                           < UPSTREAM_LL_LOWER_LIMIT)
         valveOutsideTol = (abs(obj.valvePosBuffer[idx] - obj.refValvePos)
                            > VALVE_POSITION_TOLERANCE)
@@ -442,6 +444,10 @@ def adjustForHeaterSettle(obj):
 # noinspection PyTupleAssignmentBalance
 ################################################################################
 def plotAndFitData(obj):
+
+    # TODO this should probably be part of the print function for our objects
+    # TODO improve plots with human-readable time and better labels
+
     isCalibration = isinstance(obj, Cryomodule)
 
     if isCalibration:
@@ -454,10 +460,10 @@ def plotAndFitData(obj):
     ax1 = genAxis("Liquid Level as a Function of Time" + suffix,
                   "Unix Time (s)", "Downstream Liquid Level (%)")
 
-    for idx, run in enumerate(obj.runIndices):
+    for idx, (runStartIdx, runEndIdx) in enumerate(obj.runIndices):
 
-        runData = obj.downstreamLevelBuffer[run[0]:run[1]]
-        runTimes = obj.unixTimeBuffer[run[0]:run[1]]
+        runData = obj.dsLevelBuffer[runStartIdx:runEndIdx]
+        runTimes = obj.unixTimeBuffer[runStartIdx:runEndIdx]
 
         m, b, r_val, p_val, std_err = linregress(runTimes, runData)
         obj.runSlopes.append(m)
@@ -522,14 +528,37 @@ def addFileToCavity(cavity):
     cavity.dataFileName = generateCSV(startTimeQ0Meas, endTimeCalib, cavity)
 
 
-# Given a gradient and a heat load, we can "calculate" Q0 by scaling a known
-# Q0 value taken at a reference gradient and heat load
-def calcQ0(gradient, inputHeatLoad, refGradient=16.0, refHeatLoad=9.6,
-           refQ0=2.7E10):
-    # TODO use Mike's more accurate Q0 spreadsheet calculation
-    # TODO correct Q0 value for 2K line temperature variation
-    return (refQ0 * (refHeatLoad / inputHeatLoad)
-            * ((gradient / refGradient) ** 2))
+# Magical formula from Mike Drury (drury@jlab.org) to calculate Q0 from the
+# measured heat load on a cavity, the RF gradient used during the test, and the
+# pressure of the incoming 2 K helium.
+def calcQ0(gradient, rfHeatLoad, avgPressure=None):
+
+    # The initial Q0 calculation doesn't account for the temperature variation
+    # of the 2 K helium
+    uncorrectedQ0 = ((gradient * 1000000) ** 2) / (939.3 * rfHeatLoad)
+
+    if avgPressure:
+        # Hooray! We can correct Q0 for the helium temperature!
+        # Booooo! We have to use a bunch of horrible arbitrary-seeming constants
+        # from Mike's formula!
+        tempFromPress = (avgPressure * 0.0125) + 1.705
+        C1 = 271
+        C2 = 0.0000726
+        C3 = 0.00000214
+        C4 = gradient - 0.7
+        C5 = 0.000000043
+        C6 = -17.02
+        C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))
+        correctedQ0 = C1 / ((C7 / 2) * exp(C6 / 2)
+                            + C1 / uncorrectedQ0
+                            - (C7 / tempFromPress) * exp(C6 / tempFromPress))
+        return correctedQ0
+    else:
+        return uncorrectedQ0
+
+
+def weighAvgGrad(runGradients):
+    return sum(g ** 2 for g in runGradients)/len(runGradients)
 
 
 def getQ0Measurements():
@@ -626,15 +655,30 @@ def getQ0Measurements():
 
         processData(cavObj)
 
-        for idx, dLL in enumerate(cavObj.runSlopes):
+        # TODO move all this into the processRuns function suggested elsewhere
+        for idx, (runStartIdx, runEndIdx) in enumerate(cavObj.runIndices):
 
-            heatLoad = ((dLL - cryModObj.calibIntercept) / cryModObj.calibSlope)
+            dLLdt = cavObj.runSlopes[idx]
+            heatLoad = ((dLLdt - cryModObj.calibIntercept)
+                        / cryModObj.calibSlope)
             cavObj.runHeatLoads.append(heatLoad)
 
             rfHeatLoad = heatLoad - cavObj.runElecHeatLoads[idx]
             cavObj.runRFHeatLoads.append(rfHeatLoad)
 
-            cavObj.runQ0s.append(calcQ0(cavObj.refGradientVal, rfHeatLoad))
+            if cavObj.gradientBuffer:
+                grad = weighAvgGrad(cavObj.gradientBuffer[runStartIdx:runEndIdx])
+                cavObj.runGradients.append(grad)
+            else:
+                cavObj.runGradients.append(cavObj.refGradientVal)
+
+            if cavObj.dsPressureBuffer:
+                avgPress = mean(cavObj.dsPressureBuffer[runStartIdx:runEndIdx])
+                cavObj.runQ0s.append(calcQ0(cavObj.runGradients[idx],
+                                            rfHeatLoad, avgPress))
+            else:
+                cavObj.runQ0s.append(calcQ0(cavObj.runGradients[idx],
+                                            rfHeatLoad))
 
         ax.plot(cavObj.runHeatLoads, cavObj.runSlopes, marker="o",
                 linestyle="None", label="Projected Data for " + cavObj.name)
