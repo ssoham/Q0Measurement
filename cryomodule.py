@@ -175,7 +175,8 @@ class Cryomodule:
         # instead of the heater PV
         def getPVs(self):
             return [self.parent.valvePV, self.parent.dsLevelPV,
-                    self.parent.usLevelPV, self.gradientPV, self.heaterPV]
+                    self.parent.usLevelPV, self.gradientPV, self.heaterPV,
+                    self.parent.dsPressurePV]
 
         # The @property annotation is effectively a shortcut for defining a
         # class variable and giving it a custom getter function (so now
