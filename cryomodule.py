@@ -49,7 +49,7 @@ class Cryomodule:
         # self.runs = []
 
         # This buffer stores lists of pairs of indices. The first marks the
-        # start of a calibration data run and the second marks the end.
+        # start of a heater calibration data run and the second marks the end.
         self.runIndices = []
 
         # This buffer stores the dLL/dt value for each run
@@ -79,6 +79,7 @@ class Cryomodule:
             self.dataFileName = None
 
             self.refGradientVal = None
+            self.refValvePos = None
 
             heaterPVStr = "CHTR:CM0{cryModNum}:1{cavNum}55:HV:POWER"
             self.heaterPV = heaterPVStr.format(cryModNum=parent.cryModNumJLAB,
@@ -180,10 +181,6 @@ class Cryomodule:
         # class variable and giving it a custom getter function (so now
         # whenever someone calls Cavity.refValvePos, it'll return the parent
         # value)
-        @property
-        def refValvePos(self):
-            return self.parent.refValvePos
-
         @property
         def refHeaterVal(self):
             return self.parent.refHeaterVal

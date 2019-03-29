@@ -575,7 +575,7 @@ def getQ0Measurements():
         cavities = [2, 4]
 
     else:
-        print("Q0 Calibration Parameters:")
+        print("Cryomodule Heater Calibration Parameters:")
         # Signature is: get_float/get_int(prompt, low_lim, high_lim)
         refHeaterVal = get_float_lim("Reference Heater Value: ".rjust(32),
                                      0, 15)
@@ -632,6 +632,9 @@ def getQ0Measurements():
         cavObj.refGradientVal = get_float_lim("Gradient used during Q0" +
                                               " measurement: ", 0, 22)
 
+        cavObj.refValvePos = get_float_lim("JT Valve position used during Q0" +
+                                           " measurement: ", 0, 100)
+
         fileStr = "q0meas_CM{cryMod}_cav{cavNum}".format(cryMod=cryomoduleSLAC,
                                                          cavNum=cav)
         q0MeasFiles = findDataFiles(fileStr)
@@ -656,6 +659,7 @@ def getQ0Measurements():
         processData(cavObj)
 
         # TODO move all this into the processRuns function suggested elsewhere
+        # TODO add error checking for data sets with no runs detected
         for idx, (runStartIdx, runEndIdx) in enumerate(cavObj.runIndices):
 
             dLLdt = cavObj.runSlopes[idx]
