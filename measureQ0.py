@@ -7,7 +7,7 @@
 from __future__ import division
 from __future__ import print_function
 from datetime import datetime, timedelta
-from math import exp
+from math import exp, sqrt
 from csv import reader, writer
 from subprocess import check_output, CalledProcessError
 from re import compile, findall
@@ -41,7 +41,7 @@ RUN_LENGTH_LOWER_LIMIT = 750 / SAMPLING_INTERVAL
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
-IS_DEMO = False
+IS_DEMO = True
 
 # Trying to make this compatible with both 2.7 and 3 (input in 3 is the same as
 # raw_input in 2.7, but input in 2.7 calls evaluate)
@@ -558,7 +558,7 @@ def calcQ0(gradient, rfHeatLoad, avgPressure=None):
 
 
 def weighAvgGrad(runGradients):
-    return sum(g ** 2 for g in runGradients)/len(runGradients)
+    return sqrt(sum(g ** 2 for g in runGradients)/len(runGradients))
 
 
 def getQ0Measurements():
@@ -677,6 +677,8 @@ def getQ0Measurements():
                 cavObj.runGradients.append(cavObj.refGradientVal)
 
             if cavObj.dsPressureBuffer:
+                print("Pressure buffer contents:")
+                print(cavObj.dsPressureBuffer[runStartIdx:runEndIdx])
                 avgPress = mean(cavObj.dsPressureBuffer[runStartIdx:runEndIdx])
                 cavObj.runQ0s.append(calcQ0(cavObj.runGradients[idx],
                                             rfHeatLoad, avgPress))
