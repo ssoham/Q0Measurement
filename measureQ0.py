@@ -29,7 +29,7 @@ UPSTREAM_LL_LOWER_LIMIT = 66
 VALVE_POSITION_TOLERANCE = 2
 
 # Used to reject data where the cavity gradient wasn't at the correct value
-GRADIENT_TOLERANCE = 0.7
+GRAD_TOLERANCE = 0.7
 
 # We fetch data from the JLab archiver with a program called mySampler, which
 # samples the chosen PVs at a user-specified time interval
@@ -274,15 +274,15 @@ def parseDataFromCSV(obj):
         header = csvReader.next()
 
         # Figures out the CSV column that has that PV's data and maps it
-        for pv, dataBuffer in obj.pvBufferMap.items():
-            linkBufferToPV(pv, dataBuffer, columnDict, header)
+        for pv, dataBuff in obj.pvBuffMap.items():
+            linkBuffToPV(pv, dataBuff, columnDict, header)
 
         if isinstance(obj, Cryomodule):
             # We do the calibration using a cavity heater (usually cavity 1)
             # instead of RF, so we use the heater PV to parse the calibration
             # data using the different heater settings
             heaterPV = obj.cavities[obj.calCavNum].heaterPV
-            linkBufferToPV(heaterPV, obj.heaterBuffer, columnDict, header)
+            linkBuffToPV(heaterPV, obj.heaterBuff, columnDict, header)
 
         try:
             # Data fetched from the JLab archiver has the timestamp column
@@ -300,11 +300,11 @@ def parseDataFromCSV(obj):
         for row in csvReader:
             dt = datetime.strptime(row[timeIdx], datetimeFormatStr)
 
-            obj.timeBuffer.append(dt)
+            obj.timeBuff.append(dt)
 
             # We use the Unix time to make the math easier during data
             # processing
-            obj.unixTimeBuffer.append((dt - timeZero).total_seconds())
+            obj.unixTimeBuff.append((dt - timeZero).total_seconds())
 
             # Actually parsing the CSV data into the buffers
             for col, idxBuffDict in columnDict.items():
@@ -314,26 +314,24 @@ def parseDataFromCSV(obj):
                     stderr.write("Could not parse row: " + str(row) + "\n")
 
 
-def linkBufferToPV(pv, dataBuffer, columnDict, header):
+def linkBuffToPV(pv, dataBuff, columnDict, header):
     try:
-        columnDict[pv] = {"idx": header.index(pv), "buffer": dataBuffer}
+        columnDict[pv] = {"idx": header.index(pv), "buffer": dataBuff}
     except ValueError:
         stderr.write("Column " + pv + " not found in CSV\n")
 
 
 # @param obj: either a Cryomodule or Cavity object
 def processData(obj):
-
     parseDataFromCSV(obj)
     populateRuns(obj)
-    # TODO need to adjust runs for gradient changes when working with a cavity
-    adjustForHeaterSettle(obj)
-    # TODO add a processRuns function that fills in run details
+    adjustForSettle(obj)
+    # processRuns(obj)
 
     if IS_DEMO:
         for idx, run in enumerate(obj.runIndices):
-            startTime = obj.unixTimeBuffer[run[0]]
-            endTime = obj.unixTimeBuffer[run[1]]
+            startTime = obj.unixTimeBuff[run[0]]
+            endTime = obj.unixTimeBuff[run[1]]
             runStr = "Duration of run {runNum}: {duration}"
             print(runStr.format(runNum=idx + 1,
                                 duration=(endTime - startTime) / 60.0))
@@ -350,18 +348,17 @@ def processData(obj):
 # @param obj: Either a Cryomodule or Cavity object
 ################################################################################
 def populateRuns(obj):
-
     # noinspection PyShadowingNames
     def getRunEndCondition(idx, heaterVal):
         # Find inflection points for the desired heater setting
-        prevHeaterVal = obj.heaterBuffer[idx - 1] if idx > 0 else heaterVal
+        prevHeaterVal = obj.heaterBuff[idx - 1] if idx > 0 else heaterVal
 
         heaterChanged = (heaterVal != prevHeaterVal)
-        liqLevelTooLow = (obj.usLevelBuffer[idx]
+        liqLevelTooLow = (obj.usLevelBuff[idx]
                           < UPSTREAM_LL_LOWER_LIMIT)
-        valveOutsideTol = (abs(obj.valvePosBuffer[idx] - obj.refValvePos)
+        valveOutsideTol = (abs(obj.valvePosBuff[idx] - obj.refValvePos)
                            > VALVE_POSITION_TOLERANCE)
-        isLastElement = (idx == len(obj.heaterBuffer) - 1)
+        isLastElement = (idx == len(obj.heaterBuff) - 1)
 
         # A "break" condition defining the end of a run if the desired heater
         # value changed, or if the upstream liquid level dipped below the
@@ -376,9 +373,8 @@ def populateRuns(obj):
         if endRunCondition:
             # Keeping only those runs with at least <cutoff> points
             if idx - runStartIdx > RUN_LENGTH_LOWER_LIMIT:
-
                 obj.runIndices.append([runStartIdx, idx - 1])
-                obj.runElecHeatLoads.append(obj.heaterBuffer[idx - 1]
+                obj.runElecHeatLoads.append(obj.heaterBuff[idx - 1]
                                             - obj.refHeaterVal)
             return idx
 
@@ -389,42 +385,107 @@ def populateRuns(obj):
     runStartIdx = 0
 
     if isCryomodule:
-        for idx, heaterVal in enumerate(obj.heaterBuffer):
+        for idx, heaterVal in enumerate(obj.heaterBuff):
             endOfCryModRun = getRunEndCondition(idx, heaterVal)
 
             runStartIdx = checkAndFlushRun(endOfCryModRun, idx, runStartIdx)
 
     else:
-        for idx, heaterVal in enumerate(obj.heaterBuffer):
+        for idx, heaterVal in enumerate(obj.heaterBuff):
             endOfCryModRun = getRunEndCondition(idx, heaterVal)
 
             try:
-                gradientChanged = (abs(obj.gradientBuffer[idx]
-                                       - obj.refGradientVal)
-                                   > GRADIENT_TOLERANCE)
+                gradChanged = (abs(obj.gradBuff[idx]
+                                   - obj.refGradVal)
+                               > GRAD_TOLERANCE)
             except IndexError:
-                gradientChanged = False
+                gradChanged = False
 
-            runStartIdx = checkAndFlushRun(endOfCryModRun or gradientChanged,
+            runStartIdx = checkAndFlushRun(endOfCryModRun or gradChanged,
                                            idx, runStartIdx)
 
 
-# Sometimes the heat load takes a little while to settle, especially after large
-# jumps in the heater settings, which renders the points taken during that time
-# useless
-def adjustForHeaterSettle(obj):
-    for idx, run in enumerate(obj.runIndices):
+################################################################################
+# adjustForSettle cuts off data that's corrupted because the heat load on the
+# 2 K helium bath is changing. (When the cavity heater setting or the RF
+# gradient change, it takes time for that change to become visible to the
+# helium because there are intermediate structures with heat capacity.)
+################################################################################
+def adjustForSettle(obj):
+    # Approximates the expected heat load on a cavity from its RF gradient. A
+    # cavity with the design Q of 2.7E10 should produce about 9.6 W of heat with
+    # a gradient of 16 MV/m. The heat scales quadratically with the gradient. We
+    # don't know the correct Q yet when we call this function so we assume the
+    # design values.
+    def approxHeatFromGrad(grad):
+        # Gradients < 0 are non-physical so assume no heat load in that case.
+        # The gradient values we're working with are readbacks from cavity
+        # gradient PVs so it's possible that they could go negative.
+        return ((grad / 16) ** 2) * 9.6 if grad > 0 else 0
 
-        heaterDelta = (abs(obj.heaterBuffer[run[0]]
-                           - obj.heaterBuffer[obj.runIndices[idx-1][0]])
-                       if idx > 0 else 0)
-        # Scaling factor 27 is derived from the assumption that an 11W jump
-        # leads to about 300 useless points (and that this scales linearly)
-        cutoff = int(heaterDelta * 27)
-        obj.runIndices[idx][0] = obj.runIndices[idx][0] + cutoff
+    for idx, (runStartIdx, _) in enumerate(obj.runIndices):
+
+        runIndices = obj.runIndices
+        prevRunStartIdx = runIndices[idx - 1][0] if idx > 0 else runStartIdx
+
+        heaterBuff = obj.heaterBuff
+        heaterHeatDelta = heaterBuff[runStartIdx] - heaterBuff[prevRunStartIdx]
+
+        totalHeatDelta = abs(heaterHeatDelta)
+
+        if isinstance(obj, Cryomodule.Cavity):
+            gradBuff = obj.gradBuff
+
+            if gradBuff:
+                currGrad = gradBuff[runStartIdx]
+                currGradHeatLoad = approxHeatFromGrad(currGrad)
+
+                prevGrad = gradBuff[prevRunStartIdx]
+                prevGradHeatLoad = approxHeatFromGrad(prevGrad)
+
+                gradHeatDelta = currGradHeatLoad - prevGradHeatLoad
+                totalHeatDelta = abs(heaterHeatDelta + gradHeatDelta)
+
+        # Calculate the number of data points to be chopped off the beginning of
+        # the data run based on the expected change in the cryomodule heat load.
+        # The scale factor is derived from the assumption that a 1 W change in
+        # the heat load leads to about 25 useless points (and that this scales
+        # linearly with the change in heat load, which isn't really true).
+        cutoff = int(totalHeatDelta * 25)
+
+        runIndices[idx][0] = runIndices[idx][0] + cutoff
 
         if IS_DEMO:
             print("cutoff: " + str(cutoff))
+
+
+# def processRuns(obj):
+#
+#     for idx, (runStartIdx, runEndIdx) in enumerate(obj.runIndices):
+#
+#         dLLdt = obj.runSlopes[idx]
+#         heatLoad = ((dLLdt - cryModObj.calibIntercept)
+#                     / cryModObj.calibSlope)
+#         obj.runHeatLoads.append(heatLoad)
+#
+#         rfHeatLoad = heatLoad - obj.runElecHeatLoads[idx]
+#         obj.runRFHeatLoads.append(rfHeatLoad)
+#
+#         if obj.gradBuff:
+#             grad = weighAvgGrad(obj.gradBuff[runStartIdx:runEndIdx])
+#             obj.runGrads.append(grad)
+#         else:
+#             obj.runGrads.append(obj.refGradVal)
+#
+#         if obj.dsPressureBuff:
+#             print("Pressure buffer contents:")
+#             print(obj.dsPressureBuff[runStartIdx:runEndIdx])
+#             avgPress = mean(obj.dsPressureBuff[runStartIdx:runEndIdx])
+#             obj.runQ0s.append(calcQ0(obj.runGrads[idx],
+#                                         rfHeatLoad, avgPress))
+#         else:
+#             obj.runQ0s.append(calcQ0(obj.runGrads[idx],
+#                                         rfHeatLoad))
 
 
 ################################################################################
@@ -444,7 +505,6 @@ def adjustForHeaterSettle(obj):
 # noinspection PyTupleAssignmentBalance
 ################################################################################
 def plotAndFitData(obj):
-
     # TODO this should probably be part of the print function for our objects
     # TODO improve plots with human-readable time and better labels
 
@@ -462,8 +522,8 @@ def plotAndFitData(obj):
 
     for idx, (runStartIdx, runEndIdx) in enumerate(obj.runIndices):
 
-        runData = obj.dsLevelBuffer[runStartIdx:runEndIdx]
-        runTimes = obj.unixTimeBuffer[runStartIdx:runEndIdx]
+        runData = obj.dsLevelBuff[runStartIdx:runEndIdx]
+        runTimes = obj.unixTimeBuff[runStartIdx:runEndIdx]
 
         m, b, r_val, p_val, std_err = linregress(runTimes, runData)
         obj.runSlopes.append(m)
@@ -531,11 +591,10 @@ def addFileToCavity(cavity):
 # Magical formula from Mike Drury (drury@jlab.org) to calculate Q0 from the
 # measured heat load on a cavity, the RF gradient used during the test, and the
 # pressure of the incoming 2 K helium.
-def calcQ0(gradient, rfHeatLoad, avgPressure=None):
-
+def calcQ0(grad, rfHeatLoad, avgPressure=None):
     # The initial Q0 calculation doesn't account for the temperature variation
     # of the 2 K helium
-    uncorrectedQ0 = ((gradient * 1000000) ** 2) / (939.3 * rfHeatLoad)
+    uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
 
     if avgPressure:
         # Hooray! We can correct Q0 for the helium temperature!
@@ -545,7 +604,7 @@ def calcQ0(gradient, rfHeatLoad, avgPressure=None):
         C1 = 271
         C2 = 0.0000726
         C3 = 0.00000214
-        C4 = gradient - 0.7
+        C4 = grad - 0.7
         C5 = 0.000000043
         C6 = -17.02
         C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))
@@ -557,8 +616,8 @@ def calcQ0(gradient, rfHeatLoad, avgPressure=None):
         return uncorrectedQ0
 
 
-def weighAvgGrad(runGradients):
-    return sqrt(sum(g ** 2 for g in runGradients)/len(runGradients))
+def weighAvgGrad(runGrads):
+    return sqrt(sum(g ** 2 for g in runGrads) / len(runGrads))
 
 
 def getQ0Measurements():
@@ -629,8 +688,8 @@ def getQ0Measurements():
 
         print("\n---------- CAVITY " + str(cav) + " ----------\n")
 
-        cavObj.refGradientVal = get_float_lim("Gradient used during Q0" +
-                                              " measurement: ", 0, 22)
+        cavObj.refGradVal = get_float_lim("Gradient used during Q0" +
+                                          " measurement: ", 0, 22)
 
         cavObj.refValvePos = get_float_lim("JT Valve position used during Q0" +
                                            " measurement: ", 0, 100)
@@ -670,20 +729,19 @@ def getQ0Measurements():
             rfHeatLoad = heatLoad - cavObj.runElecHeatLoads[idx]
             cavObj.runRFHeatLoads.append(rfHeatLoad)
 
-            if cavObj.gradientBuffer:
-                grad = weighAvgGrad(cavObj.gradientBuffer[runStartIdx:runEndIdx])
-                cavObj.runGradients.append(grad)
+            if cavObj.gradBuff:
+                grad = weighAvgGrad(cavObj.gradBuff[runStartIdx:runEndIdx])
+                cavObj.runGrads.append(grad)
             else:
-                cavObj.runGradients.append(cavObj.refGradientVal)
+                cavObj.runGrads.append(cavObj.refGradVal)
 
-            if cavObj.dsPressureBuffer:
-                print("Pressure buffer contents:")
-                print(cavObj.dsPressureBuffer[runStartIdx:runEndIdx])
-                avgPress = mean(cavObj.dsPressureBuffer[runStartIdx:runEndIdx])
-                cavObj.runQ0s.append(calcQ0(cavObj.runGradients[idx],
+            if cavObj.dsPressureBuff:
+                print(cavObj.dsPressureBuff[runStartIdx:runEndIdx])
+                avgPress = mean(cavObj.dsPressureBuff[runStartIdx:runEndIdx])
+                cavObj.runQ0s.append(calcQ0(cavObj.runGrads[idx],
                                             rfHeatLoad, avgPress))
             else:
-                cavObj.runQ0s.append(calcQ0(cavObj.runGradients[idx],
+                cavObj.runQ0s.append(calcQ0(cavObj.runGrads[idx],
                                             rfHeatLoad))
 
         ax.plot(cavObj.runHeatLoads, cavObj.runSlopes, marker="o",

@@ -29,17 +29,17 @@ class Cryomodule:
         self.dsPressurePV = "CPT:CM0" + jlabNumStr + ":2302:DS:PRESS"
 
         # These buffers store calibration data read from the CSV <dataFileName>
-        self.unixTimeBuffer = []
-        self.timeBuffer = []
-        self.valvePosBuffer = []
-        self.heaterBuffer = []
-        self.dsLevelBuffer = []
-        self.usLevelBuffer = []
+        self.unixTimeBuff = []
+        self.timeBuff = []
+        self.valvePosBuff = []
+        self.heaterBuff = []
+        self.dsLevelBuff = []
+        self.usLevelBuff = []
 
         # Maps this cryomodule's PVs to its corresponding data buffers
-        self.pvBufferMap = {self.valvePV: self.valvePosBuffer,
-                            self.dsLevelPV: self.dsLevelBuffer,
-                            self.usLevelPV: self.usLevelBuffer}
+        self.pvBuffMap = {self.valvePV: self.valvePosBuff,
+                          self.dsLevelPV: self.dsLevelBuff,
+                          self.usLevelPV: self.usLevelBuff}
 
         # Give each cryomodule 8 cavities
         self.cavities = {i: self.Cavity(parent=self, cavNumber=i)
@@ -78,39 +78,39 @@ class Cryomodule:
             self.cavNum = cavNumber
             self.dataFileName = None
 
-            self.refGradientVal = None
+            self.refGradVal = None
             self.refValvePos = None
 
             heaterPVStr = "CHTR:CM0{cryModNum}:1{cavNum}55:HV:POWER"
             self.heaterPV = heaterPVStr.format(cryModNum=parent.cryModNumJLAB,
                                                cavNum=cavNumber)
 
-            gradientPVStr = "ACCL:L1B:0{cryModNum}{cavNum}0:GACT"
-            self.gradientPV = gradientPVStr.format(
+            gradPVStr = "ACCL:L1B:0{cryModNum}{cavNum}0:GACT"
+            self.gradPV = gradPVStr.format(
                 cryModNum=parent.cryModNumJLAB,
                 cavNum=cavNumber)
 
             # These buffers store Q0 measurement data read from the CSV
             # <dataFileName>
-            self.unixTimeBuffer = []
-            self.timeBuffer = []
-            self.valvePosBuffer = []
-            self.heaterBuffer = []
-            self.dsLevelBuffer = []
-            self.usLevelBuffer = []
-            self.gradientBuffer = []
-            self.dsPressureBuffer = []
+            self.unixTimeBuff = []
+            self.timeBuff = []
+            self.valvePosBuff = []
+            self.heaterBuff = []
+            self.dsLevelBuff = []
+            self.usLevelBuff = []
+            self.gradBuff = []
+            self.dsPressureBuff = []
 
             # Maps this cavity's PVs to its corresponding data buffers
             # (including a couple of PVs from its parent cryomodule)
-            self.pvBufferMap = {self.parent.valvePV: self.valvePosBuffer,
-                                self.parent.dsLevelPV:
-                                    self.dsLevelBuffer,
-                                self.parent.usLevelPV: self.usLevelBuffer,
-                                self.heaterPV: self.heaterBuffer,
-                                self.gradientPV: self.gradientBuffer,
-                                self.parent.dsPressurePV:
-                                    self.dsPressureBuffer}
+            self.pvBuffMap = {self.parent.valvePV: self.valvePosBuff,
+                              self.parent.dsLevelPV:
+                                  self.dsLevelBuff,
+                              self.parent.usLevelPV: self.usLevelBuff,
+                              self.heaterPV: self.heaterBuff,
+                              self.gradPV: self.gradBuff,
+                              self.parent.dsPressurePV:
+                                  self.dsPressureBuff}
 
             # TODO store runs as a list of run objects instead
             # self.runs = []
@@ -138,7 +138,7 @@ class Cryomodule:
             # This buffer stores the weighted gradient value for each run (Q0
             # scales with the gradient squared so this number is scaled to
             # reflect that)
-            self.runGradients = []
+            self.runGrads = []
 
             # This buffer stores the average pressure value for the incoming
             # 2 K helium for each run.
@@ -148,7 +148,7 @@ class Cryomodule:
             self.runQ0s = []
 
         def __str__(self):
-            # TODO clean this print function up
+            # TODO handle white space more elegantly
 
             report = ""
 
@@ -175,7 +175,7 @@ class Cryomodule:
         # instead of the heater PV
         def getPVs(self):
             return [self.parent.valvePV, self.parent.dsLevelPV,
-                    self.parent.usLevelPV, self.gradientPV, self.heaterPV,
+                    self.parent.usLevelPV, self.gradPV, self.heaterPV,
                     self.parent.dsPressurePV]
 
         # The @property annotation is effectively a shortcut for defining a
@@ -195,7 +195,7 @@ def main():
     cryomodule = Cryomodule(cryModNumSLAC=12, cryModNumJLAB=2, calFileName="",
                             refValvePos=0, refHeaterVal=0)
     for idx, cav in cryomodule.cavities.iteritems():
-        print cav.gradientPV
+        print cav.gradPV
         print cav.heaterPV
 
 
