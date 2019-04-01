@@ -323,15 +323,16 @@ def linkBuffToPV(pv, dataBuff, columnDict, header):
 
 # @param obj: either a Cryomodule or Cavity object
 def processData(obj):
+
     parseDataFromCSV(obj)
     populateRuns(obj)
     adjustForSettle(obj)
-    # processRuns(obj)
+    processRuns(obj)
 
     if IS_DEMO:
-        for idx, run in enumerate(obj.runIndices):
-            startTime = obj.unixTimeBuff[run[0]]
-            endTime = obj.unixTimeBuff[run[1]]
+        for idx, (runStartIdx, runEndIdx) in enumerate(obj.runIndices):
+            startTime = obj.unixTimeBuff[runStartIdx]
+            endTime = obj.unixTimeBuff[runEndIdx]
             runStr = "Duration of run {runNum}: {duration}"
             print(runStr.format(runNum=idx + 1,
                                 duration=(endTime - startTime) / 60.0))
@@ -374,8 +375,6 @@ def populateRuns(obj):
             # Keeping only those runs with at least <cutoff> points
             if idx - runStartIdx > RUN_LENGTH_LOWER_LIMIT:
                 obj.runIndices.append([runStartIdx, idx - 1])
-                obj.runElecHeatLoads.append(obj.heaterBuff[idx - 1]
-                                            - obj.refHeaterVal)
             return idx
 
         return runStartIdx
@@ -459,33 +458,65 @@ def adjustForSettle(obj):
             print("cutoff: " + str(cutoff))
 
 
-# def processRuns(obj):
-#
-#     for idx, (runStartIdx, runEndIdx) in enumerate(obj.runIndices):
-#
-#         dLLdt = obj.runSlopes[idx]
-#         heatLoad = ((dLLdt - cryModObj.calibIntercept)
-#                     / cryModObj.calibSlope)
-#         obj.runHeatLoads.append(heatLoad)
-#
-#         rfHeatLoad = heatLoad - obj.runElecHeatLoads[idx]
-#         obj.runRFHeatLoads.append(rfHeatLoad)
-#
-#         if obj.gradBuff:
-#             grad = weighAvgGrad(obj.gradBuff[runStartIdx:runEndIdx])
-#             obj.runGrads.append(grad)
-#         else:
-#             obj.runGrads.append(obj.refGradVal)
-#
-#         if obj.dsPressureBuff:
-#             print("Pressure buffer contents:")
-#             print(obj.dsPressureBuff[runStartIdx:runEndIdx])
-#             avgPress = mean(obj.dsPressureBuff[runStartIdx:runEndIdx])
-#             obj.runQ0s.append(calcQ0(obj.runGrads[idx],
-#                                         rfHeatLoad, avgPress))
-#         else:
-#             obj.runQ0s.append(calcQ0(obj.runGrads[idx],
-#                                         rfHeatLoad))
+# noinspection PyTupleAssignmentBalance
+def processRuns(obj):
+
+    if not obj.runIndices:
+
+        print("{name} has no runs to process.".format(name=obj.name))
+        return
+
+    isCalibration = isinstance(obj, Cryomodule)
+
+    for idx, (runStartIdx, runEndIdx) in enumerate(obj.runIndices):
+
+        obj.runElecHeatLoads.append(obj.heaterBuff[runEndIdx]
+                                    - obj.refHeaterVal)
+
+        runData = obj.dsLevelBuff[runStartIdx:runEndIdx]
+        runTimes = obj.unixTimeBuff[runStartIdx:runEndIdx]
+
+        m, b, r_val, p_val, std_err = linregress(runTimes, runData)
+        obj.runSlopes.append(m)
+        obj.runIntercepts.append(b)
+
+        # Print R^2 to diagnose whether or not we had a long enough data run
+        if IS_DEMO:
+            print("R^2: " + str(r_val ** 2))
+
+    if isCalibration:
+
+        m, b = polyfit(obj.runElecHeatLoads, obj.runSlopes, 1)
+        obj.calibSlope = m
+        obj.calibIntercept = b
+
+    else:
+
+        for idx, (runStartIdx, runEndIdx) in enumerate(obj.runIndices):
+
+            dLLdt = obj.runSlopes[idx]
+            heatLoad = ((dLLdt - obj.parent.calibIntercept)
+                        / obj.parent.calibSlope)
+            obj.runHeatLoads.append(heatLoad)
+
+            rfHeatLoad = heatLoad - obj.runElecHeatLoads[idx]
+            obj.runRFHeatLoads.append(rfHeatLoad)
+
+            if obj.gradBuff:
+                grad = weighAvgGrad(obj.gradBuff[runStartIdx:runEndIdx])
+                obj.runGrads.append(grad)
+            else:
+                obj.runGrads.append(obj.refGradVal)
+
+            if obj.dsPressureBuff:
+                print("Pressure buffer contents:")
+                print(obj.dsPressureBuff[runStartIdx:runEndIdx])
+                avgPress = mean(obj.dsPressureBuff[runStartIdx:runEndIdx])
+                obj.runQ0s.append(calcQ0(obj.runGrads[idx],
+                                         rfHeatLoad, avgPress))
+            else:
+                obj.runQ0s.append(calcQ0(obj.runGrads[idx],
+                                         rfHeatLoad))
 
 
 ################################################################################
@@ -501,8 +532,6 @@ def adjustForSettle(obj):
 # @param timeRuns: an array of arrays, where each timeRuns[i] is a list of
 #                  timestamps that correspond to that run's LL data
 # @param obj: Either a Cryomodule or Cavity object
-#
-# noinspection PyTupleAssignmentBalance
 ################################################################################
 def plotAndFitData(obj):
     # TODO this should probably be part of the print function for our objects
@@ -525,12 +554,8 @@ def plotAndFitData(obj):
         runData = obj.dsLevelBuff[runStartIdx:runEndIdx]
         runTimes = obj.unixTimeBuff[runStartIdx:runEndIdx]
 
-        m, b, r_val, p_val, std_err = linregress(runTimes, runData)
-        obj.runSlopes.append(m)
-
-        # Print R^2 to diagnose whether or not we had a long enough data run
-        if IS_DEMO:
-            print("R^2: " + str(r_val ** 2))
+        m = obj.runSlopes[idx]
+        b = obj.runIntercepts[idx]
 
         labelString = "{slope} %/s @ {heatLoad} W Electric Load"
         plotLabel = labelString.format(slope=round(m, 6),
@@ -547,9 +572,8 @@ def plotAndFitData(obj):
         ax2.plot(obj.runElecHeatLoads, obj.runSlopes, marker="o",
                  linestyle="None", label="Calibration Data")
 
-        m, b = polyfit(obj.runElecHeatLoads, obj.runSlopes, 1)
-        obj.calibSlope = m
-        obj.calibIntercept = b
+        m = obj.calibSlope
+        b = obj.calibIntercept
 
         ax2.plot(obj.runElecHeatLoads,
                  [m * x + b for x in obj.runElecHeatLoads],
@@ -681,7 +705,7 @@ def getQ0Measurements():
                         "Please enter a cavity not previously entered: ", 1, 8)
                 cavities.append(cavity)
 
-    ax = processData(cryModObj)
+    calibCurveAxis = processData(cryModObj)
 
     for cav in cavities:
         cavObj = cryModObj.cavities[cav]
@@ -717,43 +741,16 @@ def getQ0Measurements():
 
         processData(cavObj)
 
-        # TODO move all this into the processRuns function suggested elsewhere
-        # TODO add error checking for data sets with no runs detected
-        for idx, (runStartIdx, runEndIdx) in enumerate(cavObj.runIndices):
-
-            dLLdt = cavObj.runSlopes[idx]
-            heatLoad = ((dLLdt - cryModObj.calibIntercept)
-                        / cryModObj.calibSlope)
-            cavObj.runHeatLoads.append(heatLoad)
-
-            rfHeatLoad = heatLoad - cavObj.runElecHeatLoads[idx]
-            cavObj.runRFHeatLoads.append(rfHeatLoad)
-
-            if cavObj.gradBuff:
-                grad = weighAvgGrad(cavObj.gradBuff[runStartIdx:runEndIdx])
-                cavObj.runGrads.append(grad)
-            else:
-                cavObj.runGrads.append(cavObj.refGradVal)
-
-            if cavObj.dsPressureBuff:
-                print(cavObj.dsPressureBuff[runStartIdx:runEndIdx])
-                avgPress = mean(cavObj.dsPressureBuff[runStartIdx:runEndIdx])
-                cavObj.runQ0s.append(calcQ0(cavObj.runGrads[idx],
-                                            rfHeatLoad, avgPress))
-            else:
-                cavObj.runQ0s.append(calcQ0(cavObj.runGrads[idx],
-                                            rfHeatLoad))
-
-        ax.plot(cavObj.runHeatLoads, cavObj.runSlopes, marker="o",
+        calibCurveAxis.plot(cavObj.runHeatLoads, cavObj.runSlopes, marker="o",
                 linestyle="None", label="Projected Data for " + cavObj.name)
-        ax.legend(loc="lower left")
+        calibCurveAxis.legend(loc="lower left")
 
         minCavHeatLoad = min(cavObj.runHeatLoads)
         minCalibHeatLoad = min(cryModObj.runElecHeatLoads)
 
         if minCavHeatLoad < minCalibHeatLoad:
             yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
-            ax.plot(yRange, [cryModObj.calibSlope * i + cryModObj.calibIntercept
+            calibCurveAxis.plot(yRange, [cryModObj.calibSlope * i + cryModObj.calibIntercept
                              for i in yRange])
 
         maxCavHeatLoad = max(cavObj.runHeatLoads)
@@ -761,10 +758,10 @@ def getQ0Measurements():
 
         if maxCavHeatLoad > maxCalibHeatLoad:
             yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
-            ax.plot(yRange, [cryModObj.calibSlope * i + cryModObj.calibIntercept
+            calibCurveAxis.plot(yRange, [cryModObj.calibSlope * i + cryModObj.calibIntercept
                              for i in yRange])
 
-        print(cavObj)
+        cavObj.printReport()
 
     plt.draw()
 

@@ -55,6 +55,9 @@ class Cryomodule:
         # This buffer stores the dLL/dt value for each run
         self.runSlopes = []
 
+        # This buffer stores the intercept value for each run
+        self.runIntercepts = []
+
         # This buffer stores the electric heat load over baseline for each
         # run (defined as the calibration cavity heater setting - the ref heater
         # value)
@@ -122,6 +125,9 @@ class Cryomodule:
             # This buffer stores the dLL/dt value for each run
             self.runSlopes = []
 
+            # This buffer stores the intercept value for each run
+            self.runIntercepts = []
+
             # This buffer stores the total heat load over baseline for each run
             # (calculated from dLL/dt and the calibration curve)
             self.runHeatLoads = []
@@ -147,7 +153,14 @@ class Cryomodule:
             # This buffer stores the calculated Q0 value for each run
             self.runQ0s = []
 
-        def __str__(self):
+        # Similar to the Cryomodule function, it just has the gradient PV
+        # instead of the heater PV
+        def getPVs(self):
+            return [self.parent.valvePV, self.parent.dsLevelPV,
+                    self.parent.usLevelPV, self.gradPV, self.heaterPV,
+                    self.parent.dsPressurePV]
+
+        def printReport(self):
             # TODO handle white space more elegantly
 
             report = ""
@@ -169,14 +182,7 @@ class Cryomodule:
                 q0 = '{:.2e}'.format(Decimal(self.runQ0s[idx]))
                 report += (line4.format(q0Val=q0))
 
-            return report
-
-        # Similar to the Cryomodule function, it just has the gradient PV
-        # instead of the heater PV
-        def getPVs(self):
-            return [self.parent.valvePV, self.parent.dsLevelPV,
-                    self.parent.usLevelPV, self.gradPV, self.heaterPV,
-                    self.parent.dsPressurePV]
+            print(report)
 
         # The @property annotation is effectively a shortcut for defining a
         # class variable and giving it a custom getter function (so now
