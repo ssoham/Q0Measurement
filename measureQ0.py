@@ -8,6 +8,7 @@ from __future__ import division
 from __future__ import print_function
 from datetime import datetime, timedelta
 from math import exp, sqrt
+from decimal import Decimal
 from csv import reader, writer
 from subprocess import check_output, CalledProcessError
 from re import compile, findall
@@ -21,6 +22,10 @@ from scipy.stats import linregress
 from json import dumps
 from time import sleep
 from cryomodule import Cryomodule, DataRun, Q0DataRun
+
+# Set True to use a known data set for debugging and/or demoing
+# Set False to prompt the user for real data
+IS_DEMO = True
 
 # The LL readings get wonky when the upstream liquid level dips below 66
 UPSTREAM_LL_LOWER_LIMIT = 66
@@ -38,10 +43,6 @@ SAMPLING_INTERVAL = 1
 # The minimum run length was empirically found to be ~750 (long enough to
 # ensure the runs we detect are usable data and not just noise)
 RUN_LENGTH_LOWER_LIMIT = 750 / SAMPLING_INTERVAL
-
-# Set True to use a known data set for debugging and/or demoing
-# Set False to prompt the user for real data
-IS_DEMO = True
 
 # Trying to make this compatible with both 2.7 and 3 (input in 3 is the same as
 # raw_input in 2.7, but input in 2.7 calls evaluate)
@@ -494,10 +495,8 @@ def processRuns(obj):
             run.totalHeatLoad = heatLoad
             run.rfHeatLoad = heatLoad - run.elecHeatLoad
 
-            if obj.gradBuff:
-                run.avgGrad = weighAvgGrad(obj.gradBuff[run.startIdx:run.endIdx])
-            else:
-                run.avgGrad = obj.refGradVal
+            run.avgGrad = (weighAvgGrad(obj.gradBuff[run.startIdx:run.endIdx])
+                           if obj.gradBuff else obj.refGradVal)
 
             if obj.dsPressureBuff:
                 run.avgPress = mean(obj.dsPressureBuff[run.startIdx:run.endIdx])
@@ -536,13 +535,12 @@ def plotAndFitData(obj):
     isCalibration = isinstance(obj, Cryomodule)
 
     if isCalibration:
-
-        suffixString = " (Cryomodule {cryMod} Calibration)"
-        suffix = suffixString.format(cryMod=obj.cryModNumSLAC)
+        suffixString = " ({name} Heater Calibration)"
+        suffix = suffixString.format(name=obj.name)
     else:
-        suffix = " (Cavity {cavNum})".format(cavNum=obj.cavNum)
+        suffix = " ({name})".format(name=obj.name)
 
-    ax1 = genAxis("Liquid Level as a Function of Time" + suffix,
+    ax1 = genAxis("Liquid Level vs. Time" + suffix,
                   "Unix Time (s)", "Downstream Liquid Level (%)")
 
     for run in obj.runs:
@@ -554,26 +552,27 @@ def plotAndFitData(obj):
         b = run.intercept
 
         labelString = "{slope} %/s @ {heatLoad} W Electric Load"
-        plotLabel = labelString.format(slope=round(m, 6),
-                                       heatLoad=run.elecHeatLoad)
+        plotLabel = labelString.format(slope='{:.2e}'.format(Decimal(m)),
+                                       heatLoad=round(run.elecHeatLoad, 2))
         ax1.plot(runTimes, runData, label=plotLabel)
 
         ax1.plot(runTimes, [m * x + b for x in runTimes])
 
     if isCalibration:
         ax1.legend(loc='lower right')
-        ax2 = genAxis("Rate of Change of Liquid Level as a Function of Heat"
-                      " Load", "Heat Load (W)", "dLL/dt (%/s)")
+        ax2 = genAxis("Liquid Level Rate of Change vs. Heat Load",
+                      "Heat Load (W)", "dLL/dt (%/s)")
 
         ax2.plot(obj.runElecHeatLoads, obj.runSlopes, marker="o",
-                 linestyle="None", label="Calibration Data")
+                 linestyle="None", label="Heater Calibration Data")
 
         m = obj.calibSlope
         b = obj.calibIntercept
 
+        slopeStr = '{:.2e}'.format(Decimal(m))
         ax2.plot(obj.runElecHeatLoads,
                  [m * x + b for x in obj.runElecHeatLoads],
-                 label="{slope} %/(s*W)".format(slope=round(m, 6)))
+                 label="{slope} %/(s*W)".format(slope=slopeStr))
 
         ax2.legend(loc='upper right')
 
