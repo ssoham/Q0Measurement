@@ -7,8 +7,6 @@
 from decimal import Decimal
 
 
-# TODO add a run class that stores the floats associated with each run.
-
 class Cryomodule:
     # We're assuming that the convention is going to be to run the calibration
     # on cavity 1, but we're leaving some wiggle room in case
@@ -36,6 +34,9 @@ class Cryomodule:
         self.dsLevelBuff = []
         self.usLevelBuff = []
 
+        # This buffer stores the heater calibration data runs as DataRun objects
+        self.runs = []
+
         # Maps this cryomodule's PVs to its corresponding data buffers
         self.pvBuffMap = {self.valvePV: self.valvePosBuff,
                           self.dsLevelPV: self.dsLevelBuff,
@@ -44,24 +45,6 @@ class Cryomodule:
         # Give each cryomodule 8 cavities
         self.cavities = {i: self.Cavity(parent=self, cavNumber=i)
                          for i in range(1, 9)}
-
-        # TODO store runs as a list of run objects instead
-        # self.runs = []
-
-        # This buffer stores lists of pairs of indices. The first marks the
-        # start of a heater calibration data run and the second marks the end.
-        self.runIndices = []
-
-        # This buffer stores the dLL/dt value for each run
-        self.runSlopes = []
-
-        # This buffer stores the intercept value for each run
-        self.runIntercepts = []
-
-        # This buffer stores the electric heat load over baseline for each
-        # run (defined as the calibration cavity heater setting - the ref heater
-        # value)
-        self.runElecHeatLoads = []
 
         # These characterize the cryomodule's overall heater calibration curve
         self.calibSlope = None
@@ -72,6 +55,14 @@ class Cryomodule:
     def getPVs(self):
         return [self.valvePV, self.dsLevelPV, self.usLevelPV,
                 self.cavities[self.calCavNum].heaterPV]
+
+    @property
+    def runElecHeatLoads(self):
+        return [run.elecHeatLoad for run in self.runs]
+
+    @property
+    def runSlopes(self):
+        return [run.slope for run in self.runs]
 
     class Cavity:
         def __init__(self, parent, cavNumber):
@@ -104,6 +95,10 @@ class Cryomodule:
             self.gradBuff = []
             self.dsPressureBuff = []
 
+            # This buffer stores the heater calibration data runs as Q0DataRun
+            # objects
+            self.runs = []
+
             # Maps this cavity's PVs to its corresponding data buffers
             # (including a couple of PVs from its parent cryomodule)
             self.pvBuffMap = {self.parent.valvePV: self.valvePosBuff,
@@ -114,44 +109,6 @@ class Cryomodule:
                               self.gradPV: self.gradBuff,
                               self.parent.dsPressurePV:
                                   self.dsPressureBuff}
-
-            # TODO store runs as a list of run objects instead
-            # self.runs = []
-
-            # This buffer stores lists defining the Q0 measurement runs, each of
-            # which has the form [run start index, run end index].
-            self.runIndices = []
-
-            # This buffer stores the dLL/dt value for each run
-            self.runSlopes = []
-
-            # This buffer stores the intercept value for each run
-            self.runIntercepts = []
-
-            # This buffer stores the total heat load over baseline for each run
-            # (calculated from dLL/dt and the calibration curve)
-            self.runHeatLoads = []
-
-            # This buffer stores the electric heat load for each run (defined as
-            # the cavity heater setting - the ref heater val)
-            self.runElecHeatLoads = []
-
-            # This buffer stores the RF heat load over baseline for each
-            # run (defined as the total heat load over baseline - the run's
-            # electric heat load)
-            self.runRFHeatLoads = []
-
-            # This buffer stores the weighted gradient value for each run (Q0
-            # scales with the gradient squared so this number is scaled to
-            # reflect that)
-            self.runGrads = []
-
-            # This buffer stores the average pressure value for the incoming
-            # 2 K helium for each run.
-            self.runPressures = []
-
-            # This buffer stores the calculated Q0 value for each run
-            self.runQ0s = []
 
         # Similar to the Cryomodule function, it just has the gradient PV
         # instead of the heater PV
@@ -165,22 +122,20 @@ class Cryomodule:
 
             report = ""
 
-            for idx, heatLoad in enumerate(self.runHeatLoads):
+            for i, run in enumerate(self.runs):
                 line1 = "\n{cavName} run {runNum} total heat load: {heat} W\n"
-                report += (line1.format(cavName=self.name, runNum=idx + 1,
-                                        heat=round(heatLoad, 2)))
+                report += (line1.format(cavName=self.name, runNum=(i + 1),
+                                        heat=round(run.totalHeatLoad, 2)))
 
                 line2 = "            Electric heat load: {heat} W\n"
-                report += (line2.format(heat=round(self.runElecHeatLoads[idx],
-                                                   2)))
+                report += (line2.format(heat=round(run.elecHeatLoad, 2)))
 
                 line3 = "                  RF heat load: {heat} W\n"
-                report += (line3.format(heat=round(self.runRFHeatLoads[idx],
-                                                   2)))
+                report += (line3.format(heat=round(run.rfHeatLoad, 2)))
 
-                line4 = "                 Calculated Q0: {q0Val}\n"
-                q0 = '{:.2e}'.format(Decimal(self.runQ0s[idx]))
-                report += (line4.format(q0Val=q0))
+                line4 = "                 Calculated Q0: {Q0Val}\n"
+                Q0 = '{:.2e}'.format(Decimal(run.q0))
+                report += (line4.format(Q0Val=Q0))
 
             print(report)
 
@@ -195,6 +150,68 @@ class Cryomodule:
         @property
         def cryModNumSLAC(self):
             return self.parent.cryModNumSLAC
+
+        @property
+        def runElecHeatLoads(self):
+            return [run.elecHeatLoad for run in self.runs]
+
+        @property
+        def runHeatLoads(self):
+            return [run.totalHeatLoad for run in self.runs]
+
+        @property
+        def runSlopes(self):
+            return [run.slope for run in self.runs]
+
+
+# There are two types of data runs that we need to store - cryomodule heater
+# calibration runs and cavity Q0 measurement runs. The DataRun class stores
+# information that is common to both data run types.
+class DataRun:
+
+    def __init__(self, runStartIdx=None, runEndIdx=None):
+
+        # startIdx and endIdx define the beginning and the end of this data run
+        # within the cryomodule or cavity's data buffers
+        self.startIdx = runStartIdx
+        self.endIdx = runEndIdx
+
+        # All data runs have liquid level information which gets fitted with a
+        # line (giving us dLL/dt). The slope and intercept parametrize the line.
+        self.slope = None
+        self.intercept = None
+
+        # elecHeatLoad is the electric heat load over baseline for this run
+        self.elecHeatLoad = None
+
+
+# Q0DataRun stores all the information about cavity Q0 measurement runs that
+# isn't included in the parent class DataRun
+class Q0DataRun(DataRun):
+
+    def __init__(self, runStartIdx=None, runEndIdx=None):
+
+        DataRun.__init__(self, runStartIdx, runEndIdx)
+
+        # Q0 measurement runs have a total heat load value which we calculate
+        # by projecting the run's dLL/dt on the cryomodule's heater calibration
+        # curve
+        self.totalHeatLoad = None
+
+        # The RF heat load is equal to the total heat load minus the electric
+        # heat load
+        self.rfHeatLoad = None
+
+        # avgGrad is the weighted average RF gradient for this run (Q0 scales
+        # with the gradient squared so this number isn't just a simple average)
+        self.avgGrad = None
+
+        # avgPress is the average pressure value for the incoming 2 K helium for
+        # this run
+        self.avgPress = None
+
+        # The calculated Q0 value for this run
+        self.q0 = None
 
 
 def main():
