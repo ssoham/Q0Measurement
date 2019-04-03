@@ -93,7 +93,7 @@ class Cryomodule:
             self.dsLevelBuff = []
             self.usLevelBuff = []
             self.gradBuff = []
-            self.dsPressureBuff = []
+            self.dsPressBuff = []
 
             # This buffer stores the heater calibration data runs as Q0DataRun
             # objects
@@ -108,7 +108,7 @@ class Cryomodule:
                               self.heaterPV: self.heaterBuff,
                               self.gradPV: self.gradBuff,
                               self.parent.dsPressurePV:
-                                  self.dsPressureBuff}
+                                  self.dsPressBuff}
 
         # Similar to the Cryomodule function, it just has the gradient PV
         # instead of the heater PV
@@ -167,7 +167,7 @@ class Cryomodule:
 # There are two types of data runs that we need to store - cryomodule heater
 # calibration runs and cavity Q0 measurement runs. The DataRun class stores
 # information that is common to both data run types.
-class DataRun:
+class DataRun(object):
 
     def __init__(self, runStartIdx=None, runEndIdx=None):
 
@@ -191,7 +191,7 @@ class Q0DataRun(DataRun):
 
     def __init__(self, runStartIdx=None, runEndIdx=None):
 
-        DataRun.__init__(self, runStartIdx, runEndIdx)
+        super(Q0DataRun, self).__init__(runStartIdx, runEndIdx)
 
         # Q0 measurement runs have a total heat load value which we calculate
         # by projecting the run's dLL/dt on the cryomodule's heater calibration
@@ -201,14 +201,6 @@ class Q0DataRun(DataRun):
         # The RF heat load is equal to the total heat load minus the electric
         # heat load
         self.rfHeatLoad = None
-
-        # avgGrad is the weighted average RF gradient for this run (Q0 scales
-        # with the gradient squared so this number isn't just a simple average)
-        self.avgGrad = None
-
-        # avgPress is the average pressure value for the incoming 2 K helium for
-        # this run
-        self.avgPress = None
 
         # The calculated Q0 value for this run
         self.q0 = None
