@@ -11,11 +11,20 @@ from os import devnull
 FNULL = open(devnull, "w")
 
 
+DESIRED_LL = 95
+
+
+#def tuneCavity(cavity):
+    
+
+
 def runQ0Meas(cavity, desiredGradient):
     # type: (Cryomodule.Cavity) -> None
     try:
-        # TODO coordinate with Cryo
+        waitForCryo(cavity)
         setPowerSSA(cavity, True)
+        
+        #caputPV(cavity.genPV("SEL_ASET"), "15")
 
         # Start with pulsed mode
         setModeRF(cavity, "4")
@@ -27,8 +36,12 @@ def runQ0Meas(cavity, desiredGradient):
 
         phaseCavity(cavity)
 
+        #lowerAmplitude(cavity)
+        
         # go to CW
         setModeRF(cavity, "2")
+        
+        walkToGradient(cavity, desiredGradient)
 
         holdGradient(cavity, desiredGradient)
 
@@ -40,6 +53,31 @@ def runQ0Meas(cavity, desiredGradient):
         sleep(0.01)
         powerDown(cavity)
 
+def waitForCryo(cavity):
+    stdout.write("\nWaiting for cryo to be at required levels...")
+    stdout.flush()
+    diff = DESIRED_LL - float(cagetPV(cavity.dsLevelPV))
+    
+    while abs(diff) > 1:
+        stdout.write(".")
+        stdout.flush()
+        sleep(5)
+        diff = DESIRED_LL - float(cagetPV(cavity.dsLevelPV))
+    
+    mode = cagetPV(cavity.jtModePV)
+    
+    if mode == "1":
+        cvMin = cagetPV(cavity.cvMinPV)
+        cvMax = cagetPV(cavity.cvMaxPV)
+        
+        while cvMin != cvMax:
+            stdout.write(".")
+            stdout.flush()
+            cvMin = cagetPV(cavity.cvMinPV)
+            cvMax = cagetPV(cavity.cvMaxPV)
+            sleep(5)
+    
+    print("\nCryo at required levels")
 
 def setPowerSSA(cavity, turnOn):
     # type: (Cryomodule.Cavity, bool) -> None
@@ -98,12 +136,20 @@ def cagetPV(pv, startIdx=1, attempt=1):
         
 
 
-def caputPV(pv, val):
+def caputPV(pv, val, attempt=1):
     # type: (str, str) -> Optional[int]
 
-    out = check_call(["caput", pv, val], stdout=FNULL)
-    sleep(2)
-    return out
+    if attempt < 4:
+        try:
+            out = check_call(["caput", pv, val], stdout=FNULL)
+            sleep(2)
+            return out
+        except CalledProcessError:
+            sleep(2)
+            print("Retrying caput")
+            return caputPV(pv, val, attempt + 1)
+    else:
+        raise CalledProcessError("caput failed too many times")
 
 
 def setModeRF(cavity, modeDesired):
@@ -158,6 +204,8 @@ def checkDrive(cavity):
         driveDes = str(currDrive + 1)
 
         caputPV(drivePV, driveDes)
+        pushGoButton(cavity)
+         
         currDrive = float(cagetPV(drivePV))
         
     print("Drive set")
@@ -260,6 +308,40 @@ def phaseCavity(cavity):
             step *= -1
 
 
+def lowerAmplitude(cavity):
+    print("Lowering amplitude")
+    caputPV(cavity.genPV("ADES"), "2")
+
+
+def walkToGradient(cavity, desiredGradient):
+    amplitudePV = cavity.genPV("ADES")
+    step = 0.5
+    gradient = float(cagetPV(cavity.gradientPV))
+    prevGradient = gradient
+    diff = gradient - desiredGradient
+    prevDiff = diff
+    print("Walking gradient...")
+    
+    while abs(diff) > 0.05:
+        gradient = float(cagetPV(cavity.gradientPV))
+        
+        if gradient < (prevGradient / 2):
+            raise AssertionError("Detected a quench - aborting")
+        
+        currAmp = float(cagetPV(amplitudePV))
+        diff = gradient - desiredGradient
+        mult = 1 if (diff <= 0) else -1
+
+        if (prevDiff >= 0 > diff) or (prevDiff <= 0 < diff):
+            step *= (0.5 if step > 0.01 else 1.5)
+
+        caputPV(amplitudePV, str(currAmp + mult*step))
+
+        prevDiff = diff
+        sleep(2.5)
+    
+    print("Gradient at desired value")
+
 def holdGradient(cavity, desiredGradient):
     # type: (Cryomodule.Cavity, float) -> None
 
@@ -267,7 +349,7 @@ def holdGradient(cavity, desiredGradient):
 
     startTime = datetime.now()
 
-    step = 0.5
+    step = 0.01
     prevDiff = float(cagetPV(cavity.gradientPV)) - desiredGradient
     
     print("\nStart time: {START}".format(START=startTime))
@@ -282,14 +364,14 @@ def holdGradient(cavity, desiredGradient):
 
         gradient = float(cagetPV(cavity.gradientPV))
         
-        if hitTarget and gradient <= (desiredGradient / 4):
+        if hitTarget and (gradient <= (desiredGradient / 4)):
             raise AssertionError("Detected a quench - aborting")
         
         currAmp = float(cagetPV(amplitudePV))
 
         diff = gradient - desiredGradient
         
-        if abs(diff) <= 0.01:
+        if abs(diff) <= 1:
             hitTarget = True
 
         mult = 1 if (diff <= 0) else -1
@@ -301,7 +383,7 @@ def holdGradient(cavity, desiredGradient):
 
         prevDiff = diff
 
-        sleep(5)
+        sleep(15)
         stdout.flush()
         
     print("\nEnd Time: {END}".format(END=datetime.now()))
@@ -312,6 +394,8 @@ def powerDown(cavity):
         print("\nPowering down...")
         setStateRF(cavity, False)
         setPowerSSA(cavity, False)
+        caputPV(cavity.genPV("SEL_ASET"), "15")
+        lowerAmplitude(cavity)
 
     except(CalledProcessError, IndexError, OSError,
            ValueError, AssertionError) as e:
