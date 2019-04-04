@@ -25,6 +25,8 @@ class Cryomodule:
         self.valvePV = "CPV:CM0" + jlabNumStr + ":3001:JT:POS_RBV"
         self.dsLevelPV = "CLL:CM0" + jlabNumStr + ":2301:DS:LVL"
         self.usLevelPV = "CLL:CM0" + jlabNumStr + ":2601:US:LVL"
+        self.jtModePV = "CPV:CM0" + jlabNumStr + ":3001:JT:MODE"
+        self.cvFormatter = "CPID:CM0" + jlabNumStr + ":3001:JT:CV_{SUFFIX}"
 
         # These buffers store calibration data read from the CSV <dataFileName>
         self.unixTimeBuffer = []
@@ -58,6 +60,9 @@ class Cryomodule:
         # These characterize the cryomodule's overall heater calibration curve
         self.calibSlope = None
         self.calibIntercept = None
+        
+        self.cvMaxPV = self.cvFormatter.format(SUFFIX="MAX")
+        self.cvMinPV = self.cvFormatter.format(SUFFIX="MIN")
 
     # Returns a list of the PVs used for its data acquisition, including
     # the PV of the cavity heater used for calibration
@@ -82,6 +87,7 @@ class Cryomodule:
             prefxStrPV = "ACCL:L1B:0{cryModNum}{cavNum}0:{{SUFFIX}}"
             self.prefixPV = prefxStrPV.format(cryModNum=parent.cryModNumJLAB,
                                               cavNum=cavNumber)
+            
 
             # These buffers store Q0 measurement data read from the CSV
             # <dataFileName>
@@ -95,9 +101,8 @@ class Cryomodule:
 
             # Maps this cavity's PVs to its corresponding data buffers
             # (including a couple of PVs from its parent cryomodule)
-            self.pvBufferMap = {self.parent.valvePV: self.valvePosBuffer,
-                                self.parent.dsLevelPV:
-                                    self.downstreamLevelBuffer,
+            self.pvBufferMap = {self.valvePV: self.valvePosBuffer,
+                                self.dsLevelPV: self.downstreamLevelBuffer,
                                 self.parent.usLevelPV: self.upstreamLevelBuffer,
                                 self.heaterPV: self.heaterBuffer,
                                 self.gradientPV: self.gradientBuffer}
@@ -184,6 +189,26 @@ class Cryomodule:
         @property
         def gradientPV(self):
             return self.genPV("GACT")
+            
+        @property
+        def valvePV(self):
+            return self.parent.valvePV
+            
+        @property
+        def dsLevelPV(self):
+            return self.parent.dsLevelPV
+            
+        @property
+        def jtModePV(self):
+            return self.parent.jtModePV
+            
+        @property
+        def cvMaxPV(self):
+            return self.parent.cvMaxPV
+            
+        @property
+        def cvMinPV(self):
+            return self.parent.cvMinPV
 
 def main():
     cryomodule = Cryomodule(cryModNumSLAC=12, cryModNumJLAB=2, calFileName="",
