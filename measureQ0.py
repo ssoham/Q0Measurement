@@ -22,11 +22,12 @@ from scipy.stats import linregress
 from json import dumps
 from time import sleep
 from cryomodule import Cryomodule, DataRun, Q0DataRun
+from copy import deepcopy
 
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
-IS_DEMO = True
+IS_DEMO = False
 
 
 # The LL readings get wonky when the upstream liquid level dips below 66
@@ -227,13 +228,19 @@ def generateCSV(startTime, endTime, obj):
         csvReader = reader(rows, delimiter='\t')
 
         header = csvReader.next()
-        trimmedHeader = header
+        trimmedHeader = deepcopy(header)
 
         heaterCols = []
 
         for heaterPV in obj.heaterPVs:
             index = header.index(heaterPV)
+            #print(index)
             heaterCols.append(index)
+            #print(heaterCols)
+            #print(trimmedHeader)
+            #trimmedHeader.pop(index)
+            
+        for index in sorted(heaterCols, reverse=True):
             del trimmedHeader[index]
 
         trimmedHeader.append("Electric Heat Load")
@@ -243,16 +250,19 @@ def generateCSV(startTime, endTime, obj):
             csvWriter.writerow(trimmedHeader)
 
             for row in csvReader:
-                trimmedRow = row
+                trimmedRow = deepcopy(row)
                 heatLoad = 0
 
                 for col in heaterCols:
-                    del trimmedRow[col]
+                    #del trimmedRow[col]
                     try:
                         heatLoad += float(row[col])
                     except ValueError:
                         heatLoad = None
                         break
+                        
+                for index in sorted(heaterCols, reverse=True):
+                    del trimmedRow[index]
 
                 trimmedRow.append(str(heatLoad))
                 csvWriter.writerow(trimmedRow)
@@ -722,7 +732,7 @@ def getQ0Measurements():
         print("Cryomodule Heater Calibration Parameters:")
         # Signature is: get_float/get_int(prompt, low_lim, high_lim)
         refHeaterVal = get_float_lim("Reference Heater Value: ".rjust(32),
-                                     0, 15)
+                                     0, 120)
         valveLockedPos = get_float_lim("JT Valve locked position: ".rjust(32),
                                        0, 100)
         cryomoduleSLAC = get_int_lim("SLAC Cryomodule Number: ".rjust(32),

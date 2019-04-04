@@ -62,7 +62,7 @@ class Cryomodule:
         self.cvMaxPV = self.cvFormatter.format(SUFFIX="MAX")
         self.cvMinPV = self.cvFormatter.format(SUFFIX="MIN")
 
-        self.heaterPVs = [cavity.heaterPV for cavity in self.cavities]
+        self.heaterPVs = [cavity.heaterPV for _, cavity in self.cavities.items()]
 
     # Returns a list of the PVs used for its data acquisition, including
     # the PV of the cavity heater used for calibration
@@ -188,7 +188,7 @@ class Cryomodule:
 
         @property
         def heaterPV(self):
-            return self.genHeaterPV("POWER")
+            return self.genHeaterPV("POWER_SETPT")
 
         @property
         def valvePV(self):
