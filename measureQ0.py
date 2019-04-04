@@ -140,7 +140,7 @@ def buildCryModObj(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
                                cryModNumJLAB=cryomoduleLERF,
                                calFileName=None,
                                refValvePos=valveLockedPos,
-                               refHeaterVal=refHeaterVal)
+                               refHeatLoad=refHeaterVal)
 
     fileName = generateCSV(startTimeCalib, endTimeCalib, cryoModuleObj)
 
@@ -226,10 +226,36 @@ def generateCSV(startTime, endTime, obj):
         rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
         csvReader = reader(rows, delimiter='\t')
 
+        header = csvReader.next()
+        trimmedHeader = header
+
+        heaterCols = []
+
+        for heaterPV in obj.heaterPVs:
+            index = header.index(heaterPV)
+            heaterCols.append(index)
+            del trimmedHeader[index]
+
+        trimmedHeader.append("Electric Heat Load")
+
         with open(fileName, 'wb') as f:
             csvWriter = writer(f, delimiter=',')
+            csvWriter.writerow(trimmedHeader)
+
             for row in csvReader:
-                csvWriter.writerow(row)
+                trimmedRow = row
+                heatLoad = 0
+
+                for col in heaterCols:
+                    del trimmedRow[col]
+                    try:
+                        heatLoad += float(row[col])
+                    except ValueError:
+                        heatLoad = None
+                        break
+
+                trimmedRow.append(str(heatLoad))
+                csvWriter.writerow(trimmedRow)
 
         return fileName
 
@@ -288,14 +314,15 @@ def parseDataFromCSV(obj):
 
         # Figures out the CSV column that has that PV's data and maps it
         for pv, dataBuff in obj.pvBuffMap.items():
-            linkBuffToPV(pv, dataBuff, columnDict, header)
+            linkBuffToColumn(pv, dataBuff, columnDict, header)
 
         if isinstance(obj, Cryomodule):
             # We do the calibration using a cavity heater (usually cavity 1)
             # instead of RF, so we use the heater PV to parse the calibration
             # data using the different heater settings
-            heaterPV = obj.cavities[obj.calCavNum].heaterPV
-            linkBuffToPV(heaterPV, obj.heaterBuff, columnDict, header)
+
+            linkBuffToColumn("Electric Heat Load", obj.elecHeatBuff, columnDict,
+                             header)
 
         try:
             # Data fetched from the JLab archiver has the timestamp column
@@ -327,11 +354,11 @@ def parseDataFromCSV(obj):
                     stderr.write("Could not parse row: " + str(row) + "\n")
 
 
-def linkBuffToPV(pv, dataBuff, columnDict, header):
+def linkBuffToColumn(column, dataBuff, columnDict, header):
     try:
-        columnDict[pv] = {"idx": header.index(pv), "buffer": dataBuff}
+        columnDict[column] = {"idx": header.index(column), "buffer": dataBuff}
     except ValueError:
-        stderr.write("Column " + pv + " not found in CSV\n")
+        stderr.write("Column " + column + " not found in CSV\n")
 
 
 # @param obj: either a Cryomodule or Cavity object
@@ -358,16 +385,17 @@ def processData(obj):
 ################################################################################
 def populateRuns(obj):
     # noinspection PyShadowingNames
-    def isEndOfCalibRun(idx, heaterVal):
+    def isEndOfCalibRun(idx, elecHeatLoad):
         # Find inflection points for the desired heater setting
-        prevHeaterVal = obj.heaterBuff[idx - 1] if idx > 0 else heaterVal
+        prevElecHeatLoad = (obj.elecHeatBuff[idx - 1]
+                            if idx > 0 else elecHeatLoad)
 
-        heaterChanged = (heaterVal != prevHeaterVal)
+        heaterChanged = (elecHeatLoad != prevElecHeatLoad)
         liqLevelTooLow = (obj.usLevelBuff[idx]
                           < UPSTREAM_LL_LOWER_LIMIT)
         valveOutsideTol = (abs(obj.valvePosBuff[idx] - obj.refValvePos)
                            > VALVE_POSITION_TOLERANCE)
-        isLastElement = (idx == len(obj.heaterBuff) - 1)
+        isLastElement = (idx == len(obj.elecHeatBuff) - 1)
 
         # A "break" condition defining the end of a run if the desired heater
         # value changed, or if the upstream liquid level dipped below the
@@ -401,13 +429,13 @@ def populateRuns(obj):
     runStartIdx = 0
 
     if isCryomodule:
-        for idx, heaterVal in enumerate(obj.heaterBuff):
+        for idx, elecHeatLoad in enumerate(obj.elecHeatBuff):
 
-            runStartIdx = checkAndFlushRun(isEndOfCalibRun(idx, heaterVal), idx,
-                                           runStartIdx)
+            runStartIdx = checkAndFlushRun(isEndOfCalibRun(idx, elecHeatLoad),
+                                           idx, runStartIdx)
 
     else:
-        for idx, heaterVal in enumerate(obj.heaterBuff):
+        for idx, elecHeatLoad in enumerate(obj.elecHeatBuff):
 
             try:
                 gradChanged = (abs(obj.gradBuff[idx] - obj.refGradVal)
@@ -415,7 +443,7 @@ def populateRuns(obj):
             except IndexError:
                 gradChanged = False
 
-            isEndOfQ0Run = isEndOfCalibRun(idx, heaterVal) or gradChanged
+            isEndOfQ0Run = isEndOfCalibRun(idx, elecHeatLoad) or gradChanged
 
             runStartIdx = checkAndFlushRun(isEndOfQ0Run, idx, runStartIdx)
 
@@ -444,10 +472,10 @@ def adjustForSettle(obj):
         startIdx = run.startIdx
         prevStartIdx = obj.runs[i - 1].startIdx if i > 0 else run.startIdx
 
-        heaterBuff = obj.heaterBuff
-        heaterHeatDelta = heaterBuff[startIdx] - heaterBuff[prevStartIdx]
+        elecHeatBuff = obj.elecHeatBuff
+        elecHeatDelta = elecHeatBuff[startIdx] - elecHeatBuff[prevStartIdx]
 
-        totalHeatDelta = abs(heaterHeatDelta)
+        totalHeatDelta = abs(elecHeatDelta)
 
         if isinstance(obj, Cryomodule.Cavity):
             gradBuff = obj.gradBuff
@@ -462,7 +490,7 @@ def adjustForSettle(obj):
                 prevGradHeatLoad = approxHeatFromGrad(prevGrad)
 
                 gradHeatDelta = currGradHeatLoad - prevGradHeatLoad
-                totalHeatDelta = abs(heaterHeatDelta + gradHeatDelta)
+                totalHeatDelta = abs(elecHeatDelta + gradHeatDelta)
 
         # Calculate the number of data points to be chopped off the beginning of
         # the data run based on the expected change in the cryomodule heat load.
@@ -490,7 +518,7 @@ def processRuns(obj):
         run.slope, run.intercept, r_val, p_val, std_err = linregress(runTimes,
                                                                      runData)
 
-        run.elecHeatLoad = obj.heaterBuff[run.endIdx] - obj.refHeaterVal
+        run.elecHeatLoad = obj.elecHeatBuff[run.endIdx] - obj.refHeatLoad
 
         # Print R^2 to diagnose whether or not we had a long enough data run
         if IS_DEMO:

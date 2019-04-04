@@ -1,29 +1,29 @@
 from __future__ import print_function
-from subprocess import check_output, CalledProcessError, check_call
+from subprocess import CalledProcessError
 from time import sleep
 from cryomodule import Cryomodule
 from sys import stderr, stdout
 from matplotlib import pyplot as plt
 from datetime import datetime
-from os import devnull
+from epicsShell import cagetPV, caputPV
 
-
-FNULL = open(devnull, "w")
+if hasattr(__builtins__, 'raw_input'):
+    input = raw_input
 
 
 DESIRED_LL = 95
 
 
 #def tuneCavity(cavity):
-    
+
 
 
 def runQ0Meas(cavity, desiredGradient):
-    # type: (Cryomodule.Cavity) -> None
+    # type: (Cryomodule.Cavity, float) -> None
     try:
         waitForCryo(cavity)
         setPowerSSA(cavity, True)
-        
+
         #caputPV(cavity.genPV("SEL_ASET"), "15")
 
         # Start with pulsed mode
@@ -37,10 +37,10 @@ def runQ0Meas(cavity, desiredGradient):
         phaseCavity(cavity)
 
         #lowerAmplitude(cavity)
-        
+
         # go to CW
         setModeRF(cavity, "2")
-        
+
         walkToGradient(cavity, desiredGradient)
 
         holdGradient(cavity, desiredGradient)
@@ -57,33 +57,33 @@ def waitForCryo(cavity):
     stdout.write("\nWaiting for cryo to be at required levels...")
     stdout.flush()
     diff = DESIRED_LL - float(cagetPV(cavity.dsLevelPV))
-    
+
     while abs(diff) > 1:
         stdout.write(".")
         stdout.flush()
         sleep(5)
         diff = DESIRED_LL - float(cagetPV(cavity.dsLevelPV))
-    
+
     mode = cagetPV(cavity.jtModePV)
-    
+
     if mode == "1":
         cvMin = cagetPV(cavity.cvMinPV)
         cvMax = cagetPV(cavity.cvMaxPV)
-        
+
         while cvMin != cvMax:
             stdout.write(".")
             stdout.flush()
             cvMin = cagetPV(cavity.cvMinPV)
             cvMax = cagetPV(cavity.cvMaxPV)
             sleep(5)
-    
+
     print("\nCryo at required levels")
 
 def setPowerSSA(cavity, turnOn):
     # type: (Cryomodule.Cavity, bool) -> None
 
     # Using double curly braces to trick it into a partial formatting
-    ssaFormatPV = cavity.genPV("SSA:{SUFFIX}")
+    ssaFormatPV = cavity.genAcclPV("SSA:{SUFFIX}")
 
     def genPV(suffix):
         return ssaFormatPV.format(SUFFIX=suffix)
@@ -103,59 +103,22 @@ def setPowerSSA(cavity, turnOn):
             caputPV(genPV(stateMap["pv"]), "1")
 
             # can't use parentheses with asserts, apparently
-            assert cagetPV(ssaStatusPV) ==\
-                   stateMap["desired"], "Could not set SSA Power"
+            assert cagetPV(ssaStatusPV) == stateMap["desired"], \
+                "Could not set SSA Power"
         else:
             print("\nResetting SSA...")
             caputPV(genPV("FaultReset"), "1")
-            assert cagetPV(ssaStatusPV) in ["2", "3"],\
+            assert cagetPV(ssaStatusPV) in ["2", "3"], \
                 "Could not reset SSA"
             setPowerSSA(cavity, turnOn)
 
     print("SSA power set\n")
 
 
-# PyEpics doesn't work at LERF yet...
-def cagetPV(pv, startIdx=1, attempt=1):
-    # type: (str, int) -> Optional[List[str]]
-    
-    if attempt < 4:
-        try:
-            out = check_output(["caget", pv, "-n"]).split()[startIdx:]
-            if startIdx == 1:
-                return out.pop()
-            elif startIdx >= 2:
-                return out
-        except CalledProcessError, AttributeError:
-            sleep(2)
-            print("Retrying caget")
-            return cagetPV(pv, startIdx, attempt + 1)
-
-    else:
-        raise CalledProcessError("caget failed too many times")
-        
-
-
-def caputPV(pv, val, attempt=1):
-    # type: (str, str) -> Optional[int]
-
-    if attempt < 4:
-        try:
-            out = check_call(["caput", pv, val], stdout=FNULL)
-            sleep(2)
-            return out
-        except CalledProcessError:
-            sleep(2)
-            print("Retrying caput")
-            return caputPV(pv, val, attempt + 1)
-    else:
-        raise CalledProcessError("caput failed too many times")
-
-
 def setModeRF(cavity, modeDesired):
     # type: (Cryomodule.Cavity, str) -> None
 
-    rfModePV = cavity.genPV("RFMODECTRL")
+    rfModePV = cavity.genAcclPV("RFMODECTRL")
 
     if cagetPV(rfModePV) is not modeDesired:
         caputPV(rfModePV, modeDesired)
@@ -165,8 +128,8 @@ def setModeRF(cavity, modeDesired):
 def setStateRF(cavity, turnOn):
     # type: (Cryomodule.Cavity, bool) -> None
 
-    rfStatePV = cavity.genPV("RFSTATE")
-    rfControlPV = cavity.genPV("RFCTRL")
+    rfStatePV = cavity.genAcclPV("RFSTATE")
+    rfControlPV = cavity.genAcclPV("RFCTRL")
 
     rfState = cagetPV(rfStatePV)
 
@@ -183,19 +146,19 @@ def setStateRF(cavity, turnOn):
 
 def pushGoButton(cavity):
     # type: (Cryomodule.Cavity) -> None
-    rfStatePV = cavity.genPV("PULSEONSTRT")
+    rfStatePV = cavity.genAcclPV("PULSEONSTRT")
     caputPV(rfStatePV, "1")
     sleep(2)
-    assert cagetPV(rfStatePV) == "1",\
-            "Unable to set RF state"
+    assert cagetPV(rfStatePV) == "1", \
+        "Unable to set RF state"
 
 
 def checkDrive(cavity):
     # type: (Cryomodule.Cavity) -> None
-    
+
     print("Checking drive...")
 
-    drivePV = cavity.genPV("SEL_ASET")
+    drivePV = cavity.genAcclPV("SEL_ASET")
     currDrive = float(cagetPV(drivePV))
 
     while (float(cagetPV(cavity.gradientPV)) < 1) or (currDrive < 15):
@@ -205,29 +168,29 @@ def checkDrive(cavity):
 
         caputPV(drivePV, driveDes)
         pushGoButton(cavity)
-         
+
         currDrive = float(cagetPV(drivePV))
-        
+
     print("Drive set")
 
 
 def phaseCavity(cavity):
     # type: (Cryomodule.Cavity) -> None
 
-    waveformFormatStr = cavity.genPV("{INFIX}:AWF")
+    waveformFormatStr = cavity.genAcclPV("{INFIX}:AWF")
 
     def getWaveformPV(infix):
         return waveformFormatStr.format(INFIX=infix)
 
     # get rid of trailing zeros - might be more elegant way of doing this
-    def trimWaveform(waveform):
+    def trimWaveform(inputWaveform):
         try:
-            maxValIdx = waveform.index(max(waveform))
-            del waveform[maxValIdx:]
+            maxValIdx = inputWaveform.index(max(inputWaveform))
+            del inputWaveform[maxValIdx:]
 
-            first = waveform.pop(0)
-            while waveform[0] >= first:
-                first = waveform.pop(0)
+            first = inputWaveform.pop(0)
+            while inputWaveform[0] >= first:
+                first = inputWaveform.pop(0)
         except IndexError:
             pass
 
@@ -238,11 +201,11 @@ def phaseCavity(cavity):
             res.append(cagetPV(getWaveformPV(suffix), startIdx=2))
             res[-1] = list(map(lambda x: float(x), res[-1]))
             trimWaveform(res[-1])
-            
+
         return res
 
-    def getLine(waveform, lbl):
-        return ax.plot(range(len(waveform)), waveform, label=lbl)
+    def getLine(inputWaveform, lbl):
+        return ax.plot(range(len(inputWaveform)), inputWaveform, label=lbl)
 
     revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
 
@@ -263,13 +226,13 @@ def phaseCavity(cavity):
     fig.canvas.draw()
     fig.canvas.flush_events()
 
-    phasePV = cavity.genPV("SEL_POFF")
+    phasePV = cavity.genAcclPV("SEL_POFF")
 
     minVal = min(revWaveform)
 
     print("Minimum reverse waveform value: {MIN}".format(MIN=minVal))
     step = 1
-   
+
     while abs(minVal) > 0.5:
         val = float(cagetPV(phasePV))
 
@@ -282,7 +245,7 @@ def phaseCavity(cavity):
             sleep(0.01)
 
         revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
-        
+
         lineWaveformPairs = [(lineRev, revWaveform), (lineCav, cavWaveform),
                              (lineFwd, fwdWaveform)]
 
@@ -301,7 +264,7 @@ def phaseCavity(cavity):
 
         # I think this accounts for inflection points? Hopefully the decrease
         # in step size addresses the potential for it to get stuck
-        if (prevMin <= 0 and minVal > 0) or (prevMin >= 0 and minVal < 0):
+        if (prevMin <= 0 < minVal) or (prevMin >= 0 > minVal):
             step *= -0.5
 
         elif abs(minVal) > abs(prevMin) + 0.01:
@@ -321,13 +284,13 @@ def walkToGradient(cavity, desiredGradient):
     diff = gradient - desiredGradient
     prevDiff = diff
     print("Walking gradient...")
-    
+
     while abs(diff) > 0.05:
         gradient = float(cagetPV(cavity.gradientPV))
-        
+
         if gradient < (prevGradient / 2):
             raise AssertionError("Detected a quench - aborting")
-        
+
         currAmp = float(cagetPV(amplitudePV))
         diff = gradient - desiredGradient
         mult = 1 if (diff <= 0) else -1
@@ -339,53 +302,53 @@ def walkToGradient(cavity, desiredGradient):
 
         prevDiff = diff
         sleep(2.5)
-    
+
     print("Gradient at desired value")
 
 def holdGradient(cavity, desiredGradient):
     # type: (Cryomodule.Cavity, float) -> None
 
-    amplitudePV = cavity.genPV("ADES")
+    amplitudePV = cavity.genAcclPV("ADES")
 
     startTime = datetime.now()
 
     step = 0.01
     prevDiff = float(cagetPV(cavity.gradientPV)) - desiredGradient
-    
+
     print("\nStart time: {START}".format(START=startTime))
 
     stdout.write("\nHolding gradient for 40 minutes...")
     stdout.flush()
-    
+
     hitTarget = False
-    
+
     while (datetime.now() - startTime).total_seconds() < 2400:
         stdout.write(".")
 
         gradient = float(cagetPV(cavity.gradientPV))
         
-        if hitTarget and (gradient <= (desiredGradient / 4)):
+        if hitTarget and gradient <= (desiredGradient / 4):
             raise AssertionError("Detected a quench - aborting")
-        
+
         currAmp = float(cagetPV(amplitudePV))
 
         diff = gradient - desiredGradient
-        
-        if abs(diff) <= 1:
+
+        if abs(diff) <= 0.01:
             hitTarget = True
 
         mult = 1 if (diff <= 0) else -1
 
-        if (prevDiff >= 0 and diff < 0) or (prevDiff <= 0 and diff > 0):
+        if (prevDiff >= 0 > diff) or (prevDiff <= 0 < diff):
             step *= (0.5 if step > 0.01 else 1.5)
 
-        caputPV(amplitudePV, str(currAmp + mult*step))
+        caputPV(amplitudePV, str(currAmp + mult * step))
 
         prevDiff = diff
 
         sleep(15)
         stdout.flush()
-        
+
     print("\nEnd Time: {END}".format(END=datetime.now()))
 
 
@@ -404,8 +367,7 @@ def powerDown(cavity):
 
 
 if __name__ == "__main__":
-    runQ0Meas(Cryomodule(int(raw_input("SLAC CM: ")),
-                         int(raw_input("JLAB CM: ")),
-                         None, 0, 0).cavities[int(raw_input("Cavity: "))],
-              float(raw_input("Desired Gradient: ")))
-     
+    # noinspection PyUnboundLocalVariable
+    runQ0Meas(Cryomodule(int(input("SLAC CM: ")), int(input("JLAB CM: ")),
+                         None, 0, 0).cavities[int(input("Cavity: "))],
+              float(input("Desired Gradient: ")))
