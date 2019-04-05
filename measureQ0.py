@@ -235,13 +235,20 @@ def generateCSV(startTime, endTime, obj):
         for heaterPV in obj.heaterPVs:
             index = header.index(heaterPV)
             heaterCols.append(index)
-            
-        heaterCols = sorted(heaterCols, reverse=True)
-            
-        for index in heaterCols:
+
+        heaterActCols = []
+
+        for heaterActPV in obj.heaterActPVs:
+            index = header.index(heaterActPV)
+            heaterActCols.append(index)
+
+        colsToDelete = sorted(heaterCols + heaterActCols, reverse=True)
+
+        for index in colsToDelete:
             del trimmedHeader[index]
 
-        trimmedHeader.append("Electric Heat Load")
+        trimmedHeader.append("Electric Heat Load Setpoint")
+        trimmedHeader.append("Electric Heat Load Readback")
 
         with open(fileName, 'wb') as f:
             csvWriter = writer(f, delimiter=',')
@@ -249,19 +256,30 @@ def generateCSV(startTime, endTime, obj):
 
             for row in csvReader:
                 trimmedRow = deepcopy(row)
-                heatLoad = 0
+
+                heatLoadSetpoint = 0
 
                 for col in heaterCols:
                     try:
-                        heatLoad += float(row[col])
+                        heatLoadSetpoint += float(row[col])
                     except ValueError:
-                        heatLoad = None
+                        heatLoadSetpoint = None
+                        break
+
+                heatLoadAct = 0
+
+                for col in heaterActCols:
+                    try:
+                        heatLoadAct += float(row[col])
+                    except ValueError:
+                        heatLoadAct = None
                         break
                         
-                for index in heaterCols:
+                for index in colsToDelete:
                     del trimmedRow[index]
 
-                trimmedRow.append(str(heatLoad))
+                trimmedRow.append(str(heatLoadSetpoint))
+                trimmedRow.append(str(heatLoadAct))
                 csvWriter.writerow(trimmedRow)
 
         return fileName
@@ -324,8 +342,11 @@ def parseDataFromCSV(obj):
         for pv, dataBuff in obj.pvBuffMap.items():
             linkBuffToColumn(pv, dataBuff, columnDict, header)
             
-        linkBuffToColumn("Electric Heat Load", obj.elecHeatBuff, columnDict,
-                             header)
+        linkBuffToColumn("Electric Heat Load Setpoint", obj.elecHeatBuff,
+                         columnDict, header)
+
+        linkBuffToColumn("Electric Heat Load Readback", obj.elecHeatActBuff,
+                         columnDict, header)
 
         #if isinstance(obj, Cryomodule):
             # We do the calibration using a cavity heater (usually cavity 1)
@@ -547,7 +568,9 @@ def processRuns(obj):
         run.slope, run.intercept, r_val, p_val, std_err = linregress(runTimes,
                                                                      runData)
 
-        run.elecHeatLoad = obj.elecHeatBuff[run.endIdx] - obj.refHeatLoad
+        # run.elecHeatLoad = obj.elecHeatActBuff[run.endIdx] - obj.refHeatLoad
+        run.elecHeatLoad = (obj.elecHeatActBuff[run.endIdx]
+                            - obj.elecHeatActBuff[0])
         
         print("R^2: " + str(r_val ** 2))
 

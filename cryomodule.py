@@ -39,6 +39,8 @@ class Cryomodule:
 
         self.elecHeatBuff = []
 
+        self.elecHeatActBuff = []
+
         # This buffer stores the heater calibration data runs as DataRun objects
         self.runs = []
 
@@ -65,10 +67,19 @@ class Cryomodule:
         self.heaterPVs = [heaterFormatStr.format(CM=cryModNumJLAB, CAV=cav)
                           for cav in self.cavities]
 
+        heaterActFormatStr = "CHTR:CM0{CM}:1{CAV}55:HV:POWER"
+
+        self.heaterActPVs = [heaterActFormatStr.format(CM=cryModNumJLAB, CAV=cav)
+                          for cav in self.cavities]
+
+    # def genHeaterPV(self, suffix):
+    #     return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", suffix)
+
     # Returns a list of the PVs used for its data acquisition, including
     # the PV of the cavity heater used for calibration
     def getPVs(self):
-        return [self.valvePV, self.dsLevelPV, self.usLevelPV] + self.heaterPVs
+        return ([self.valvePV, self.dsLevelPV, self.usLevelPV]
+                + self.heaterPVs + self.heaterActPVs)
 
     @property
     def runElecHeatLoads(self):
@@ -101,6 +112,8 @@ class Cryomodule:
             self.dsPressBuff = []
             self.elecHeatBuff = []
 
+            self.elecHeatActBuff = []
+
             # This buffer stores the heater calibration data runs as Q0DataRun
             # objects
             self.runs = []
@@ -123,15 +136,13 @@ class Cryomodule:
         def genAcclPV(self, suffix):
             return self.genPV("ACCL:L1B:0{CM}{CAV}0:{SUFFIX}", suffix)
 
-        #def genHeaterPV(self, suffix):
-            #return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", suffix)
-
         # Similar to the Cryomodule function, it just has the gradient PV
         # instead of the heater PV
         def getPVs(self):
-            return [self.parent.valvePV, self.parent.dsLevelPV,
+            return ([self.parent.valvePV, self.parent.dsLevelPV,
                     self.parent.usLevelPV, self.gradPV,
                     self.parent.dsPressurePV] + self.parent.heaterPVs
+                    + self.parent.heaterActPVs)
 
         def printReport(self):
             # TODO handle white space more elegantly
