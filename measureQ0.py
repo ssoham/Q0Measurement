@@ -53,8 +53,8 @@ HEATER_TOLERANCE = 1
 MYSAMPLER_TIME_INTERVAL = 5
 
 
-# The minimum acceptable run length is ten minutes
-MIN_RUN_DURATION = 600
+# The minimum acceptable run length is fifteen minutes
+MIN_RUN_DURATION = 900
 
 
 # Used in custom input functions just below
@@ -587,6 +587,9 @@ def processRuns(obj):
 
     if isCalibration:
 
+        # TODO we should consider whether all runs should be weighted equally
+        # TODO we should probably adjust the calib slope to intersect the origin
+
         # We're dealing with a cryomodule here so we need to calculate the
         # fit for the heater calibration curve.
         obj.calibSlope, yIntercept = polyfit(obj.runElecHeatLoads,
@@ -673,35 +676,44 @@ def processRuns(obj):
 # @param obj: Either a Cryomodule or Cavity object
 ################################################################################
 def plotAndFitData(obj):
-    # TODO improve plots with human-readable time and better labels
+    # TODO improve plots with human-readable time
+
+    plt.rcParams.update({'legend.fontsize': 'small'})
 
     isCalibration = isinstance(obj, Cryomodule)
 
     if isCalibration:
-        suffixString = " ({name} Heater Calibration)"
-        suffix = suffixString.format(name=obj.name)
+        suffix = " ({name} Heater Calibration)".format(name=obj.name)
     else:
         suffix = " ({name})".format(name=obj.name)
 
-    llVsTimeAxis = genAxis("Liquid Level vs. Time" + suffix,
-                           "Unix Time (s)", "Downstream Liquid Level (%)")
+    liquidVsTimeAxis = genAxis("Liquid Level vs. Time" + suffix,
+                               "Unix Time (s)", "Downstream Liquid Level (%)")
 
     for run in obj.runs:
 
         runData = obj.dsLevelBuff[run.startIdx:run.endIdx]
         runTimes = obj.unixTimeBuff[run.startIdx:run.endIdx]
 
-        labelString = "{slope} %/s @ {heatLoad} W Electric Load"
+        if isCalibration:
+            suffix = " ({name} Heater Calibration)".format(name=obj.name)
+        else:
+            suffix = " ({name})".format(name=obj.name)
 
-        plotLabel = labelString.format(slope='%.2E' % Decimal(run.slope),
-                                       heatLoad=round(run.elecHeatLoad, 2))
-        llVsTimeAxis.plot(runTimes, runData, label=plotLabel)
+        labelStr = "{slope} %/s @ {heatLoad} W Electric Load"
 
-        llVsTimeAxis.plot(runTimes, [run.slope * x + run.intercept
-                                     for x in runTimes])
+        runLabel = labelStr.format(slope='%.2E' % Decimal(run.slope),
+                                   heatLoad=round(run.elecHeatLoad, 2))
+
+        # First we plot the actual run data
+        liquidVsTimeAxis.plot(runTimes, runData, label=runLabel)
+
+        # Then we plot the linear fit to the run data
+        liquidVsTimeAxis.plot(runTimes, [run.slope * x + run.intercept
+                                         for x in runTimes])
 
     if isCalibration:
-        llVsTimeAxis.legend(loc='lower right')
+        liquidVsTimeAxis.legend(loc='best')
         heaterCalibAxis = genAxis("Liquid Level Rate of Change vs. Heat Load",
                                   "Heat Load (W)", "dLL/dt (%/s)")
 
@@ -709,18 +721,18 @@ def plotAndFitData(obj):
                              linestyle="None", label="Heater Calibration Data")
 
         slopeStr = '{:.2e}'.format(Decimal(obj.calibSlope))
+        labelStr = "Calibration Fit:  {slope} %/(s*W)".format(slope=slopeStr)
 
         heaterCalibAxis.plot(obj.runElecHeatLoads,
                              [obj.calibSlope * x + obj.calibIntercept
-                              for x in obj.runElecHeatLoads],
-                             label="{slope} %/(s*W)".format(slope=slopeStr))
+                              for x in obj.runElecHeatLoads], label=labelStr)
 
-        heaterCalibAxis.legend(loc='upper right')
+        heaterCalibAxis.legend(loc='best')
 
         return heaterCalibAxis
 
     else:
-        llVsTimeAxis.legend(loc='upper right')
+        liquidVsTimeAxis.legend(loc='best')
 
 
 def genAxis(title, xlabel, ylabel):
@@ -879,7 +891,8 @@ def getQ0Measurements():
         calibCurveAxis.plot(cavObj.runHeatLoads, cavObj.runSlopes, marker="o",
                             linestyle="None", label="Projected Data for "
                                                     + cavObj.name)
-        calibCurveAxis.legend(loc="lower left")
+
+        calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
 
         minCavHeatLoad = min(cavObj.runHeatLoads)
         minCalibHeatLoad = min(cryModObj.runElecHeatLoads)
