@@ -225,6 +225,10 @@ class Cryomodule:
         @property
         def heaterPVs(self):
             return self.parent.heaterPVs
+            
+        @property
+        def heaterActPVs(self):
+            return self.parent.heaterActPVs
 
 
 # There are two types of data runs that we need to store - cryomodule heater

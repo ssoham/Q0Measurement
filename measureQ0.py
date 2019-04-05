@@ -42,6 +42,10 @@ VALVE_POSITION_TOLERANCE = 2
 GRAD_TOLERANCE = 0.7
 
 
+# Used to reject data where the cavity heater wasn't at the correct value
+HEATER_TOLERANCE = 1
+
+
 # We fetch data from the JLab archiver with a program called MySampler, which
 # samples the chosen PVs at a user-specified time interval. Increase to improve
 # statistics, decrease to lower the size of the CSV files and speed up
@@ -118,7 +122,7 @@ def findDataFiles(prefix):
         for name in files:
             if fnmatch(name, prefix + "*"):
                 fileDict[numFiles] = name
-                # fileDict[idx] = join(root, name)
+                #fileDict[numFiles] = join(root, name)
                 numFiles += 1
 
     fileDict[numFiles] = "Generate a new CSV"
@@ -197,14 +201,14 @@ def generateCSV(startTime, endTime, obj):
 
     if isinstance(obj, Cryomodule.Cavity):
         # e.g. q0meas_CM12_cav2_2019-03-03--12-00_10800.csv
-        fileNameString = "q0meas_{cryoMod}_cav{cavityNum}{suff}"
+        fileNameString = "data/q0meas_{cryoMod}_cav{cavityNum}{suff}"
         fileName = fileNameString.format(cryoMod=cryoModStr,
                                          cavityNum=obj.cavNum,
                                          suff=suffix)
 
     else:
         # e.g. calib_CM12_2019-02-25--11-25_18672.csv
-        fileNameString = "calib_{cryoMod}{suff}"
+        fileNameString = "data/calib_{cryoMod}{suff}"
         fileName = fileNameString.format(cryoMod=cryoModStr, suff=suffix)
 
     if isfile(fileName):
@@ -302,7 +306,7 @@ def generateCSV(startTime, endTime, obj):
 # @param signals: list of PV strings
 ################################################################################
 def getArchiveData(startTime, numPoints, signals):
-    print(signals)
+
     cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
            + ['-s', str(MYSAMPLER_TIME_INTERVAL) + 's', '-n'] + [str(numPoints)]
            + signals)
@@ -429,6 +433,9 @@ def populateRuns(obj):
         valveOutsideTol = (abs(obj.valvePosBuff[idx] - obj.refValvePos)
                            > VALVE_POSITION_TOLERANCE)
         isLastElement = (idx == len(obj.elecHeatBuff) - 1)
+        
+        heatersOutsideTol = (abs(elecHeatLoad - obj.elecHeatActBuff[idx])
+                             >= HEATER_TOLERANCE)
 
         # A "break" condition defining the end of a run if the desired heater
         # value changed, or if the upstream liquid level dipped below the
@@ -436,7 +443,7 @@ def populateRuns(obj):
         # we reached the end (which is a kinda jank way of "flushing" the last
         # run)
         return (heaterChanged or liqLevelTooLow or valveOutsideTol
-                or isLastElement)
+                or isLastElement or heatersOutsideTol)
 
     # noinspection PyShadowingNames
     def checkAndFlushRun(isEndOfRun, idx, runStartIdx):
@@ -588,6 +595,7 @@ def processRuns(obj):
         xIntercept = -yIntercept / obj.calibSlope
         
         delta = -xIntercept
+        print("Delta = " + str(delta))
         
         obj.calibIntercept = 0
         
@@ -814,7 +822,7 @@ def getQ0Measurements():
 
         else:
             cryModObj = Cryomodule(cryomoduleSLAC, cryomoduleLERF,
-                                   calibFiles[option], valveLockedPos,
+                                   "data/" + calibFiles[option], valveLockedPos,
                                    refHeaterVal)
 
         if not cryModObj:
@@ -864,7 +872,7 @@ def getQ0Measurements():
                 return
 
         else:
-            cavObj.dataFileName = q0MeasFiles[option]
+            cavObj.dataFileName = "data/" + q0MeasFiles[option]
 
         processData(cavObj)
 
