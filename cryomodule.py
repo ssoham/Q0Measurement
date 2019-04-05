@@ -4,35 +4,42 @@
 # Authors: Lisa Zacarias, Ben Ripman
 ################################################################################
 
+from __future__ import print_function
 from decimal import Decimal
-
+from collections import OrderedDict
 
 class Cryomodule:
     # We're assuming that the convention is going to be to run the calibration
     # on cavity 1, but we're leaving some wiggle room in case
     def __init__(self, cryModNumSLAC, cryModNumJLAB, calFileName,
-                 refValvePos, refHeaterVal, calCavNum=1):
+                 refValvePos, refHeatLoad):
+
         self.name = "CM{cryModNum}".format(cryModNum=cryModNumSLAC)
         self.cryModNumSLAC = cryModNumSLAC
         self.cryModNumJLAB = cryModNumJLAB
         self.dataFileName = calFileName
         self.refValvePos = refValvePos
-        self.refHeaterVal = refHeaterVal
-        self.calCavNum = calCavNum
+        self.refHeatLoad = refHeatLoad
 
         jlabNumStr = str(self.cryModNumJLAB)
-        self.valvePV = "CPV:CM0" + jlabNumStr + ":3001:JT:POS_RBV"
-        self.dsLevelPV = "CLL:CM0" + jlabNumStr + ":2301:DS:LVL"
-        self.usLevelPV = "CLL:CM0" + jlabNumStr + ":2601:US:LVL"
         self.dsPressurePV = "CPT:CM0" + jlabNumStr + ":2302:DS:PRESS"
+        self.jtModePV = "CPV:CM0" + jlabNumStr + ":3001:JT:MODE"
+        self.cvFormatter = "CPID:CM0" + jlabNumStr + ":3001:JT:CV_{SUFFIX}"
+        self.valvePV = "CPID:CM0{CM}:3001:JT:CV_VALUE".format(CM=cryModNumJLAB)
+        self.dsLevelPV = "CLL:CM0{CM}:2301:DS:LVL".format(CM=cryModNumJLAB)
+        self.usLevelPV = "CLL:CM0{CM}:2601:US:LVL".format(CM=cryModNumJLAB)
 
         # These buffers store calibration data read from the CSV <dataFileName>
         self.unixTimeBuff = []
         self.timeBuff = []
         self.valvePosBuff = []
-        self.heaterBuff = []
+        # self.heaterBuff = []
         self.dsLevelBuff = []
         self.usLevelBuff = []
+
+        self.elecHeatBuff = []
+
+        self.elecHeatActBuff = []
 
         # This buffer stores the heater calibration data runs as DataRun objects
         self.runs = []
@@ -43,18 +50,36 @@ class Cryomodule:
                           self.usLevelPV: self.usLevelBuff}
 
         # Give each cryomodule 8 cavities
-        self.cavities = {i: self.Cavity(parent=self, cavNumber=i)
-                         for i in range(1, 9)}
+        cavities = {i: self.Cavity(parent=self, cavNumber=i)
+                    for i in range(1, 9)}
+
+        self.cavities = OrderedDict(sorted(cavities.items()))
 
         # These characterize the cryomodule's overall heater calibration curve
         self.calibSlope = None
         self.calibIntercept = None
 
+        self.cvMaxPV = self.cvFormatter.format(SUFFIX="MAX")
+        self.cvMinPV = self.cvFormatter.format(SUFFIX="MIN")
+        
+        heaterFormatStr = "CHTR:CM0{CM}:1{CAV}55:HV:POWER_SETPT"
+
+        self.heaterPVs = [heaterFormatStr.format(CM=cryModNumJLAB, CAV=cav)
+                          for cav in self.cavities]
+
+        heaterActFormatStr = "CHTR:CM0{CM}:1{CAV}55:HV:POWER"
+
+        self.heaterActPVs = [heaterActFormatStr.format(CM=cryModNumJLAB, CAV=cav)
+                          for cav in self.cavities]
+
+    # def genHeaterPV(self, suffix):
+    #     return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", suffix)
+
     # Returns a list of the PVs used for its data acquisition, including
     # the PV of the cavity heater used for calibration
     def getPVs(self):
-        return [self.valvePV, self.dsLevelPV, self.usLevelPV,
-                self.cavities[self.calCavNum].heaterPV]
+        return ([self.valvePV, self.dsLevelPV, self.usLevelPV]
+                + self.heaterPVs + self.heaterActPVs)
 
     @property
     def runElecHeatLoads(self):
@@ -75,25 +100,19 @@ class Cryomodule:
             self.refGradVal = None
             self.refValvePos = None
 
-            heaterPVStr = "CHTR:CM0{cryModNum}:1{cavNum}55:HV:POWER"
-            self.heaterPV = heaterPVStr.format(cryModNum=parent.cryModNumJLAB,
-                                               cavNum=cavNumber)
-
-            gradPVStr = "ACCL:L1B:0{cryModNum}{cavNum}0:GACT"
-            self.gradPV = gradPVStr.format(
-                cryModNum=parent.cryModNumJLAB,
-                cavNum=cavNumber)
-
             # These buffers store Q0 measurement data read from the CSV
             # <dataFileName>
             self.unixTimeBuff = []
             self.timeBuff = []
             self.valvePosBuff = []
-            self.heaterBuff = []
+            #self.heaterBuff = []
             self.dsLevelBuff = []
             self.usLevelBuff = []
             self.gradBuff = []
             self.dsPressBuff = []
+            self.elecHeatBuff = []
+
+            self.elecHeatActBuff = []
 
             # This buffer stores the heater calibration data runs as Q0DataRun
             # objects
@@ -105,17 +124,25 @@ class Cryomodule:
                               self.parent.dsLevelPV:
                                   self.dsLevelBuff,
                               self.parent.usLevelPV: self.usLevelBuff,
-                              self.heaterPV: self.heaterBuff,
                               self.gradPV: self.gradBuff,
                               self.parent.dsPressurePV:
                                   self.dsPressBuff}
 
+        def genPV(self, formatStr, suffix):
+            return formatStr.format(CM=self.cryModNumJLAB,
+                                    CAV=self.cavNum,
+                                    SUFFIX=suffix)
+
+        def genAcclPV(self, suffix):
+            return self.genPV("ACCL:L1B:0{CM}{CAV}0:{SUFFIX}", suffix)
+
         # Similar to the Cryomodule function, it just has the gradient PV
         # instead of the heater PV
         def getPVs(self):
-            return [self.parent.valvePV, self.parent.dsLevelPV,
-                    self.parent.usLevelPV, self.gradPV, self.heaterPV,
-                    self.parent.dsPressurePV]
+            return ([self.parent.valvePV, self.parent.dsLevelPV,
+                    self.parent.usLevelPV, self.gradPV,
+                    self.parent.dsPressurePV] + self.parent.heaterPVs
+                    + self.parent.heaterActPVs)
 
         def printReport(self):
             # TODO handle white space more elegantly
@@ -144,8 +171,8 @@ class Cryomodule:
         # whenever someone calls Cavity.refValvePos, it'll return the parent
         # value)
         @property
-        def refHeaterVal(self):
-            return self.parent.refHeaterVal
+        def refHeatLoad(self):
+            return self.parent.refHeatLoad
 
         @property
         def cryModNumSLAC(self):
@@ -162,6 +189,46 @@ class Cryomodule:
         @property
         def runSlopes(self):
             return [run.slope for run in self.runs]
+
+        @property
+        def cryModNumJLAB(self):
+            return self.parent.cryModNumJLAB
+
+        @property
+        def gradPV(self):
+            return self.genAcclPV("GACT")
+
+        #@property
+        #def heaterPV(self):
+            #return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", "POWER_SETPT")
+
+        @property
+        def valvePV(self):
+            return self.parent.valvePV
+
+        @property
+        def dsLevelPV(self):
+            return self.parent.dsLevelPV
+
+        @property
+        def jtModePV(self):
+            return self.parent.jtModePV
+
+        @property
+        def cvMaxPV(self):
+            return self.parent.cvMaxPV
+
+        @property
+        def cvMinPV(self):
+            return self.parent.cvMinPV
+
+        @property
+        def heaterPVs(self):
+            return self.parent.heaterPVs
+            
+        @property
+        def heaterActPVs(self):
+            return self.parent.heaterActPVs
 
 
 # There are two types of data runs that we need to store - cryomodule heater
@@ -205,13 +272,12 @@ class Q0DataRun(DataRun):
         # The calculated Q0 value for this run
         self.q0 = None
 
-
 def main():
     cryomodule = Cryomodule(cryModNumSLAC=12, cryModNumJLAB=2, calFileName="",
-                            refValvePos=0, refHeaterVal=0)
-    for idx, cav in cryomodule.cavities.iteritems():
-        print cav.gradPV
-        print cav.heaterPV
+                            refValvePos=0, refHeatLoad=0)
+    for idx, cav in cryomodule.cavities.items():
+        print(cav.gradientPV)
+        print(cav.heaterPV)
 
 
 if __name__ == '__main__':
