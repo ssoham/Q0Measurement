@@ -156,9 +156,10 @@ class Cryomodule:
                 line3 = "                  RF heat load: {heat} W\n"
                 report += (line3.format(heat=round(run.rfHeatLoad, 2)))
 
-                line4 = "                 Calculated Q0: {Q0Val}\n"
-                Q0 = '{:.2e}'.format(Decimal(run.q0))
-                report += (line4.format(Q0Val=Q0))
+                if run.q0:
+                    line4 = "                 Calculated Q0: {Q0Val}\n"
+                    Q0 = '{:.2e}'.format(Decimal(run.q0))
+                    report += (line4.format(Q0Val=Q0))
 
             print(report)
 
@@ -271,10 +272,6 @@ class Q0DataRun(DataRun):
 
         # The calculated Q0 value for this run
         self.q0 = None
-
-        # Distinguishes between RF data runs and cavity heater runs (which are
-        # used to
-        self.isHeaterRun = None
 
 
 def main():

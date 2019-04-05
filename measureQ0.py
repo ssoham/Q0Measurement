@@ -332,6 +332,41 @@ def reformatDate(row):
         return "\t".join(row.strip().split())
 
 
+def generateDataFiles(metadataFile):
+    with open(metadataFile) as csvFile:
+        csvReader = reader(csvFile)
+        calibRow = csvReader.next()
+
+        cryoModuleObj = Cryomodule(cryModNumSLAC=int(calibRow[0]),
+                                   cryModNumJLAB=int(calibRow[1]),
+                                   calFileName=None,
+                                   refValvePos=float(calibRow[3]),
+                                   refHeatLoad=float(calibRow[2]))
+
+        datetimeFormatStr = "%m-%d-%Y-%H-%M"
+
+        start = datetime.strptime(calibRow[4], datetimeFormatStr)
+        end = datetime.strptime(calibRow[5], datetimeFormatStr)
+
+        cryoModuleObj.dataFileName = generateCSV(start, end, cryoModuleObj)
+
+        for row in csvReader:
+            cavObj = cryoModuleObj.cavities[int(row[0])]
+            cavObj.refGradVal = float(row[1])
+
+            cavObj.refValvePos = float(row[2])
+
+            start = datetime.strptime(row[3], datetimeFormatStr)
+            end = datetime.strptime(row[4], datetimeFormatStr)
+
+            cavObj.dataFileName = generateCSV(start, end, cavObj)
+
+            processData(cavObj)
+            cavObj.printReport()
+
+#         SLAC  LERF    refheat jt  start   end
+# cav   grad    jt  start   end
+
 # parseDataFromCSV parses CSV data to populate the given object's data buffers
 # @param obj: either a Cryomodule or Cavity object
 def parseDataFromCSV(obj):
@@ -600,33 +635,31 @@ def processRuns(obj):
             run.elecHeatLoad += delta
 
     else:
+        offsets = []
+        heaterRuns = []
 
-        for run in obj.runs:
+        for idx, run in enumerate(obj.runs):
+            if run.elecHeatLoadDes != 0:
+                calcHeatLoad = ((run.slope - obj.parent.calibIntercept)
+                                / obj.parent.calibSlope)
+                offsets.append(run.elecHeatLoad - calcHeatLoad)
+                run.totalHeatLoad = run.elecHeatLoad
+                run.rfHeatLoad = 0
+                heaterRuns.append(idx)
 
-            # We're dealing with a cavity here. We need to start by figuring out
-            # the overall heat load over baseline for each run. We do this by
-            # taking the run's slope and projecting it on the parent
-            # cryomodule's heater calibration curve.
-            # y = m * x + b  ==>  we want to find the heat load x, where...
-            # y = run.slope
-            # m = obj.parent.calibSlope
-            # b = obj.parent.calibIntercept
-            # So x = (y - b) / m
+        offset = mean(offsets) if offsets else 0
+
+        for run in [rfRun for i, rfRun in enumerate(obj.runs)
+                    if i not in heaterRuns]:
+
             heatLoad = ((run.slope - obj.parent.calibIntercept)
-                        / obj.parent.calibSlope)
+                        / obj.parent.calibSlope) + offset
 
             run.totalHeatLoad = heatLoad
             run.rfHeatLoad = heatLoad - run.elecHeatLoad
 
             q0s = []
 
-            # We have some old data sets that are missing pressure and gradient
-            # information. Unfortunately we need a bunch of if/else statements
-            # to get around that. We can remove these if we want to discard
-            # the old data at some point.
-            
-            # TODO handle Nones in other buffers
-            
             if obj.dsPressBuff:
                 for idx in range(run.startIdx, run.endIdx):
                     if obj.gradBuff[idx]:
@@ -634,7 +667,7 @@ def processRuns(obj):
                                           obj.dsPressBuff[idx]))
                     else:
                         q0s.append(calcQ0(obj.refGradVal, run.rfHeatLoad,
-                                          obj.dsPressBuff[idx]))    
+                                          obj.dsPressBuff[idx]))
             else:
                 for idx in range(run.startIdx, run.endIdx):
                     if obj.gradBuff[idx]:
@@ -643,6 +676,49 @@ def processRuns(obj):
                         q0s.append(calcQ0(obj.refGradVal, run.rfHeatLoad))
 
             run.q0 = mean(q0s)
+
+        # for run in obj.runs:
+        #
+        #     # We're dealing with a cavity here. We need to start by figuring out
+        #     # the overall heat load over baseline for each run. We do this by
+        #     # taking the run's slope and projecting it on the parent
+        #     # cryomodule's heater calibration curve.
+        #     # y = m * x + b  ==>  we want to find the heat load x, where...
+        #     # y = run.slope
+        #     # m = obj.parent.calibSlope
+        #     # b = obj.parent.calibIntercept
+        #     # So x = (y - b) / m
+        #     heatLoad = ((run.slope - obj.parent.calibIntercept)
+        #                 / obj.parent.calibSlope)
+        #
+        #     run.totalHeatLoad = heatLoad
+        #     run.rfHeatLoad = heatLoad - run.elecHeatLoad
+        #
+        #     q0s = []
+        #
+        #     # We have some old data sets that are missing pressure and gradient
+        #     # information. Unfortunately we need a bunch of if/else statements
+        #     # to get around that. We can remove these if we want to discard
+        #     # the old data at some point.
+        #
+        #     # TODO handle Nones in other buffers
+        #
+        #     if obj.dsPressBuff:
+        #         for idx in range(run.startIdx, run.endIdx):
+        #             if obj.gradBuff[idx]:
+        #                 q0s.append(calcQ0(obj.gradBuff[idx], run.rfHeatLoad,
+        #                                   obj.dsPressBuff[idx]))
+        #             else:
+        #                 q0s.append(calcQ0(obj.refGradVal, run.rfHeatLoad,
+        #                                   obj.dsPressBuff[idx]))
+        #     else:
+        #         for idx in range(run.startIdx, run.endIdx):
+        #             if obj.gradBuff[idx]:
+        #                 q0s.append(calcQ0(obj.gradBuff[idx], run.rfHeatLoad))
+        #             else:
+        #                 q0s.append(calcQ0(obj.refGradVal, run.rfHeatLoad))
+        #
+        #     run.q0 = mean(q0s)
 
     if IS_DEMO:
         for i, run in enumerate(obj.runs):
@@ -762,7 +838,6 @@ def addFileToCavity(cavity):
     endTimeCalib = startTimeQ0Meas + timedelta(hours=duration)
 
     cavity.dataFileName = generateCSV(startTimeQ0Meas, endTimeCalib, cavity)
-
 
 # Magical formula from Mike Drury (drury@jlab.org) to calculate Q0 from the
 # measured heat load on a cavity, the RF gradient used during the test, and the
