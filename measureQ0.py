@@ -234,13 +234,11 @@ def generateCSV(startTime, endTime, obj):
 
         for heaterPV in obj.heaterPVs:
             index = header.index(heaterPV)
-            #print(index)
             heaterCols.append(index)
-            #print(heaterCols)
-            #print(trimmedHeader)
-            #trimmedHeader.pop(index)
             
-        for index in sorted(heaterCols, reverse=True):
+        heaterCols = sorted(heaterCols, reverse=True)
+            
+        for index in heaterCols:
             del trimmedHeader[index]
 
         trimmedHeader.append("Electric Heat Load")
@@ -254,14 +252,13 @@ def generateCSV(startTime, endTime, obj):
                 heatLoad = 0
 
                 for col in heaterCols:
-                    #del trimmedRow[col]
                     try:
                         heatLoad += float(row[col])
                     except ValueError:
                         heatLoad = None
                         break
                         
-                for index in sorted(heaterCols, reverse=True):
+                for index in heaterCols:
                     del trimmedRow[index]
 
                 trimmedRow.append(str(heatLoad))
@@ -287,6 +284,7 @@ def generateCSV(startTime, endTime, obj):
 # @param signals: list of PV strings
 ################################################################################
 def getArchiveData(startTime, numPoints, signals):
+    print(signals)
     cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
            + ['-s', str(MYSAMPLER_TIME_INTERVAL) + 's', '-n'] + [str(numPoints)]
            + signals)
@@ -325,14 +323,17 @@ def parseDataFromCSV(obj):
         # Figures out the CSV column that has that PV's data and maps it
         for pv, dataBuff in obj.pvBuffMap.items():
             linkBuffToColumn(pv, dataBuff, columnDict, header)
+            
+        linkBuffToColumn("Electric Heat Load", obj.elecHeatBuff, columnDict,
+                             header)
 
-        if isinstance(obj, Cryomodule):
+        #if isinstance(obj, Cryomodule):
             # We do the calibration using a cavity heater (usually cavity 1)
             # instead of RF, so we use the heater PV to parse the calibration
             # data using the different heater settings
 
-            linkBuffToColumn("Electric Heat Load", obj.elecHeatBuff, columnDict,
-                             header)
+            #linkBuffToColumn("Electric Heat Load", obj.elecHeatBuff, columnDict,
+                             #header)
 
         try:
             # Data fetched from the JLab archiver has the timestamp column
@@ -361,7 +362,8 @@ def parseDataFromCSV(obj):
                 try:
                     idxBuffDict["buffer"].append(float(row[idxBuffDict["idx"]]))
                 except ValueError:
-                    stderr.write("Could not parse row: " + str(row) + "\n")
+                    #stderr.write("Could not fill buffer: " + str(col) + "\n")
+                    idxBuffDict["buffer"].append(None)
 
 
 def linkBuffToColumn(column, dataBuff, columnDict, header):
@@ -448,9 +450,9 @@ def populateRuns(obj):
         for idx, elecHeatLoad in enumerate(obj.elecHeatBuff):
 
             try:
-                gradChanged = (abs(obj.gradBuff[idx] - obj.refGradVal)
-                               > GRAD_TOLERANCE)
-            except IndexError:
+                gradChanged = (abs(obj.gradBuff[idx] - obj.gradBuff[idx-1])
+                               > GRAD_TOLERANCE) if idx != 0 else False
+            except TypeError:
                 gradChanged = False
 
             isEndOfQ0Run = isEndOfCalibRun(idx, elecHeatLoad) or gradChanged
@@ -480,36 +482,53 @@ def adjustForSettle(obj):
     for i, run in enumerate(obj.runs):
 
         startIdx = run.startIdx
-        prevStartIdx = obj.runs[i - 1].startIdx if i > 0 else run.startIdx
-
         elecHeatBuff = obj.elecHeatBuff
-        elecHeatDelta = elecHeatBuff[startIdx] - elecHeatBuff[prevStartIdx]
+        
+        if i == 0:
+            totalHeatDelta = (elecHeatBuff[startIdx] - obj.refHeatLoad)
+            totalHeatDelta += (approxHeatFromGrad(obj.gradBuff[startIdx])
+                               if isinstance(obj, Cryomodule.Cavity) else 0)
+                              
+        else:
+        
+            prevStartIdx = obj.runs[i - 1].startIdx
 
-        totalHeatDelta = abs(elecHeatDelta)
+            elecHeatDelta = elecHeatBuff[startIdx] - elecHeatBuff[prevStartIdx]
 
-        if isinstance(obj, Cryomodule.Cavity):
-            gradBuff = obj.gradBuff
+            totalHeatDelta = abs(elecHeatDelta)
 
-            # Checking that gradBuff isn't empty because we have some old data
-            # from before the gradient was being archived.
-            if gradBuff:
-                currGrad = gradBuff[startIdx]
-                currGradHeatLoad = approxHeatFromGrad(currGrad)
+            if isinstance(obj, Cryomodule.Cavity):
+                gradBuff = obj.gradBuff
 
-                prevGrad = gradBuff[prevStartIdx]
-                prevGradHeatLoad = approxHeatFromGrad(prevGrad)
+                # Checking that gradBuff isn't empty because we have some old data
+                # from before the gradient was being archived.
+                if gradBuff:
+                    currGrad = gradBuff[startIdx]
+                    currGradHeatLoad = approxHeatFromGrad(currGrad)
 
-                gradHeatDelta = currGradHeatLoad - prevGradHeatLoad
-                totalHeatDelta = abs(elecHeatDelta + gradHeatDelta)
+                    prevGrad = gradBuff[prevStartIdx]
+                    prevGradHeatLoad = approxHeatFromGrad(prevGrad)
+
+                    gradHeatDelta = currGradHeatLoad - prevGradHeatLoad
+                    totalHeatDelta = abs(elecHeatDelta + gradHeatDelta)
 
         # Calculate the number of data points to be chopped off the beginning of
         # the data run based on the expected change in the cryomodule heat load.
         # The scale factor is derived from the assumption that a 1 W change in
         # the heat load leads to about 25 useless points (and that this scales
         # linearly with the change in heat load, which isn't really true).
+        # TODO scale this with sample rate
         cutoff = int(totalHeatDelta * 25)
+        
+        idx = obj.runs[i].startIdx
+        startTime = obj.unixTimeBuff[idx]
+        duration = 0
+        
+        while duration < cutoff:
+            idx += 1
+            duration = obj.unixTimeBuff[idx] - startTime
 
-        obj.runs[i].startIdx = obj.runs[i].startIdx + cutoff
+        obj.runs[i].startIdx = idx
 
         if IS_DEMO:
             print("cutoff: " + str(cutoff))
@@ -529,6 +548,8 @@ def processRuns(obj):
                                                                      runData)
 
         run.elecHeatLoad = obj.elecHeatBuff[run.endIdx] - obj.refHeatLoad
+        
+        print("R^2: " + str(r_val ** 2))
 
         # Print R^2 to diagnose whether or not we had a long enough data run
         if IS_DEMO:
@@ -538,8 +559,17 @@ def processRuns(obj):
 
         # We're dealing with a cryomodule here so we need to calculate the
         # fit for the heater calibration curve.
-        obj.calibSlope, obj.calibIntercept = polyfit(obj.runElecHeatLoads,
+        obj.calibSlope, yIntercept = polyfit(obj.runElecHeatLoads,
                                                      obj.runSlopes, 1)
+        
+        xIntercept = -yIntercept / obj.calibSlope
+        
+        delta = -xIntercept
+        
+        obj.calibIntercept = 0
+        
+        for run in obj.runs:
+            run.elecHeatLoad += delta
 
     else:
 
@@ -566,22 +596,22 @@ def processRuns(obj):
             # information. Unfortunately we need a bunch of if/else statements
             # to get around that. We can remove these if we want to discard
             # the old data at some point.
-            if obj.gradBuff:
-                if obj.dsPressBuff:
-                    for idx in range(run.startIdx, run.endIdx):
+            
+            # TODO handle Nones in other buffers
+            
+            if obj.dsPressBuff:
+                for idx in range(run.startIdx, run.endIdx):
+                    if obj.gradBuff[idx]:
                         q0s.append(calcQ0(obj.gradBuff[idx], run.rfHeatLoad,
                                           obj.dsPressBuff[idx]))
-                else:
-                    for idx in range(run.startIdx, run.endIdx):
-                        q0s.append(calcQ0(obj.gradBuff[idx], run.rfHeatLoad))
-
-            else:
-                if obj.dsPressBuff:
-                    for idx in range(run.startIdx, run.endIdx):
+                    else:
                         q0s.append(calcQ0(obj.refGradVal, run.rfHeatLoad,
-                                          obj.dsPressBuff[idx]))
-                else:
-                    for idx in range(run.startIdx, run.endIdx):
+                                          obj.dsPressBuff[idx]))    
+            else:
+                for idx in range(run.startIdx, run.endIdx):
+                    if obj.gradBuff[idx]:
+                        q0s.append(calcQ0(obj.gradBuff[idx], run.rfHeatLoad))
+                    else:
                         q0s.append(calcQ0(obj.refGradVal, run.rfHeatLoad))
 
             run.q0 = mean(q0s)
@@ -695,6 +725,7 @@ def addFileToCavity(cavity):
 def calcQ0(grad, rfHeatLoad, avgPressure=None):
     # The initial Q0 calculation doesn't account for the temperature variation
     # of the 2 K helium
+        
     uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
 
     if avgPressure:

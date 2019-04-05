@@ -1,4 +1,5 @@
 from __future__ import print_function
+from __future__ import division
 from subprocess import CalledProcessError
 from time import sleep
 from cryomodule import Cryomodule
@@ -21,10 +22,12 @@ DESIRED_LL = 95
 def runQ0Meas(cavity, desiredGradient):
     # type: (Cryomodule.Cavity, float) -> None
     try:
+        print("**********Make sure the characterization is done!**********")
+        checkAcqControl(cavity)
         waitForCryo(cavity)
         setPowerSSA(cavity, True)
 
-        #caputPV(cavity.genPV("SEL_ASET"), "15")
+        #caputPV(cavity.genAcclPV("SEL_ASET"), "15")
 
         # Start with pulsed mode
         setModeRF(cavity, "4")
@@ -32,6 +35,7 @@ def runQ0Meas(cavity, desiredGradient):
         setStateRF(cavity, True)
         pushGoButton(cavity)
 
+        checkAndSetOnTime(cavity)
         checkDrive(cavity)
 
         phaseCavity(cavity)
@@ -46,12 +50,69 @@ def runQ0Meas(cavity, desiredGradient):
         holdGradient(cavity, desiredGradient)
 
         powerDown(cavity)
+        
+        launchHeaterRun(cavity)
 
     except(CalledProcessError, IndexError, OSError, ValueError,
            AssertionError) as e:
         stderr.write("\nProcedure failed with error:\n{E}\n\n".format(E=e))
         sleep(0.01)
         powerDown(cavity)
+        
+
+def launchHeaterRun(cavity):
+    for heaterPV in cavity.heaterPVs:
+        curVal = float(cagetPV(heaterPV))
+        caputPV(heaterPV, str(curVal + 1))
+        
+    startTime = datetime.now()
+    
+    print("\nStart time: {START}".format(START=startTime))
+    
+    stdout.write("\nRunning heaters for 40 minutes...")
+    
+    while (datetime.now() - startTime).total_seconds() < 2400:
+        stdout.write(".")
+        stdout.flush()
+        if float(cagetPV(cavity.dsLevelPV)) < 90:
+            break
+        sleep(5)
+        
+    print("\nEnd Time: {END}".format(END=datetime.now()))
+    duration = (datetime.now() - startTime).total_seconds() / 3600
+    print("Duration in hours: {DUR}".format(DUR=duration))
+    
+    for heaterPV in cavity.heaterPVs:
+        curVal = float(cagetPV(heaterPV))
+        caputPV(heaterPV, str(curVal - 1))
+        
+
+def checkAcqControl(cavity):
+    print("Checking Waveform Data Acquisition Control...")
+    for infix in ["CAV", "FWD", "REV", "DRV", "DAC"]:
+        enablePV = cavity.genAcclPV(infix + ":ENABLE")
+        if float(cagetPV(enablePV)) != 1:
+            print("Enabling {INFIX}".format(INFIX=infix))
+            caputPV(enablePV, "1")
+    
+    suffixValPairs = [("MODE", 1), ("HLDOFF", 0.1), ("STAT_START", 0.065),
+                      ("STAT_WIDTH", 0.004), ("DECIM", 255)]
+    
+    for suffix, val in suffixValPairs:
+        pv = cavity.genAcclPV("ACQ_" + suffix)
+        if float(cagetPV(enablePV)) != val:
+            print("Setting {SUFFIX}".format(SUFFIX=suffix))
+            caputPV(pv, str(val))
+
+        
+def checkAndSetOnTime(cavity):
+    print("Checking RF Pulse On Time...")
+    onTimePV = cavity.genAcclPV("PULSE_ONTIME")
+    onTime = cagetPV(onTimePV)
+    if onTime != "70":
+        print("Setting RF Pulse On Time to 70ms")
+        caputPV(onTimePV, "70")
+        
 
 def waitForCryo(cavity):
     stdout.write("\nWaiting for cryo to be at required levels...")
@@ -161,7 +222,7 @@ def checkDrive(cavity):
     drivePV = cavity.genAcclPV("SEL_ASET")
     currDrive = float(cagetPV(drivePV))
 
-    while (float(cagetPV(cavity.gradientPV)) < 1) or (currDrive < 15):
+    while (float(cagetPV(cavity.gradPV)) < 1) or (currDrive < 15):
         
         print("Increasing drive...")
         driveDes = str(currDrive + 1)
@@ -273,20 +334,20 @@ def phaseCavity(cavity):
 
 def lowerAmplitude(cavity):
     print("Lowering amplitude")
-    caputPV(cavity.genPV("ADES"), "2")
+    caputPV(cavity.genAcclPV("ADES"), "2")
 
 
 def walkToGradient(cavity, desiredGradient):
-    amplitudePV = cavity.genPV("ADES")
+    amplitudePV = cavity.genAcclPV("ADES")
     step = 0.5
-    gradient = float(cagetPV(cavity.gradientPV))
+    gradient = float(cagetPV(cavity.gradPV))
     prevGradient = gradient
     diff = gradient - desiredGradient
     prevDiff = diff
     print("Walking gradient...")
 
     while abs(diff) > 0.05:
-        gradient = float(cagetPV(cavity.gradientPV))
+        gradient = float(cagetPV(cavity.gradPV))
 
         if gradient < (prevGradient / 2):
             raise AssertionError("Detected a quench - aborting")
@@ -313,7 +374,7 @@ def holdGradient(cavity, desiredGradient):
     startTime = datetime.now()
 
     step = 0.01
-    prevDiff = float(cagetPV(cavity.gradientPV)) - desiredGradient
+    prevDiff = float(cagetPV(cavity.gradPV)) - desiredGradient
 
     print("\nStart time: {START}".format(START=startTime))
 
@@ -325,7 +386,7 @@ def holdGradient(cavity, desiredGradient):
     while (datetime.now() - startTime).total_seconds() < 2400:
         stdout.write(".")
 
-        gradient = float(cagetPV(cavity.gradientPV))
+        gradient = float(cagetPV(cavity.gradPV))
         
         if hitTarget and gradient <= (desiredGradient / 4):
             raise AssertionError("Detected a quench - aborting")
@@ -350,6 +411,8 @@ def holdGradient(cavity, desiredGradient):
         stdout.flush()
 
     print("\nEnd Time: {END}".format(END=datetime.now()))
+    duration = (datetime.now() - startTime).total_seconds() / 3600
+    print("Duration in hours: {DUR}".format(DUR=duration))
 
 
 def powerDown(cavity):
@@ -357,7 +420,7 @@ def powerDown(cavity):
         print("\nPowering down...")
         setStateRF(cavity, False)
         setPowerSSA(cavity, False)
-        caputPV(cavity.genPV("SEL_ASET"), "15")
+        caputPV(cavity.genAcclPV("SEL_ASET"), "15")
         lowerAmplitude(cavity)
 
     except(CalledProcessError, IndexError, OSError,

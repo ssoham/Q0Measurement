@@ -25,7 +25,7 @@ class Cryomodule:
         self.dsPressurePV = "CPT:CM0" + jlabNumStr + ":2302:DS:PRESS"
         self.jtModePV = "CPV:CM0" + jlabNumStr + ":3001:JT:MODE"
         self.cvFormatter = "CPID:CM0" + jlabNumStr + ":3001:JT:CV_{SUFFIX}"
-        self.valvePV = "CPV:CM0{CM}:3001:JT:POS_RBV".format(CM=cryModNumJLAB)
+        self.valvePV = "CPID:CM0{CM}:3001:JT:CV_VALUE".format(CM=cryModNumJLAB)
         self.dsLevelPV = "CLL:CM0{CM}:2301:DS:LVL".format(CM=cryModNumJLAB)
         self.usLevelPV = "CLL:CM0{CM}:2601:US:LVL".format(CM=cryModNumJLAB)
 
@@ -38,8 +38,6 @@ class Cryomodule:
         self.usLevelBuff = []
 
         self.elecHeatBuff = []
-
-        #self.heaterBuffs = {calCav: [] for calCav in self.calibCavs}
 
         # This buffer stores the heater calibration data runs as DataRun objects
         self.runs = []
@@ -61,8 +59,11 @@ class Cryomodule:
 
         self.cvMaxPV = self.cvFormatter.format(SUFFIX="MAX")
         self.cvMinPV = self.cvFormatter.format(SUFFIX="MIN")
+        
+        heaterFormatStr = "CHTR:CM0{CM}:1{CAV}55:HV:POWER_SETPT"
 
-        self.heaterPVs = [cavity.heaterPV for _, cavity in self.cavities.items()]
+        self.heaterPVs = [heaterFormatStr.format(CM=cryModNumJLAB, CAV=cav)
+                          for cav in self.cavities]
 
     # Returns a list of the PVs used for its data acquisition, including
     # the PV of the cavity heater used for calibration
@@ -93,11 +94,12 @@ class Cryomodule:
             self.unixTimeBuff = []
             self.timeBuff = []
             self.valvePosBuff = []
-            self.heaterBuff = []
+            #self.heaterBuff = []
             self.dsLevelBuff = []
             self.usLevelBuff = []
             self.gradBuff = []
             self.dsPressBuff = []
+            self.elecHeatBuff = []
 
             # This buffer stores the heater calibration data runs as Q0DataRun
             # objects
@@ -109,8 +111,7 @@ class Cryomodule:
                               self.parent.dsLevelPV:
                                   self.dsLevelBuff,
                               self.parent.usLevelPV: self.usLevelBuff,
-                              self.heaterPV: self.heaterBuff,
-                              self.gradientPV: self.gradBuff,
+                              self.gradPV: self.gradBuff,
                               self.parent.dsPressurePV:
                                   self.dsPressBuff}
 
@@ -122,15 +123,15 @@ class Cryomodule:
         def genAcclPV(self, suffix):
             return self.genPV("ACCL:L1B:0{CM}{CAV}0:{SUFFIX}", suffix)
 
-        def genHeaterPV(self, suffix):
-            return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", suffix)
+        #def genHeaterPV(self, suffix):
+            #return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", suffix)
 
         # Similar to the Cryomodule function, it just has the gradient PV
         # instead of the heater PV
         def getPVs(self):
             return [self.parent.valvePV, self.parent.dsLevelPV,
-                    self.parent.usLevelPV, self.gradPV, self.heaterPV,
-                    self.parent.dsPressurePV]
+                    self.parent.usLevelPV, self.gradPV,
+                    self.parent.dsPressurePV] + self.parent.heaterPVs
 
         def printReport(self):
             # TODO handle white space more elegantly
@@ -159,8 +160,8 @@ class Cryomodule:
         # whenever someone calls Cavity.refValvePos, it'll return the parent
         # value)
         @property
-        def refHeaterVal(self):
-            return self.parent.refHeaterVal
+        def refHeatLoad(self):
+            return self.parent.refHeatLoad
 
         @property
         def cryModNumSLAC(self):
@@ -183,12 +184,12 @@ class Cryomodule:
             return self.parent.cryModNumJLAB
 
         @property
-        def gradientPV(self):
+        def gradPV(self):
             return self.genAcclPV("GACT")
 
-        @property
-        def heaterPV(self):
-            return self.genHeaterPV("POWER_SETPT")
+        #@property
+        #def heaterPV(self):
+            #return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", "POWER_SETPT")
 
         @property
         def valvePV(self):
