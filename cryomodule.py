@@ -8,12 +8,12 @@ from __future__ import print_function
 from decimal import Decimal
 from collections import OrderedDict
 
+
 class Cryomodule:
     # We're assuming that the convention is going to be to run the calibration
     # on cavity 1, but we're leaving some wiggle room in case
     def __init__(self, cryModNumSLAC, cryModNumJLAB, calFileName,
                  refValvePos, refHeatLoad):
-
         self.name = "CM{cryModNum}".format(cryModNum=cryModNumSLAC)
         self.cryModNumSLAC = cryModNumSLAC
         self.cryModNumJLAB = cryModNumJLAB
@@ -33,12 +33,9 @@ class Cryomodule:
         self.unixTimeBuff = []
         self.timeBuff = []
         self.valvePosBuff = []
-        # self.heaterBuff = []
         self.dsLevelBuff = []
         self.usLevelBuff = []
-
-        self.elecHeatBuff = []
-
+        self.elecHeatDesBuff = []
         self.elecHeatActBuff = []
 
         # This buffer stores the heater calibration data runs as DataRun objects
@@ -61,7 +58,7 @@ class Cryomodule:
 
         self.cvMaxPV = self.cvFormatter.format(SUFFIX="MAX")
         self.cvMinPV = self.cvFormatter.format(SUFFIX="MIN")
-        
+
         heaterFormatStr = "CHTR:CM0{CM}:1{CAV}55:HV:POWER_SETPT"
 
         self.heaterPVs = [heaterFormatStr.format(CM=cryModNumJLAB, CAV=cav)
@@ -69,8 +66,9 @@ class Cryomodule:
 
         heaterActFormatStr = "CHTR:CM0{CM}:1{CAV}55:HV:POWER"
 
-        self.heaterActPVs = [heaterActFormatStr.format(CM=cryModNumJLAB, CAV=cav)
-                          for cav in self.cavities]
+        self.heaterActPVs = [
+            heaterActFormatStr.format(CM=cryModNumJLAB, CAV=cav)
+            for cav in self.cavities]
 
     # def genHeaterPV(self, suffix):
     #     return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", suffix)
@@ -105,13 +103,11 @@ class Cryomodule:
             self.unixTimeBuff = []
             self.timeBuff = []
             self.valvePosBuff = []
-            #self.heaterBuff = []
             self.dsLevelBuff = []
             self.usLevelBuff = []
             self.gradBuff = []
             self.dsPressBuff = []
-            self.elecHeatBuff = []
-
+            self.elecHeatDesBuff = []
             self.elecHeatActBuff = []
 
             # This buffer stores the heater calibration data runs as Q0DataRun
@@ -140,8 +136,8 @@ class Cryomodule:
         # instead of the heater PV
         def getPVs(self):
             return ([self.parent.valvePV, self.parent.dsLevelPV,
-                    self.parent.usLevelPV, self.gradPV,
-                    self.parent.dsPressurePV] + self.parent.heaterPVs
+                     self.parent.usLevelPV, self.gradPV,
+                     self.parent.dsPressurePV] + self.parent.heaterPVs
                     + self.parent.heaterActPVs)
 
         def printReport(self):
@@ -172,6 +168,7 @@ class Cryomodule:
         # value)
         @property
         def refHeatLoad(self):
+            # TODO incorrect - need to calculate a value for each cavity
             return self.parent.refHeatLoad
 
         @property
@@ -198,9 +195,9 @@ class Cryomodule:
         def gradPV(self):
             return self.genAcclPV("GACT")
 
-        #@property
-        #def heaterPV(self):
-            #return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", "POWER_SETPT")
+        # @property
+        # def heaterPV(self):
+        # return self.genPV("CHTR:CM0{CM}:1{CAV}55:HV:{SUFFIX}", "POWER_SETPT")
 
         @property
         def valvePV(self):
@@ -225,7 +222,7 @@ class Cryomodule:
         @property
         def heaterPVs(self):
             return self.parent.heaterPVs
-            
+
         @property
         def heaterActPVs(self):
             return self.parent.heaterActPVs
@@ -237,7 +234,6 @@ class Cryomodule:
 class DataRun(object):
 
     def __init__(self, runStartIdx=None, runEndIdx=None):
-
         # startIdx and endIdx define the beginning and the end of this data run
         # within the cryomodule or cavity's data buffers
         self.startIdx = runStartIdx
@@ -251,13 +247,14 @@ class DataRun(object):
         # elecHeatLoad is the electric heat load over baseline for this run
         self.elecHeatLoad = None
 
+        self.elecHeatLoadDes = None
+
 
 # Q0DataRun stores all the information about cavity Q0 measurement runs that
 # isn't included in the parent class DataRun
 class Q0DataRun(DataRun):
 
     def __init__(self, runStartIdx=None, runEndIdx=None):
-
         super(Q0DataRun, self).__init__(runStartIdx, runEndIdx)
 
         # Q0 measurement runs have a total heat load value which we calculate
@@ -269,8 +266,16 @@ class Q0DataRun(DataRun):
         # heat load
         self.rfHeatLoad = None
 
+        # The average gradient
+        self.grad = None
+
         # The calculated Q0 value for this run
         self.q0 = None
+
+        # Distinguishes between RF data runs and cavity heater runs (which are
+        # used to
+        self.isHeaterRun = None
+
 
 def main():
     cryomodule = Cryomodule(cryModNumSLAC=12, cryModNumJLAB=2, calFileName="",
