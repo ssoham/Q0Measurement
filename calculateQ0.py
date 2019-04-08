@@ -27,7 +27,7 @@ from copy import deepcopy
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
-IS_DEMO = False
+IS_DEMO = True
 
 
 # The LL readings get wonky when the upstream liquid level dips below 66
@@ -53,7 +53,7 @@ HEATER_TOLERANCE = 1
 MYSAMPLER_TIME_INTERVAL = 1
 
 
-# The minimum acceptable run length is fifteen minutes
+# The minimum acceptable run length is fifteen minutes  (900 seconds)
 MIN_RUN_DURATION = 900
 
 
@@ -212,10 +212,6 @@ def generateCSV(startTime, endTime, obj):
         fileName = fileNameString.format(cryoMod=cryoModStr, suff=suffix)
 
     if isfile(fileName):
-        #overwrite = get_str_lim("Overwrite previous CSV file '" + fileName
-                                #+ "' (y/n)? ",
-                                #acceptable_strings=['y', 'n']) == 'y'
-        #if not overwrite:
         return fileName
 
     print("\nGetting data from the archive...\n")
@@ -236,7 +232,7 @@ def generateCSV(startTime, endTime, obj):
 
         heaterCols = []
 
-        for heaterPV in obj.heaterPVs:
+        for heaterPV in obj.heaterDesPVs:
             index = header.index(heaterPV)
             heaterCols.append(index)
 
@@ -332,7 +328,7 @@ def reformatDate(row):
         return "\t".join(row.strip().split())
 
 
-def generateDataFiles(metadataFile):
+def generateDataFiles(metadataFile, startFigNum=1):
     with open(metadataFile) as csvFile:
         csvReader = reader(csvFile, delimiter='\t')
         calibRow = csvReader.next()
@@ -374,9 +370,9 @@ def generateDataFiles(metadataFile):
             processData(cavObj)
             cavObj.printReport()
             
-            calibCurveAxis.plot(cavObj.runHeatLoads, cavObj.adjustedRunSlopes, marker="o",
-                            linestyle="None", label="Projected Data for "
-                                                    + cavObj.name)
+            calibCurveAxis.plot(cavObj.runHeatLoads, cavObj.adjustedRunSlopes,
+                                marker="o", linestyle="None",
+                                label="Projected Data for " + cavObj.name)
 
             calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
 
@@ -398,9 +394,13 @@ def generateDataFiles(metadataFile):
                                              + cryoModuleObj.calibIntercept
                                              for i in yRange])                                             
 
-        for i in plt.get_fignums():
+        lastFigNum = len(plt.get_fignums())
+        for i in range(startFigNum, lastFigNum):
             plt.figure(i)
-            plt.savefig("figures/{CM}_{FIG}.png".format(CM=cryoModuleObj.name, FIG=i))
+            plt.savefig("figures/{CM}_{FIG}.png".format(CM=cryoModuleObj.name,
+                                                        FIG=i))
+
+        return lastFigNum
 
         #plt.show()
 
@@ -647,12 +647,10 @@ def processRuns(obj):
                             - obj.elecHeatActBuff[0])
         run.elecHeatLoadDes = (obj.elecHeatDesBuff[run.endIdx]
                                - obj.refHeatLoad)
-        
-        print("R^2: " + str(r_val ** 2))
 
         # Print R^2 to diagnose whether or not we had a long enough data run
-        if IS_DEMO:
-            print("R^2: " + str(r_val ** 2))
+        print("R^2: " + str(r_val ** 2))
+
 
     if isCalibration:
 
@@ -771,8 +769,8 @@ def processRuns(obj):
             runStr = "Duration of run {runNum}: {duration}"
             print(runStr.format(runNum=(i + 1),
                                 duration=((endTime - startTime) / 60.0)))
-            heatStr = "Electric heat Load: {heat}"
-            print(heatStr.format(heat=obj.runs[i].elecHeatLoad))
+            # heatStr = "Electric heat Load: {heat}"
+            # print(heatStr.format(heat=obj.runs[i].elecHeatLoad))
 
 
 ################################################################################
@@ -887,13 +885,13 @@ def addFileToCavity(cavity):
 # measured heat load on a cavity, the RF gradient used during the test, and the
 # pressure of the incoming 2 K helium.
 def calcQ0(grad, rfHeatLoad, avgPressure=None):
+
     # The initial Q0 calculation doesn't account for the temperature variation
     # of the 2 K helium
-        
     uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
 
+    # We can correct Q0 for the helium temperature!
     if avgPressure:
-        # We can correct Q0 for the helium temperature!
         tempFromPress = (avgPressure * 0.0125) + 1.705
         C1 = 271
         C2 = 0.0000726
@@ -902,10 +900,12 @@ def calcQ0(grad, rfHeatLoad, avgPressure=None):
         C5 = 0.000000043
         C6 = -17.02
         C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))
+
         correctedQ0 = C1 / ((C7 / 2) * exp(C6 / 2)
                             + C1 / uncorrectedQ0
                             - (C7 / tempFromPress) * exp(C6 / tempFromPress))
         return correctedQ0
+
     else:
         return uncorrectedQ0
 
@@ -1045,12 +1045,11 @@ def getQ0Measurements():
 
 
 if __name__ == "__main__":
-    analyze = False
-    if analyze:
+    if not IS_DEMO:
         getQ0Measurements()
     else:
-        #files = ["test_data.tsv"]
         files = ["cm5_run_data_no_htr.tsv", "cm5_run_data_yes_htr.tsv",
                  "cm12_run_data.tsv"]
+        startFigNum = 1
         for file in files:
-            generateDataFiles(file)
+            startFigNum = generateDataFiles(file, startFigNum)

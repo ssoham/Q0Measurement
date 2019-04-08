@@ -61,6 +61,8 @@ def runQ0Meas(cavity, desiredGradient):
         
 
 def launchHeaterRun(cavity):
+    # TODO check cryo levels
+
     for heaterPV in cavity.heaterPVs:
         curVal = float(cagetPV(heaterPV))
         caputPV(heaterPV, str(curVal + 1))
