@@ -27,7 +27,7 @@ from copy import deepcopy
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
-IS_DEMO = True
+IS_DEMO = False
 
 
 # The LL readings get wonky when the upstream liquid level dips below 66
@@ -50,7 +50,7 @@ HEATER_TOLERANCE = 1
 # samples the chosen PVs at a user-specified time interval. Increase to improve
 # statistics, decrease to lower the size of the CSV files and speed up
 # MySampler data acquisition.
-MYSAMPLER_TIME_INTERVAL = 5
+MYSAMPLER_TIME_INTERVAL = 1
 
 
 # The minimum acceptable run length is fifteen minutes
@@ -212,11 +212,11 @@ def generateCSV(startTime, endTime, obj):
         fileName = fileNameString.format(cryoMod=cryoModStr, suff=suffix)
 
     if isfile(fileName):
-        overwrite = get_str_lim("Overwrite previous CSV file '" + fileName
-                                + "' (y/n)? ",
-                                acceptable_strings=['y', 'n']) == 'y'
-        if not overwrite:
-            return fileName
+        #overwrite = get_str_lim("Overwrite previous CSV file '" + fileName
+                                #+ "' (y/n)? ",
+                                #acceptable_strings=['y', 'n']) == 'y'
+        #if not overwrite:
+        return fileName
 
     print("\nGetting data from the archive...\n")
     rawData = getArchiveData(startTime, numPoints, obj.getPVs())
@@ -334,7 +334,7 @@ def reformatDate(row):
 
 def generateDataFiles(metadataFile):
     with open(metadataFile) as csvFile:
-        csvReader = reader(csvFile)
+        csvReader = reader(csvFile, delimiter='\t')
         calibRow = csvReader.next()
 
         cryoModuleObj = Cryomodule(cryModNumSLAC=int(calibRow[0]),
@@ -342,6 +342,8 @@ def generateDataFiles(metadataFile):
                                    calFileName=None,
                                    refValvePos=float(calibRow[3]),
                                    refHeatLoad=float(calibRow[2]))
+                                   
+        print("---------- {CM} ---------- ".format(CM=cryoModuleObj.name))
 
         datetimeFormatStr = "%m-%d-%Y-%H-%M"
 
@@ -349,20 +351,58 @@ def generateDataFiles(metadataFile):
         end = datetime.strptime(calibRow[5], datetimeFormatStr)
 
         cryoModuleObj.dataFileName = generateCSV(start, end, cryoModuleObj)
+        calibCurveAxis = processData(cryoModuleObj)
 
         for row in csvReader:
             cavObj = cryoModuleObj.cavities[int(row[0])]
             cavObj.refGradVal = float(row[1])
 
             cavObj.refValvePos = float(row[2])
+            
+            try:
+                cavObj.refHeatLoad = float(row[5])
+            except IndexError:
+                pass
 
             start = datetime.strptime(row[3], datetimeFormatStr)
             end = datetime.strptime(row[4], datetimeFormatStr)
+            
+            print("---------- {CAV} ---------- ".format(CAV=cavObj.name))
 
             cavObj.dataFileName = generateCSV(start, end, cavObj)
 
             processData(cavObj)
             cavObj.printReport()
+            
+            calibCurveAxis.plot(cavObj.runHeatLoads, cavObj.adjustedRunSlopes, marker="o",
+                            linestyle="None", label="Projected Data for "
+                                                    + cavObj.name)
+
+            calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
+
+            minCavHeatLoad = min(cavObj.runHeatLoads)
+            minCalibHeatLoad = min(cryoModuleObj.runElecHeatLoads)
+
+            if minCavHeatLoad < minCalibHeatLoad:
+                yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
+                calibCurveAxis.plot(yRange, [cryoModuleObj.calibSlope * i
+                                             + cryoModuleObj.calibIntercept
+                                             for i in yRange])
+
+            maxCavHeatLoad = max(cavObj.runHeatLoads)
+            maxCalibHeatLoad = max(cryoModuleObj.runElecHeatLoads)
+
+            if maxCavHeatLoad > maxCalibHeatLoad:
+                yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
+                calibCurveAxis.plot(yRange, [cryoModuleObj.calibSlope * i
+                                             + cryoModuleObj.calibIntercept
+                                             for i in yRange])                                             
+
+        for i in plt.get_fignums():
+            plt.figure(i)
+            plt.savefig("figures/{CM}_{FIG}.png".format(CM=cryoModuleObj.name, FIG=i))
+
+        #plt.show()
 
 #         SLAC  LERF    refheat jt  start   end
 # cav   grad    jt  start   end
@@ -648,12 +688,16 @@ def processRuns(obj):
                 heaterRuns.append(idx)
 
         offset = mean(offsets) if offsets else 0
+        obj.offset = offset
 
         for run in [rfRun for i, rfRun in enumerate(obj.runs)
                     if i not in heaterRuns]:
 
             heatLoad = ((run.slope - obj.parent.calibIntercept)
                         / obj.parent.calibSlope) + offset
+                        
+            #run.slope = ((obj.parent.calibSlope * heatLoad)
+                         #+ obj.parent.calibIntercept)
 
             run.totalHeatLoad = heatLoad
             run.rfHeatLoad = heatLoad - run.elecHeatLoad
@@ -965,7 +1009,7 @@ def getQ0Measurements():
 
         processData(cavObj)
 
-        calibCurveAxis.plot(cavObj.runHeatLoads, cavObj.runSlopes, marker="o",
+        calibCurveAxis.plot(cavObj.runHeatLoads, cavObj.adjustedRunSlopes, marker="o",
                             linestyle="None", label="Projected Data for "
                                                     + cavObj.name)
 
@@ -1001,4 +1045,12 @@ def getQ0Measurements():
 
 
 if __name__ == "__main__":
-    getQ0Measurements()
+    analyze = False
+    if analyze:
+        getQ0Measurements()
+    else:
+        #files = ["test_data.tsv"]
+        files = ["cm5_run_data_no_htr.tsv", "cm5_run_data_yes_htr.tsv",
+                 "cm12_run_data.tsv"]
+        for file in files:
+            generateDataFiles(file)

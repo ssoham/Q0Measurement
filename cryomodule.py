@@ -97,6 +97,10 @@ class Cryomodule:
 
             self.refGradVal = None
             self.refValvePos = None
+            
+            self.refHeatLoad = self.parent.refHeatLoad
+            
+            self.offset = 0
 
             # These buffers store Q0 measurement data read from the CSV
             # <dataFileName>
@@ -167,10 +171,10 @@ class Cryomodule:
         # class variable and giving it a custom getter function (so now
         # whenever someone calls Cavity.refValvePos, it'll return the parent
         # value)
-        @property
-        def refHeatLoad(self):
-            # TODO incorrect - need to calculate a value for each cavity
-            return self.parent.refHeatLoad
+        #@property
+        #def refHeatLoad(self):
+            ## TODO incorrect - need to calculate a value for each cavity
+            #return self.parent.refHeatLoad
 
         @property
         def cryModNumSLAC(self):
@@ -182,11 +186,18 @@ class Cryomodule:
 
         @property
         def runHeatLoads(self):
-            return [run.totalHeatLoad for run in self.runs]
+            return [run.totalHeatLoad for run in self.runs
+                    if run.elecHeatLoadDes == 0]
+                    
+                    #run.slope = ((obj.parent.calibSlope * heatLoad)
+                         #+ obj.parent.calibIntercept)
 
         @property
-        def runSlopes(self):
-            return [run.slope for run in self.runs]
+        def adjustedRunSlopes(self):
+            m = self.parent.calibSlope
+            b = self.parent.calibIntercept 
+            return [(m * run.totalHeatLoad) + b for run in self.runs
+                    if run.elecHeatLoadDes == 0]
 
         @property
         def cryModNumJLAB(self):
