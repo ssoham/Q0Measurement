@@ -5,8 +5,11 @@ from time import sleep
 from cryomodule import Cryomodule
 from sys import stderr, stdout
 from matplotlib import pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
 from epicsShell import cagetPV, caputPV
+from calculateQ0 import parseRawData, MYSAMPLER_TIME_INTERVAL
+from scipy.stats import linregress
+from math import log10
 
 if hasattr(__builtins__, 'raw_input'):
     input = raw_input
@@ -22,7 +25,8 @@ DESIRED_LL = 95
 def runQ0Meas(cavity, desiredGradient):
     # type: (Cryomodule.Cavity, float) -> None
     try:
-        print("**********Make sure the characterization is done!**********")
+        print("********** Make sure the characterization is done! **********")
+        cavity.refGradVal = desiredGradient
         checkAcqControl(cavity)
         waitForCryo(cavity)
         setPowerSSA(cavity, True)
@@ -47,11 +51,14 @@ def runQ0Meas(cavity, desiredGradient):
 
         walkToGradient(cavity, desiredGradient)
 
-        holdGradient(cavity, desiredGradient)
+        startTime = holdGradient(cavity, desiredGradient)
 
         powerDown(cavity)
         
-        launchHeaterRun(cavity)
+        endTime = launchHeaterRun(cavity)
+
+
+
 
     except(CalledProcessError, IndexError, OSError, ValueError,
            AssertionError) as e:
@@ -61,6 +68,7 @@ def runQ0Meas(cavity, desiredGradient):
         
 
 def launchHeaterRun(cavity):
+    # type: (Cryomodule.Cavity) -> datetime
     # TODO check cryo levels
 
     for heaterPV in cavity.heaterPVs:
@@ -76,17 +84,22 @@ def launchHeaterRun(cavity):
     while (datetime.now() - startTime).total_seconds() < 2400:
         stdout.write(".")
         stdout.flush()
+
+        # Abort the run if the downstream liquid helium level dips below 90
         if float(cagetPV(cavity.dsLevelPV)) < 90:
             break
         sleep(5)
-        
-    print("\nEnd Time: {END}".format(END=datetime.now()))
-    duration = (datetime.now() - startTime).total_seconds() / 3600
+
+    endTime = datetime.now()
+    print("\nEnd Time: {END}".format(END=endTime))
+    duration = (endTime - startTime).total_seconds() / 3600
     print("Duration in hours: {DUR}".format(DUR=duration))
-    
+
     for heaterPV in cavity.heaterPVs:
         curVal = float(cagetPV(heaterPV))
         caputPV(heaterPV, str(curVal - 1))
+
+    return endTime
         
 
 def checkAcqControl(cavity):
@@ -115,6 +128,28 @@ def checkAndSetOnTime(cavity):
         print("Setting RF Pulse On Time to 70ms")
         caputPV(onTimePV, "70")
         
+def checkCryo(cavity):
+    numHours = 2
+    csvReader = parseRawData(datetime.now() - timedelta(hours=numHours),
+                             (60 / MYSAMPLER_TIME_INTERVAL) * (numHours * 60),
+                             [cavity.valvePV])
+
+    header = csvReader.next()
+    vals = []
+
+    for row in csvReader:
+        try:
+            vals.append(float(row.pop()))
+        except ValueError:
+            pass
+
+    m, b, = linregress(range(len(vals)), vals)
+
+    if log10(abs(m)) < 5:
+        print("Cryo Has been stable")
+
+    else:
+        print("Need to figure out new JT valve position")
 
 def waitForCryo(cavity):
     stdout.write("\nWaiting for cryo to be at required levels...")
@@ -369,7 +404,7 @@ def walkToGradient(cavity, desiredGradient):
     print("Gradient at desired value")
 
 def holdGradient(cavity, desiredGradient):
-    # type: (Cryomodule.Cavity, float) -> None
+    # type: (Cryomodule.Cavity, float) -> datetime
 
     amplitudePV = cavity.genAcclPV("ADES")
 
@@ -415,6 +450,7 @@ def holdGradient(cavity, desiredGradient):
     print("\nEnd Time: {END}".format(END=datetime.now()))
     duration = (datetime.now() - startTime).total_seconds() / 3600
     print("Duration in hours: {DUR}".format(DUR=duration))
+    return startTime
 
 
 def powerDown(cavity):

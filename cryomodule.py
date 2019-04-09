@@ -30,11 +30,9 @@ class Cryomodule:
         self.dsLevelPV = lvlFormatStr.format(INFIX="2301", LOC="DS")
         self.usLevelPV = lvlFormatStr.format(INFIX="2601", LOC="US")
 
-        self.cvMaxPV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFFIX}",
-                                        "MAX")
-        self.cvMinPV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFFIX}",
-                                        "MIN")
-        self.valvePV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFFIX}",
+        self.cvMaxPV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFF}", "MAX")
+        self.cvMinPV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFF}", "MIN")
+        self.valvePV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFF}",
                                         "VALUE")
 
         # These buffers store calibration data read from the CSV <dataFileName>
@@ -55,8 +53,20 @@ class Cryomodule:
                           self.usLevelPV: self.usLevelBuff}
 
         # Give each cryomodule 8 cavities
-        cavities = {i: self.Cavity(parent=self, cavNumber=i)
-                    for i in range(1, 9)}
+        cavities = {}
+
+        self.heaterDesPVs = []
+        self.heaterActPVs = []
+
+        heaterDesStr = self.addNumToStr("CHTR:CM0{CM}:1{{CAV}}55:HV:{SUFF}",
+                                        "POWER_SETPT")
+        heaterActStr = self.addNumToStr("CHTR:CM0{CM}:1{{CAV}}55:HV:{SUFF}",
+                                        "POWER")
+
+        for i in range(1, 9):
+            cavities[i] = self.Cavity(parent=self, cavNumber=i)
+            self.heaterDesPVs.append(heaterDesStr.format(CAV=i))
+            self.heaterActPVs.append(heaterActStr.format(CAV=i))
 
         self.cavities = OrderedDict(sorted(cavities.items()))
 
@@ -64,21 +74,9 @@ class Cryomodule:
         self.calibSlope = None
         self.calibIntercept = None
 
-        self.heaterDesPVs = []
-        self.heaterActPVs = []
-
-        heaterDesStr = self.addNumToStr("CHTR:CM0{CM}:1{{CAV}}55:HV:{SUFFIX}",
-                                        "POWER_SETPT")
-        heaterActStr = self.addNumToStr("CHTR:CM0{CM}:1{{CAV}}55:HV:{SUFFIX}",
-                                        "POWER")
-
-        for cav in self.cavities:
-            self.heaterDesPVs.append(heaterDesStr.format(CAV=cav))
-            self.heaterActPVs.append(heaterActStr.format(CAV=cav))
-
     def addNumToStr(self, formatStr, suffix=None):
         if suffix:
-            return formatStr.format(CM=self.cryModNumJLAB, SUFFIX=suffix)
+            return formatStr.format(CM=self.cryModNumJLAB, SUFF=suffix)
         else:
             return formatStr.format(CM=self.cryModNumJLAB)
 
@@ -130,20 +128,17 @@ class Cryomodule:
             # Maps this cavity's PVs to its corresponding data buffers
             # (including a couple of PVs from its parent cryomodule)
             self.pvBuffMap = {self.parent.valvePV: self.valvePosBuff,
-                              self.parent.dsLevelPV:
-                                  self.dsLevelBuff,
+                              self.parent.dsLevelPV: self.dsLevelBuff,
                               self.parent.usLevelPV: self.usLevelBuff,
                               self.gradPV: self.gradBuff,
-                              self.parent.dsPressurePV:
-                                  self.dsPressBuff}
+                              self.parent.dsPressurePV: self.dsPressBuff}
 
         def genPV(self, formatStr, suffix):
-            return formatStr.format(CM=self.cryModNumJLAB,
-                                    CAV=self.cavNum,
-                                    SUFFIX=suffix)
+            return formatStr.format(CM=self.cryModNumJLAB, CAV=self.cavNum,
+                                    SUFF=suffix)
 
         def genAcclPV(self, suffix):
-            return self.genPV("ACCL:L1B:0{CM}{CAV}0:{SUFFIX}", suffix)
+            return self.genPV("ACCL:L1B:0{CM}{CAV}0:{SUFF}", suffix)
 
         # Similar to the Cryomodule function, it just has the gradient PV
         # instead of the heater PV
@@ -156,35 +151,28 @@ class Cryomodule:
         def printReport(self):
             # TODO handle white space more elegantly
 
-            report = ""
+            reportStr = ("\n{cavName} run {runNum} total heat load: {TOT} W\n"
+                         "            Electric heat load: {ELEC} W\n"
+                         "                  RF heat load: {RF} W\n"
+                         "                 Calculated Q0: {{Q0Val}}\n")
+
 
             for i, run in enumerate(self.runs):
-                line1 = "\n{cavName} run {runNum} total heat load: {heat} W\n"
-                report += (line1.format(cavName=self.name, runNum=(i + 1),
-                                        heat=round(run.totalHeatLoad, 2)))
-
-                line2 = "            Electric heat load: {heat} W\n"
-                report += (line2.format(heat=round(run.elecHeatLoad, 2)))
-
-                line3 = "                  RF heat load: {heat} W\n"
-                report += (line3.format(heat=round(run.rfHeatLoad, 2)))
+                report = reportStr.format(cavName=self.name, runNum=(i + 1),
+                                          TOT=round(run.totalHeatLoad, 2),
+                                          ELEC=round(run.elecHeatLoad, 2),
+                                          RF=round(run.rfHeatLoad, 2))
 
                 if run.q0:
-                    line4 = "                 Calculated Q0: {Q0Val}\n"
                     Q0 = '{:.2e}'.format(Decimal(run.q0))
-                    report += (line4.format(Q0Val=Q0))
-
-            print(report)
+                    print(report.format(Q0Val=Q0))
+                else:
+                    print(report.format(Q0Val=None))
 
         # The @property annotation is effectively a shortcut for defining a
         # class variable and giving it a custom getter function (so now
-        # whenever someone calls Cavity.refValvePos, it'll return the parent
+        # whenever someone calls Cavity.cryModNumSLAC, it'll return the parent
         # value)
-        # @property
-        # def refHeatLoad(self):
-        ## TODO incorrect - need to calculate a value for each cavity
-        # return self.parent.refHeatLoad
-
         @property
         def cryModNumSLAC(self):
             return self.parent.cryModNumSLAC

@@ -6,7 +6,7 @@
 
 from __future__ import division
 from __future__ import print_function
-from datetime import datetime, timedelta
+from datetime import datetime
 from math import exp
 from decimal import Decimal
 from csv import reader, writer
@@ -19,8 +19,6 @@ from matplotlib import pyplot as plt
 from numpy import polyfit, linspace, mean
 from sys import stderr
 from scipy.stats import linregress
-from json import dumps
-from time import sleep
 from cryomodule import Cryomodule, DataRun, Q0DataRun
 from copy import deepcopy
 
@@ -57,61 +55,6 @@ MYSAMPLER_TIME_INTERVAL = 1
 MIN_RUN_DURATION = 900
 
 
-# Used in custom input functions just below
-ERROR_MESSAGE = "Please provide valid input"
-
-
-# Trying to make this compatible with both 2.7 and 3 (input in 3 is the same as
-# raw_input in 2.7, but input in 2.7 calls evaluate)
-if hasattr(__builtins__, 'raw_input'):
-    input = raw_input
-
-
-def get_float_lim(prompt, low_lim, high_lim):
-    return getNumericalInput(prompt, low_lim, high_lim, float)
-
-
-def getNumericalInput(prompt, lowLim, highLim, inputType):
-    response = get_input(prompt, inputType)
-
-    while response < lowLim or response > highLim:
-        stderr.write(ERROR_MESSAGE + "\n")
-        # Need to pause briefly for some reason to make sure the error message
-        # shows up before the next prompt
-        sleep(0.01)
-        response = get_input(prompt, inputType)
-
-    return response
-
-
-def get_input(prompt, desired_type):
-    response = input(prompt)
-
-    try:
-        response = desired_type(response)
-    except ValueError:
-        stderr.write(str(desired_type) + " required\n")
-        sleep(0.01)
-        return get_input(prompt, desired_type)
-
-    return response
-
-
-def get_int_lim(prompt, low_lim, high_lim):
-    return getNumericalInput(prompt, low_lim, high_lim, int)
-
-
-def get_str_lim(prompt, acceptable_strings):
-    response = get_input(prompt, str)
-
-    while response not in acceptable_strings:
-        stderr.write(ERROR_MESSAGE + "\n")
-        sleep(0.01)
-        response = get_input(prompt, str)
-
-    return response
-
-
 # Finds files whose names start with prefix and indexes them consecutively
 # (instead of just using its index in the directory)
 def findDataFiles(prefix):
@@ -129,54 +72,19 @@ def findDataFiles(prefix):
     return fileDict
 
 
-def buildCryModObj(cryomoduleSLAC, cryomoduleLERF, valveLockedPos,
-                   refHeaterVal):
-    print("\n*** Now we'll start building a calibration file " +
-          "- please be patient ***\n")
+def parseRawData(startTime, numPoints, signals):
+    print("\nGetting data from the archive...\n")
+    rawData = getArchiveData(startTime, numPoints, signals)
 
-    startTimeCalib = buildDatetimeFromInput("Start time for calibration run:")
-
-    upperLimit = (datetime.now() - startTimeCalib).total_seconds() / 3600
-    duration = get_float_lim("Duration of calibration run in hours: ",
-                             MIN_RUN_DURATION / 3600, upperLimit)
-    endTimeCalib = startTimeCalib + timedelta(hours=duration)
-
-    cryoModuleObj = Cryomodule(cryModNumSLAC=cryomoduleSLAC,
-                               cryModNumJLAB=cryomoduleLERF,
-                               calFileName=None,
-                               refValvePos=valveLockedPos,
-                               refHeatLoad=refHeaterVal)
-
-    fileName = generateCSV(startTimeCalib, endTimeCalib, cryoModuleObj)
-
-    if not fileName:
+    if not rawData:
         return None
 
     else:
-        cryoModuleObj.dataFileName = fileName
-        return cryoModuleObj
+        rawDataSplit = rawData.splitlines()
+        rows = ["\t".join(rawDataSplit.pop(0).strip().split())]
+        rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
+        return reader(rows, delimiter='\t')
 
-
-def buildDatetimeFromInput(prompt):
-    print(prompt)
-
-    now = datetime.now()
-    # The signature is: get_int_limited(prompt, low_lim, high_lim)
-    # We're doing a bunch of right-justification here so that the prompts for
-    # numerical input line up neatly on the command line.
-    year = get_int_lim("Year: ".rjust(16), 2019, now.year)
-
-    month = get_int_lim("Month: ".rjust(16), 1,
-                        now.month if year == now.year else 12)
-
-    day = get_int_lim("Day: ".rjust(16), 1,
-                      now.day if (year == now.year
-                                  and month == now.month) else 31)
-
-    hour = get_int_lim("Hour: ".rjust(16), 0, 23)
-    minute = get_int_lim("Minute: ".rjust(16), 0, 59)
-
-    return datetime(year, month, day, hour, minute)
 
 
 ################################################################################
@@ -214,18 +122,18 @@ def generateCSV(startTime, endTime, obj):
     if isfile(fileName):
         return fileName
 
-    print("\nGetting data from the archive...\n")
-    rawData = getArchiveData(startTime, numPoints, obj.getPVs())
+    # print("\nGetting data from the archive...\n")
+    # rawData = getArchiveData(startTime, numPoints, obj.getPVs())
+    csvReader = parseRawData(startTime, numPoints, obj.getPVs())
 
-    if not rawData:
+    if not csvReader:
         return None
 
     else:
-
-        rawDataSplit = rawData.splitlines()
-        rows = ["\t".join(rawDataSplit.pop(0).strip().split())]
-        rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
-        csvReader = reader(rows, delimiter='\t')
+        # rawDataSplit = rawData.splitlines()
+        # rows = ["\t".join(rawDataSplit.pop(0).strip().split())]
+        # rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
+        # csvReader = reader(rows, delimiter='\t')
 
         header = csvReader.next()
         trimmedHeader = deepcopy(header)
@@ -296,7 +204,7 @@ def generateCSV(startTime, endTime, obj):
 # want, and [pv1]...[pvn] are the PVs we want archived
 #
 # Ex:
-#     mySampler -b "201-03-28 14:16" -s 30s -n11 R121PMES R221PMES
+#     mySampler -b "2019-03-28 14:16" -s 30s -n11 R121PMES R221PMES
 #
 # @param startTime: datetime object
 # @param signals: list of PV strings
@@ -323,14 +231,15 @@ def reformatDate(row):
         res = findall(regex, row)[0].replace(" ", "-")
         reformattedRow = regex.sub(res, row)
         return "\t".join(reformattedRow.strip().split())
+
     except IndexError:
         stderr.write("Could not reformat date for row: " + str(row) + "\n")
         return "\t".join(row.strip().split())
 
 
 def generateDataFiles(metadataFile, startFigNum=1):
-    with open(metadataFile) as csvFile:
-        csvReader = reader(csvFile, delimiter='\t')
+    with open(metadataFile) as tsvFile:
+        csvReader = reader(tsvFile, delimiter='\t')
         calibRow = csvReader.next()
 
         cryoModuleObj = Cryomodule(cryModNumSLAC=int(calibRow[0]),
@@ -402,10 +311,6 @@ def generateDataFiles(metadataFile, startFigNum=1):
 
         return lastFigNum
 
-        #plt.show()
-
-#         SLAC  LERF    refheat jt  start   end
-# cav   grad    jt  start   end
 
 # parseDataFromCSV parses CSV data to populate the given object's data buffers
 # @param obj: either a Cryomodule or Cavity object
@@ -719,48 +624,6 @@ def processRuns(obj):
 
             run.q0 = mean(q0s)
 
-        # for run in obj.runs:
-        #
-        #     # We're dealing with a cavity here. We need to start by figuring out
-        #     # the overall heat load over baseline for each run. We do this by
-        #     # taking the run's slope and projecting it on the parent
-        #     # cryomodule's heater calibration curve.
-        #     # y = m * x + b  ==>  we want to find the heat load x, where...
-        #     # y = run.slope
-        #     # m = obj.parent.calibSlope
-        #     # b = obj.parent.calibIntercept
-        #     # So x = (y - b) / m
-        #     heatLoad = ((run.slope - obj.parent.calibIntercept)
-        #                 / obj.parent.calibSlope)
-        #
-        #     run.totalHeatLoad = heatLoad
-        #     run.rfHeatLoad = heatLoad - run.elecHeatLoad
-        #
-        #     q0s = []
-        #
-        #     # We have some old data sets that are missing pressure and gradient
-        #     # information. Unfortunately we need a bunch of if/else statements
-        #     # to get around that. We can remove these if we want to discard
-        #     # the old data at some point.
-        #
-        #     # TODO handle Nones in other buffers
-        #
-        #     if obj.dsPressBuff:
-        #         for idx in range(run.startIdx, run.endIdx):
-        #             if obj.gradBuff[idx]:
-        #                 q0s.append(calcQ0(obj.gradBuff[idx], run.rfHeatLoad,
-        #                                   obj.dsPressBuff[idx]))
-        #             else:
-        #                 q0s.append(calcQ0(obj.refGradVal, run.rfHeatLoad,
-        #                                   obj.dsPressBuff[idx]))
-        #     else:
-        #         for idx in range(run.startIdx, run.endIdx):
-        #             if obj.gradBuff[idx]:
-        #                 q0s.append(calcQ0(obj.gradBuff[idx], run.rfHeatLoad))
-        #             else:
-        #                 q0s.append(calcQ0(obj.refGradVal, run.rfHeatLoad))
-        #
-        #     run.q0 = mean(q0s)
 
     if IS_DEMO:
         for i, run in enumerate(obj.runs):
@@ -769,8 +632,6 @@ def processRuns(obj):
             runStr = "Duration of run {runNum}: {duration}"
             print(runStr.format(runNum=(i + 1),
                                 duration=((endTime - startTime) / 60.0)))
-            # heatStr = "Electric heat Load: {heat}"
-            # print(heatStr.format(heat=obj.runs[i].elecHeatLoad))
 
 
 ################################################################################
@@ -864,23 +725,6 @@ def genAxis(title, xlabel, ylabel):
     return ax
 
 
-def addFileToCavity(cavity):
-    print("\n*** Now we'll start building a Q0 measurement file " +
-          "- please be patient ***\n")
-
-    startTimeQ0Meas = buildDatetimeFromInput("Start time for the data run:")
-
-    # We don't want users to request archive data from a time interval that
-    # extends past the current time!
-    upperLimit = (datetime.now() - startTimeQ0Meas).total_seconds() / 3600
-
-    duration = get_float_lim("Duration of data run in hours: ",
-                             MIN_RUN_DURATION / 3600, upperLimit)
-
-    endTimeCalib = startTimeQ0Meas + timedelta(hours=duration)
-
-    cavity.dataFileName = generateCSV(startTimeQ0Meas, endTimeCalib, cavity)
-
 # Magical formula from Mike Drury (drury@jlab.org) to calculate Q0 from the
 # measured heat load on a cavity, the RF gradient used during the test, and the
 # pressure of the incoming 2 K helium.
@@ -910,143 +754,9 @@ def calcQ0(grad, rfHeatLoad, avgPressure=None):
         return uncorrectedQ0
 
 
-def getQ0Measurements():
-    if IS_DEMO:
-        refHeaterVal = 64
-        valveLockedPos = 24.1
-        cryomoduleSLAC = 5
-        cryomoduleLERF = 3
-        fileName = "data/calib_CM5_2019-04-03--17-35_3456.csv"
-
-        cryModObj = Cryomodule(cryomoduleSLAC, cryomoduleLERF,
-                               fileName, valveLockedPos, refHeaterVal)
-
-        cavities = [1]
-
-    else:
-        print("Cryomodule Heater Calibration Parameters:")
-        # Signature is: get_float/get_int(prompt, low_lim, high_lim)
-        refHeaterVal = get_float_lim("Reference Heater Value: ".rjust(32),
-                                     0, 120)
-        valveLockedPos = get_float_lim("JT Valve locked position: ".rjust(32),
-                                       0, 100)
-        cryomoduleSLAC = get_int_lim("SLAC Cryomodule Number: ".rjust(32),
-                                     0, 33)
-        cryomoduleLERF = get_int_lim("LERF Cryomodule Number: ".rjust(32),
-                                     2, 3)
-
-        print("\n---------- CRYOMODULE " + str(cryomoduleSLAC)
-              + " ----------\n")
-
-        calibFiles = findDataFiles("calib_CM" + str(cryomoduleSLAC))
-
-        print("Options for Calibration Data:")
-
-        # dumps pretty-prints a dictionary with the key:value pairs nicely
-        # indented and separated onto different lines
-        print("\n" + dumps(calibFiles, indent=4) + "\n")
-
-        option = get_int_lim(
-            "Please choose one of the options above: ", 1, len(calibFiles))
-
-        if option == len(calibFiles):
-            cryModObj = buildCryModObj(cryomoduleSLAC, cryomoduleLERF,
-                                       valveLockedPos, refHeaterVal)
-
-        else:
-            cryModObj = Cryomodule(cryomoduleSLAC, cryomoduleLERF,
-                                   "data/" + calibFiles[option], valveLockedPos,
-                                   refHeaterVal)
-
-        if not cryModObj:
-            stderr.write("Calibration file generation failed - aborting\n")
-            return
-
-        else:
-            numCavs = get_int_lim("Number of cavities to analyze: ", 0, 8)
-
-            cavities = []
-            for _ in range(numCavs):
-                cavity = get_int_lim("Next cavity to analyze: ", 1, 8)
-                while cavity in cavities:
-                    cavity = get_int_lim(
-                        "Please enter a cavity not previously entered: ", 1, 8)
-                cavities.append(cavity)
-
-    calibCurveAxis = processData(cryModObj)
-
-    for cav in cavities:
-        cavObj = cryModObj.cavities[cav]
-
-        print("\n---------- CAVITY " + str(cav) + " ----------\n")
-
-        cavObj.refGradVal = get_float_lim("Gradient used during Q0" +
-                                          " measurement: ", 0, 22)
-
-        cavObj.refValvePos = get_float_lim("JT Valve position used during Q0" +
-                                           " measurement: ", 0, 100)
-
-        fileStr = "q0meas_CM{cryMod}_cav{cavNum}".format(cryMod=cryomoduleSLAC,
-                                                         cavNum=cav)
-        q0MeasFiles = findDataFiles(fileStr)
-
-        print("Options for Q0 Meaurement Data:")
-
-        print("\n" + dumps(q0MeasFiles, indent=4) + "\n")
-
-        option = get_int_lim(
-            "Please choose one of the options above: ", 1, len(q0MeasFiles))
-
-        if option == len(q0MeasFiles):
-            addFileToCavity(cavObj)
-            if not cavObj.dataFileName:
-                stderr.write("Q0 measurement file generation failed" +
-                             " - aborting\n")
-                return
-
-        else:
-            cavObj.dataFileName = "data/" + q0MeasFiles[option]
-
-        processData(cavObj)
-
-        calibCurveAxis.plot(cavObj.runHeatLoads, cavObj.adjustedRunSlopes, marker="o",
-                            linestyle="None", label="Projected Data for "
-                                                    + cavObj.name)
-
-        calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
-
-        minCavHeatLoad = min(cavObj.runHeatLoads)
-        minCalibHeatLoad = min(cryModObj.runElecHeatLoads)
-
-        if minCavHeatLoad < minCalibHeatLoad:
-            yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
-            calibCurveAxis.plot(yRange, [cryModObj.calibSlope * i
-                                         + cryModObj.calibIntercept
-                                         for i in yRange])
-
-        maxCavHeatLoad = max(cavObj.runHeatLoads)
-        maxCalibHeatLoad = max(cryModObj.runElecHeatLoads)
-
-        if maxCavHeatLoad > maxCalibHeatLoad:
-            yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
-            calibCurveAxis.plot(yRange, [cryModObj.calibSlope * i
-                                         + cryModObj.calibIntercept
-                                         for i in yRange])
-
-        cavObj.printReport()
-
-    plt.draw()
-
-    # for i in plt.get_fignums():
-    #     plt.figure(i)
-    #     plt.savefig("figure%d.png" % i)
-
-    plt.show()
-
-
 if __name__ == "__main__":
     if not IS_DEMO:
-        getQ0Measurements()
+        files = ["test_data.tsv"]
     else:
         files = ["cm5_run_data_no_htr.tsv", "cm5_run_data_yes_htr.tsv",
                  "cm12_run_data.tsv"]
