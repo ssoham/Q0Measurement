@@ -2,6 +2,9 @@ from __future__ import print_function
 from __future__ import division
 from subprocess import CalledProcessError
 from time import sleep
+
+from numpy import mean
+
 from cryomodule import Cryomodule
 from sys import stderr, stdout
 from matplotlib import pyplot as plt
@@ -27,35 +30,35 @@ def runQ0Meas(cavity, desiredGradient):
     try:
         print("********** Make sure the characterization is done! **********")
         cavity.refGradVal = desiredGradient
-        checkAcqControl(cavity)
-        waitForCryo(cavity)
-        setPowerSSA(cavity, True)
-
-        #caputPV(cavity.genAcclPV("SEL_ASET"), "15")
-
-        # Start with pulsed mode
-        setModeRF(cavity, "4")
-
-        setStateRF(cavity, True)
-        pushGoButton(cavity)
-
-        checkAndSetOnTime(cavity)
-        checkDrive(cavity)
-
-        phaseCavity(cavity)
-
-        #lowerAmplitude(cavity)
-
-        # go to CW
-        setModeRF(cavity, "2")
-
-        walkToGradient(cavity, desiredGradient)
-
-        startTime = holdGradient(cavity, desiredGradient)
-
-        powerDown(cavity)
-        
-        endTime = launchHeaterRun(cavity)
+        # checkAcqControl(cavity)
+        checkCryo(cavity, 2)
+        # setPowerSSA(cavity, True)
+        #
+        # #caputPV(cavity.genAcclPV("SEL_ASET"), "15")
+        #
+        # # Start with pulsed mode
+        # setModeRF(cavity, "4")
+        #
+        # setStateRF(cavity, True)
+        # pushGoButton(cavity)
+        #
+        # checkAndSetOnTime(cavity)
+        # checkDrive(cavity)
+        #
+        # phaseCavity(cavity)
+        #
+        # #lowerAmplitude(cavity)
+        #
+        # # go to CW
+        # setModeRF(cavity, "2")
+        #
+        # walkToGradient(cavity, desiredGradient)
+        #
+        # startTime = holdGradient(cavity, desiredGradient)
+        #
+        # powerDown(cavity)
+        #
+        # endTime = launchHeaterRun(cavity)
 
 
 
@@ -128,54 +131,84 @@ def checkAndSetOnTime(cavity):
         print("Setting RF Pulse On Time to 70ms")
         caputPV(onTimePV, "70")
         
-def checkCryo(cavity):
-    numHours = 2
+def checkCryo(cavity, numHours, checkForFlatness=True):
+    print("\nDetermining Required JT Valve Position...")
     csvReader = parseRawData(datetime.now() - timedelta(hours=numHours),
-                             (60 / MYSAMPLER_TIME_INTERVAL) * (numHours * 60),
-                             [cavity.valvePV])
+                             int((60 / MYSAMPLER_TIME_INTERVAL)
+                                 * (numHours * 60)),
+                             [cavity.dsLevelPV, cavity.valvePV])
 
-    header = csvReader.next()
-    vals = []
+    csvReader.next()
+    valveVals = []
+    llVals = []
 
     for row in csvReader:
         try:
-            vals.append(float(row.pop()))
+            valveVals.append(float(row.pop()))
+            llVals.append(float(row.pop()))
         except ValueError:
             pass
 
-    m, b, = linregress(range(len(vals)), vals)
+    m, b, _, _, _ = linregress(range(len(valveVals)), valveVals)
 
-    if log10(abs(m)) < 5:
-        print("Cryo Has been stable")
+    if not checkForFlatness or (checkForFlatness and log10(abs(m)) < 5):
+        desPos = round(mean(valveVals), 1)
+        waitForLL(cavity)
+        waitForJT(cavity, desPos)
+        print("\nCryo at required values")
 
     else:
         print("Need to figure out new JT valve position")
 
-def waitForCryo(cavity):
-    stdout.write("\nWaiting for cryo to be at required levels...")
-    stdout.flush()
-    diff = DESIRED_LL - float(cagetPV(cavity.dsLevelPV))
+        waitForLL(cavity)
 
-    while abs(diff) > 1:
-        stdout.write(".")
-        stdout.flush()
-        sleep(5)
-        diff = DESIRED_LL - float(cagetPV(cavity.dsLevelPV))
+        writeAndWait("\nWaiting 1 hour 45 minutes for LL to stabilize...")
+
+        start = datetime.now()
+        while((datetime.now() - start).total_seconds() < 6300):
+            writeAndWait(".", 5)
+            
+        checkCryo(cavity, 0.25, False)
+
+
+def writeAndWait(message, timeToWait=0):
+    stdout.write(message)
+    stdout.flush()
+    sleep(timeToWait)
+
+
+def waitForLL(cavity):
+    writeAndWait("\nWaiting for downstream liquid level to be {LL}%..."
+                 .format(LL=DESIRED_LL))
+
+    while abs(DESIRED_LL - float(cagetPV(cavity.dsLevelPV))) > 1:
+        writeAndWait(".", 5)
+
+    print("\ndownstream liquid level at required value")
+
+
+def waitForJT(cavity, desPosJT):
+    # type: (Cryomodule.Cavity, float) -> None
+
+    writeAndWait("\nWaiting for JT Valve to be locked at {POS}..."
+                 .format(POS=desPosJT))
 
     mode = cagetPV(cavity.jtModePV)
 
-    if mode == "1":
-        cvMin = cagetPV(cavity.cvMinPV)
-        cvMax = cagetPV(cavity.cvMaxPV)
+    if mode == "0":
+        while float(cagetPV(cavity.jtPosSetpointPV)) != desPosJT:
+            writeAndWait(".", 5)
 
-        while cvMin != cvMax:
-            stdout.write(".")
-            stdout.flush()
-            cvMin = cagetPV(cavity.cvMinPV)
-            cvMax = cagetPV(cavity.cvMaxPV)
-            sleep(5)
+    else:
 
-    print("\nCryo at required levels")
+        while float(cagetPV(cavity.cvMinPV)) != desPosJT:
+            writeAndWait(".", 5)
+
+        while float(cagetPV(cavity.cvMaxPV)) != desPosJT:
+            writeAndWait(".", 5)
+
+    print("\nJT Valve locked")
+
 
 def setPowerSSA(cavity, turnOn):
     # type: (Cryomodule.Cavity, bool) -> None

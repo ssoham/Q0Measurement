@@ -212,7 +212,7 @@ def generateCSV(startTime, endTime, obj):
 def getArchiveData(startTime, numPoints, signals):
 
     cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
-           + ['-s', str(MYSAMPLER_TIME_INTERVAL) + 's', '-n'] + [str(numPoints)]
+           + ['-s', str(MYSAMPLER_TIME_INTERVAL) + 's', '-n' + str(numPoints)]
            + signals)
     try:
         return check_output(cmd)

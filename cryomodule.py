@@ -24,6 +24,7 @@ class Cryomodule:
 
         self.dsPressurePV = self.addNumToStr("CPT:CM0{CM}:2302:DS:PRESS")
         self.jtModePV = self.addNumToStr("CPV:CM0{CM}:3001:JT:MODE")
+        self.jtPosSetpointPV = self.addNumToStr("CPV:CM0{CM}:3001:JT:POS_SETPT")
 
         lvlFormatStr = self.addNumToStr("CLL:CM0{CM}:{{INFIX}}:{{LOC}}:LVL")
 
@@ -220,6 +221,10 @@ class Cryomodule:
         @property
         def cvMinPV(self):
             return self.parent.cvMinPV
+
+        @property
+        def jtPosSetpointPV(self):
+            return self.parent.jtPosSetpointPV
 
         @property
         def heaterPVs(self):
