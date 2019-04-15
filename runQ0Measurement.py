@@ -21,18 +21,15 @@ if hasattr(__builtins__, 'raw_input'):
 DESIRED_LL = 95
 
 
-#def tuneCavity(cavity):
-
-
-
 def runQ0Meas(cavity, desiredGradient):
     # type: (Cryomodule.Cavity, float) -> None
     try:
-        print("********** Make sure the characterization is done! **********")
         cavity.refGradVal = desiredGradient
-        # checkAcqControl(cavity)
         checkCryo(cavity, 2)
+
+        # checkAcqControl(cavity)
         # setPowerSSA(cavity, True)
+        # characterize(cavity)
         #
         # #caputPV(cavity.genAcclPV("SEL_ASET"), "15")
         #
@@ -60,15 +57,44 @@ def runQ0Meas(cavity, desiredGradient):
         #
         # endTime = launchHeaterRun(cavity)
 
-
+    # %Y-%m-%d-%H:%M
 
 
     except(CalledProcessError, IndexError, OSError, ValueError,
            AssertionError) as e:
         stderr.write("\nProcedure failed with error:\n{E}\n\n".format(E=e))
         sleep(0.01)
-        powerDown(cavity)
-        
+        # powerDown(cavity)
+
+
+def characterize(cavity):
+
+    def checkAndPush(basePV, pushPV, param, newPV=None):
+        oldVal = float(cagetPV(cavity.genAcclPV(basePV)))
+
+        newVal = (float(cagetPV(cavity.genAcclPV(newPV)))
+                  if newPV
+                  else float(cagetPV(cavity.genAcclPV(basePV + "_NEW"))))
+
+        if abs(newVal - oldVal) < 0.15:
+            caputPV(cavity.genAcclPV(pushPV), "1")
+
+        else:
+            print("Old and new {PARAM} differ by more than 0.15 - please "
+                  "inspect and push manually".format(PARAM=param))
+
+
+    caputPV(cavity.genAcclPV("SSACALSTRT"), "1")
+
+    checkAndPush("SLOPE", "PUSH_SSASLOPE.PROC", "slopes")
+
+    caputPV(cavity.genAcclPV("PROBECALSTRT"), "1")
+
+    checkAndPush("QLOADED", "PUSH_QLOADED.PROC", "Loaded Qs")
+
+    checkAndPush("CAV:SCALER_SEL.B", "PUSH_CAV_SCALE.PROC", "Cavity Scales",
+                 "CAV:CAL_SCALEB_NEW")
+
 
 def launchHeaterRun(cavity):
     # type: (Cryomodule.Cavity) -> datetime

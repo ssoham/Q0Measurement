@@ -8,6 +8,8 @@ from __future__ import print_function
 from decimal import Decimal
 from collections import OrderedDict
 
+from numpy import mean, exp
+
 
 class Cryomodule:
 
@@ -75,6 +77,8 @@ class Cryomodule:
         self.calibSlope = None
         self.calibIntercept = None
 
+        self.delta = 0
+
     def addNumToStr(self, formatStr, suffix=None):
         if suffix:
             return formatStr.format(CM=self.cryModNumJLAB, SUFF=suffix)
@@ -86,6 +90,9 @@ class Cryomodule:
     def getPVs(self):
         return ([self.valvePV, self.dsLevelPV, self.usLevelPV]
                 + self.heaterDesPVs + self.heaterActPVs)
+
+    def addRun(self, startIdx, endIdx):
+        self.runs.append(DataRun(startIdx, endIdx, self))
 
     @property
     def runElecHeatLoads(self):
@@ -105,10 +112,9 @@ class Cryomodule:
 
             self.refGradVal = None
             self.refValvePos = None
+            self.delta = 0
 
             self.refHeatLoad = self.parent.refHeatLoad
-
-            self.offset = 0
 
             # These buffers store Q0 measurement data read from the CSV
             # <dataFileName>
@@ -146,7 +152,7 @@ class Cryomodule:
         def getPVs(self):
             return ([self.parent.valvePV, self.parent.dsLevelPV,
                      self.parent.usLevelPV, self.gradPV,
-                     self.parent.dsPressurePV] + self.parent.heaterPVs
+                     self.parent.dsPressurePV] + self.parent.heaterDesPVs
                     + self.parent.heaterActPVs)
 
         def printReport(self):
@@ -169,6 +175,9 @@ class Cryomodule:
                     print(report.format(Q0Val=Q0))
                 else:
                     print(report.format(Q0Val=None))
+
+        def addRun(self, startIdx, endIdx):
+            self.runs.append(Q0DataRun(startIdx, endIdx, self))
 
         # The @property annotation is effectively a shortcut for defining a
         # class variable and giving it a custom getter function (so now
@@ -234,13 +243,32 @@ class Cryomodule:
         def heaterActPVs(self):
             return self.parent.heaterActPVs
 
+        @property
+        def calibIntercept(self):
+            return self.parent.calibIntercept
+
+        @property
+        def calibSlope(self):
+            return self.parent.calibSlope
+
+        @property
+        def offset(self):
+            offsets = []
+
+            for run in self.runs:
+                runOffset = run.offset
+                if runOffset:
+                    offsets.append(runOffset)
+
+            return mean(offsets) if offsets else 0
+
 
 # There are two types of data runs that we need to store - cryomodule heater
 # calibration runs and cavity Q0 measurement runs. The DataRun class stores
 # information that is common to both data run types.
 class DataRun(object):
 
-    def __init__(self, runStartIdx=None, runEndIdx=None):
+    def __init__(self, runStartIdx=None, runEndIdx=None, container=None):
         # startIdx and endIdx define the beginning and the end of this data run
         # within the cryomodule or cavity's data buffers
         self.startIdx = runStartIdx
@@ -251,33 +279,148 @@ class DataRun(object):
         self.slope = None
         self.intercept = None
 
-        # elecHeatLoad is the electric heat load over baseline for this run
-        self.elecHeatLoad = None
+        self.container = container
 
-        self.elecHeatLoadDes = None
+    @property
+    def data(self):
+        return self.container.dsLevelBuff[self.startIdx:self.endIdx]
+
+    @property
+    def times(self):
+        return self.container.unixTimeBuff[self.startIdx:self.endIdx]
+
+    # elecHeatLoad is the electric heat load over baseline for this run
+    @property
+    def elecHeatLoad(self):
+        return (self.container.elecHeatActBuff[self.endIdx]
+                - self.container.elecHeatActBuff[0]) + self.container.delta
+
+    @property
+    def elecHeatLoadDes(self):
+        return (self.container.elecHeatDesBuff[self.endIdx]
+                - self.container.refHeatLoad)
+
+    @property
+    def label(self):
+        labelStr = "{slope} %/s @ {heatLoad} W Electric Load"
+
+        return labelStr.format(slope='%.2E' % Decimal(self.slope),
+                               heatLoad=round(self.elecHeatLoad, 2))
 
 
 # Q0DataRun stores all the information about cavity Q0 measurement runs that
 # isn't included in the parent class DataRun
 class Q0DataRun(DataRun):
 
-    def __init__(self, runStartIdx=None, runEndIdx=None):
-        super(Q0DataRun, self).__init__(runStartIdx, runEndIdx)
-
-        # Q0 measurement runs have a total heat load value which we calculate
-        # by projecting the run's dLL/dt on the cryomodule's heater calibration
-        # curve
-        self.totalHeatLoad = None
-
-        # The RF heat load is equal to the total heat load minus the electric
-        # heat load
-        self.rfHeatLoad = None
+    def __init__(self, runStartIdx=None, runEndIdx=None, cavity=None):
+        # type: (int, int, Cryomodule.Cavity) -> None
+        super(Q0DataRun, self).__init__(runStartIdx, runEndIdx, cavity)
 
         # The average gradient
         self.grad = None
 
-        # The calculated Q0 value for this run
-        self.q0 = None
+    # Q0 measurement runs have a total heat load value which we calculate
+    # by projecting the run's dLL/dt on the cryomodule's heater calibration
+    # curve
+    @property
+    def totalHeatLoad(self):
+        if self.elecHeatLoadDes != 0:
+            return self.elecHeatLoad
+        else:
+            return ((self.slope - self.container.calibIntercept)
+                    / self.container.calibSlope) + self.container.offset
+
+    # The RF heat load is equal to the total heat load minus the electric
+    # heat load
+    @property
+    def rfHeatLoad(self):
+        if self.elecHeatLoadDes != 0:
+            return 0
+        else:
+            return self.totalHeatLoad - self.elecHeatLoad
+
+    @property
+    def offset(self):
+        if self.elecHeatLoadDes != 0:
+            calcHeatLoad = ((self.slope - self.container.calibIntercept)
+                            / self.container.calibSlope)
+            return (self.elecHeatLoad - calcHeatLoad)
+        else:
+            return None
+
+    # The calculated Q0 value for this run
+    # Magical formula from Mike Drury (drury@jlab.org) to calculate Q0 from the
+    # measured heat load on a cavity, the RF gradient used during the test, and
+    # the pressure of the incoming 2 K helium.
+    @property
+    def q0(self):
+        if self.elecHeatLoadDes != 0:
+            return None
+
+        q0s = []
+
+        if self.container.dsPressBuff:
+            for idx in range(self.startIdx, self.endIdx):
+                if self.container.gradBuff[idx]:
+                    q0s.append(self.calcQ0(self.container.gradBuff[idx],
+                                           self.rfHeatLoad,
+                                           self.container.dsPressBuff[idx]))
+                else:
+                    q0s.append(self.calcQ0(self.container.refGradVal,
+                                           self.rfHeatLoad,
+                                           self.container.dsPressBuff[idx]))
+        else:
+            for idx in range(self.startIdx, self.endIdx):
+                if self.container.gradBuff[idx]:
+                    q0s.append(self.calcQ0(self.container.gradBuff[idx],
+                                           self.rfHeatLoad))
+                else:
+                    q0s.append(self.calcQ0(self.container.refGradVal,
+                                           self.rfHeatLoad))
+
+        return mean(q0s)
+
+    @property
+    def label(self):
+        # This is a heater run. It could be part of a cryomodule heater
+        # calibration or it could be part of a cavity Q0 measurement.
+        if self.elecHeatLoadDes != 0:
+            return super(Q0DataRun, self).label
+
+        # This is an RF run taken during a cavity Q0 measurement.
+        else:
+
+            labelStr = "{slope} %/s @ {grad} MV/m\nCalculated Q0: {Q0}"
+            q0Str = '{:.2e}'.format(Decimal(self.q0))
+
+            return labelStr.format(slope='%.2E' % Decimal(self.slope),
+                                   grad=self.container.refGradVal, Q0=q0Str)
+
+    @staticmethod
+    def calcQ0(grad, rfHeatLoad, avgPressure=None):
+        # The initial Q0 calculation doesn't account for the temperature variation
+        # of the 2 K helium
+        uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
+
+        # We can correct Q0 for the helium temperature!
+        if avgPressure:
+            tempFromPress = (avgPressure * 0.0125) + 1.705
+            C1 = 271
+            C2 = 0.0000726
+            C3 = 0.00000214
+            C4 = grad - 0.7
+            C5 = 0.000000043
+            C6 = -17.02
+            C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))
+
+            correctedQ0 = C1 / ((C7 / 2) * exp(C6 / 2)
+                                + C1 / uncorrectedQ0
+                                - (C7 / tempFromPress) * exp(
+                        C6 / tempFromPress))
+            return correctedQ0
+
+        else:
+            return uncorrectedQ0
 
 
 def main():
