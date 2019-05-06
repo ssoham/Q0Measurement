@@ -48,11 +48,6 @@ MYSAMPLER_TIME_INTERVAL = 1
 
 
 class Container(object):
-    def addNumToStr(self, formatStr, suffix=None):
-        if suffix:
-            return formatStr.format(CM=self.cryModNumJLAB, SUFF=suffix)
-        else:
-            return formatStr.format(CM=self.cryModNumJLAB)
 
     def __init__(self, cryModNumSLAC, cryModNumJLAB):
         self.cryModNumSLAC = cryModNumSLAC
@@ -79,6 +74,38 @@ class Container(object):
 
         self.heaterDesPVs = None
         self.heaterActPVs = None
+
+    @staticmethod
+    def makeTimeFromStr(row, idx):
+        return datetime.strptime(row[idx], "%m/%d/%y %H:%M")
+
+    @staticmethod
+    def getTimeParams(row, indices):
+        startTime = Container.makeTimeFromStr(row, indices["startIdx"])
+        endTime = Container.makeTimeFromStr(row, indices["endIdx"])
+
+        timeIntervalStr = row[indices["timeIntIdx"]]
+        timeInterval = (int(timeIntervalStr) if timeIntervalStr
+                        else MYSAMPLER_TIME_INTERVAL)
+
+        return startTime, endTime, timeInterval
+
+    def addDataSessionFromRow(self, row, indices, calibSession=None,
+                              refGradVal=None):
+        # type: ([], dict, DataSession, float) -> DataSession
+
+        startTime, endTime, timeInterval = Container.getTimeParams(row, indices)
+
+        refHeatLoad = float(row[indices["refHeatIdx"]])
+
+        return self.addDataSession(startTime, endTime, timeInterval,
+                                   float(row[indices["jtIdx"]]), refHeatLoad)
+
+    def addNumToStr(self, formatStr, suffix=None):
+        if suffix:
+            return formatStr.format(CM=self.cryModNumJLAB, SUFF=suffix)
+        else:
+            return formatStr.format(CM=self.cryModNumJLAB)
 
     def addDataSession(self, startTime, endTime, timeInt, refValvePos,
                        refHeatLoad, refGradVal=None):
@@ -135,6 +162,24 @@ class Cavity(Container):
         self.name = "Cavity {cavNum}".format(cavNum=cavNumber)
         self.cavNum = cavNumber
         self.delta = 0
+
+    def addDataSessionFromRow(self, row, indices, calibSession=None,
+                              refGradVal=None):
+        # type: ([], dict, DataSession, float) -> Q0DataSession
+
+        startTime, endTime, timeInterval = Container.getTimeParams(row, indices)
+
+        try:
+            refHeatLoad = float(row[indices["refHeatIdx"]])
+        except ValueError:
+            refHeatLoad = calibSession.refHeatLoad
+
+        if not refGradVal:
+            refGradVal = float(row[indices["gradIdx"]])
+
+        return self.addDataSession(startTime, endTime, timeInterval,
+                                   float(row[indices["jtIdx"]]), refHeatLoad,
+                                   refGradVal, calibSession)
 
     def genPV(self, formatStr, suffix):
         return formatStr.format(CM=self.cryModNumJLAB, CAV=self.cavNum,
