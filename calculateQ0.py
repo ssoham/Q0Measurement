@@ -16,6 +16,7 @@ from numpy import linspace
 from sys import stderr
 from cryomodule import (Cryomodule, Container, Cavity, DataSession,
                         Q0DataSession)
+from runQ0Measurement import runQ0Meas
 
 
 ERROR_MESSAGE = "Please provide valid input"
@@ -352,8 +353,8 @@ def addDataSession(fileFormatter, indices, slacNum, container,
                                                    calibSession, refGradVal)
 
         else:
-            # TODO launch new Q0 Measurement
-            pass
+            # TODO this currently always waits for cryo before starting
+            return runQ0Meas(container, refGradVal, calibSession)
 
     else:
         for row in fileReader:

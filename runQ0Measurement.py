@@ -3,8 +3,8 @@ from __future__ import division
 from subprocess import CalledProcessError
 from time import sleep
 from numpy import mean
-from cryomodule import (Cryomodule, Cavity, MYSAMPLER_TIME_INTERVAL,
-                        DataSession)
+from cryomodule import (Cryomodule, Cavity, MYSAMPLER_TIME_INTERVAL, Container,
+                        DataSession, Q0DataSession)
 from sys import stderr, stdout
 from matplotlib import pyplot as plt
 from datetime import datetime, timedelta
@@ -12,7 +12,7 @@ from epicsShell import cagetPV, caputPV
 from scipy.stats import linregress
 from math import log10
 from csv import writer
-from calculateQ0 import getStrLim
+from calculateQ0 import getStrLim, get_float_lim
 
 if hasattr(__builtins__, 'raw_input'):
     input = raw_input
@@ -21,8 +21,8 @@ if hasattr(__builtins__, 'raw_input'):
 DESIRED_LL = 95
 
 
-def runQ0Meas(cavity, desiredGradient):
-    # type: (Cavity, float) -> None
+def runQ0Meas(cavity, desiredGradient, calibSession=None):
+    # type: (Cavity, float, DataSession) -> Q0DataSession
     try:
         # cavity.refGradVal = desiredGradient
         refValvePos = checkCryo(cavity, 2)
@@ -59,8 +59,9 @@ def runQ0Meas(cavity, desiredGradient):
 
         session = cavity.addDataSession(startTime, endTime,
                                         MYSAMPLER_TIME_INTERVAL, refValvePos,
-                                        refGradVal=desiredGradient)
-        session.generateCSV()
+                                        refGradVal=desiredGradient,
+                                        calibSession=calibSession)
+        # session.generateCSV()
 
         with open(cavity.idxFile, 'a') as f:
             csvWriter = writer(f)
@@ -68,6 +69,8 @@ def runQ0Meas(cavity, desiredGradient):
                                 startTime.strftime("%m/%d/%y %H:%M"),
                                 endTime.strftime("%m/%d/%y %H:%M"),
                                 session.refHeatLoad, MYSAMPLER_TIME_INTERVAL])
+
+        return session
 
     except(CalledProcessError, IndexError, OSError, ValueError,
            AssertionError) as e:
@@ -180,14 +183,25 @@ def checkAndSetOnTime(cavity):
 
 
 # noinspection PyTupleAssignmentBalance
-def checkCryo(cavity, numHours, checkForFlatness=True):
-    # type: (Cavity, int, bool) -> float
+def checkCryo(container, numHours, checkForFlatness=True):
+    # type: (Container, float, bool) -> float
+
+    getNewPos = (getStrLim("Determine new JT Valve Position? (May take 2 hours)",
+                           ["y", "n", "Y", "N"]) in ["y", "Y"])
+
+    if not getNewPos:
+        desPos = get_float_lim("Desired JT Valve Position: ", 0, 100)
+        waitForLL(container)
+        waitForJT(container, desPos)
+        print("\nDesired JT Valve position is {POS}".format(POS=desPos))
+        return desPos
+
     print("\nDetermining Required JT Valve Position...")
     csvReader = DataSession.parseRawData(datetime.now()
                                          - timedelta(hours=numHours),
                                          int((60 / MYSAMPLER_TIME_INTERVAL)
                                              * (numHours * 60)),
-                                         [cavity.dsLevelPV, cavity.valvePV])
+                                         [container.dsLevelPV, container.valvePV])
 
     csvReader.next()
     valveVals = []
@@ -204,15 +218,15 @@ def checkCryo(cavity, numHours, checkForFlatness=True):
 
     if not checkForFlatness or (checkForFlatness and log10(abs(m)) < 5):
         desPos = round(mean(valveVals), 1)
-        waitForLL(cavity)
-        waitForJT(cavity, desPos)
+        waitForLL(container)
+        waitForJT(container, desPos)
         print("\nDesired JT Valve position is {POS}".format(POS=desPos))
         return desPos
 
     else:
         print("Need to figure out new JT valve position")
 
-        waitForLL(cavity)
+        waitForLL(container)
 
         writeAndWait("\nWaiting 1 hour 45 minutes for LL to stabilize...")
 
@@ -220,7 +234,7 @@ def checkCryo(cavity, numHours, checkForFlatness=True):
         while((datetime.now() - start).total_seconds() < 6300):
             writeAndWait(".", 5)
             
-        return checkCryo(cavity, 0.25, False)
+        return checkCryo(container, 0.25, False)
 
 
 def writeAndWait(message, timeToWait=0):
@@ -229,34 +243,35 @@ def writeAndWait(message, timeToWait=0):
     sleep(timeToWait)
 
 
-def waitForLL(cavity):
+def waitForLL(container):
+    # type: (Container) -> None
     writeAndWait("\nWaiting for downstream liquid level to be {LL}%..."
                  .format(LL=DESIRED_LL))
 
-    while abs(DESIRED_LL - float(cagetPV(cavity.dsLevelPV))) > 1:
+    while abs(DESIRED_LL - float(cagetPV(container.dsLevelPV))) > 1:
         writeAndWait(".", 5)
 
     print("\ndownstream liquid level at required value")
 
 
-def waitForJT(cavity, desPosJT):
-    # type: (Cavity, float) -> None
+def waitForJT(container, desPosJT):
+    # type: (Container, float) -> None
 
     writeAndWait("\nWaiting for JT Valve to be locked at {POS}..."
                  .format(POS=desPosJT))
 
-    mode = cagetPV(cavity.jtModePV)
+    mode = cagetPV(container.jtModePV)
 
     if mode == "0":
-        while float(cagetPV(cavity.jtPosSetpointPV)) != desPosJT:
+        while float(cagetPV(container.jtPosSetpointPV)) != desPosJT:
             writeAndWait(".", 5)
 
     else:
 
-        while float(cagetPV(cavity.cvMinPV)) != desPosJT:
+        while float(cagetPV(container.cvMinPV)) != desPosJT:
             writeAndWait(".", 5)
 
-        while float(cagetPV(cavity.cvMaxPV)) != desPosJT:
+        while float(cagetPV(container.cvMaxPV)) != desPosJT:
             writeAndWait(".", 5)
 
     print("\nJT Valve locked")

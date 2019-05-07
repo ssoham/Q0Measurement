@@ -226,7 +226,7 @@ class Cavity(Container):
 
     def addDataSession(self, startTime, endTime, timeInt, refValvePos,
                        refHeatLoad=None, refGradVal=None, calibSession=None):
-        # type: (datetime, datetime, int, float, float, float, DataSession) -> DataSession
+        # type: (datetime, datetime, int, float, float, float, DataSession) -> Q0DataSession
 
         if not refHeatLoad:
             refHeatLoad = 0
