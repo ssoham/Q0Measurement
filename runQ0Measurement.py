@@ -2,17 +2,17 @@ from __future__ import print_function
 from __future__ import division
 from subprocess import CalledProcessError
 from time import sleep
-
 from numpy import mean
-
-from cryomodule import Cryomodule
+from cryomodule import (Cryomodule, Cavity, MYSAMPLER_TIME_INTERVAL,
+                        DataSession)
 from sys import stderr, stdout
 from matplotlib import pyplot as plt
 from datetime import datetime, timedelta
 from epicsShell import cagetPV, caputPV
-from calculateQ0 import parseRawData, MYSAMPLER_TIME_INTERVAL
 from scipy.stats import linregress
 from math import log10
+from csv import writer
+from calculateQ0 import getStrLim
 
 if hasattr(__builtins__, 'raw_input'):
     input = raw_input
@@ -22,43 +22,52 @@ DESIRED_LL = 95
 
 
 def runQ0Meas(cavity, desiredGradient):
-    # type: (Cryomodule.Cavity, float) -> None
+    # type: (Cavity, float) -> None
     try:
-        cavity.refGradVal = desiredGradient
-        checkCryo(cavity, 2)
+        # cavity.refGradVal = desiredGradient
+        refValvePos = checkCryo(cavity, 2)
 
-        # checkAcqControl(cavity)
-        # setPowerSSA(cavity, True)
-        # characterize(cavity)
-        #
-        # #caputPV(cavity.genAcclPV("SEL_ASET"), "15")
-        #
-        # # Start with pulsed mode
-        # setModeRF(cavity, "4")
-        #
-        # setStateRF(cavity, True)
-        # pushGoButton(cavity)
-        #
-        # checkAndSetOnTime(cavity)
-        # checkDrive(cavity)
-        #
-        # phaseCavity(cavity)
-        #
-        # #lowerAmplitude(cavity)
-        #
-        # # go to CW
-        # setModeRF(cavity, "2")
-        #
-        # walkToGradient(cavity, desiredGradient)
-        #
-        # startTime = holdGradient(cavity, desiredGradient)
-        #
-        # powerDown(cavity)
-        #
-        # endTime = launchHeaterRun(cavity)
+        checkAcqControl(cavity)
+        setPowerSSA(cavity, True)
+        characterize(cavity)
 
-    # %Y-%m-%d-%H:%M
+        #caputPV(cavity.genAcclPV("SEL_ASET"), "15")
 
+        # Start with pulsed mode
+        setModeRF(cavity, "4")
+
+        setStateRF(cavity, True)
+        pushGoButton(cavity)
+
+        checkAndSetOnTime(cavity)
+        checkDrive(cavity)
+
+        phaseCavity(cavity)
+
+        #lowerAmplitude(cavity)
+
+        # go to CW
+        setModeRF(cavity, "2")
+
+        walkToGradient(cavity, desiredGradient)
+
+        startTime = holdGradient(cavity, desiredGradient)
+
+        powerDown(cavity)
+
+        endTime = launchHeaterRun(cavity, refValvePos)
+
+        session = cavity.addDataSession(startTime, endTime,
+                                        MYSAMPLER_TIME_INTERVAL, refValvePos,
+                                        refGradVal=desiredGradient)
+        session.generateCSV()
+
+        with open(cavity.idxFile, 'a') as f:
+            csvWriter = writer(f)
+            csvWriter.writerow([cavity.cavNum, desiredGradient, refValvePos,
+                                startTime.strftime("%m/%d/%y %H:%M"),
+                                endTime.strftime("%m/%d/%y %H:%M"),
+                                session.refHeatLoad, MYSAMPLER_TIME_INTERVAL])
 
     except(CalledProcessError, IndexError, OSError, ValueError,
            AssertionError) as e:
@@ -82,9 +91,11 @@ def characterize(cavity):
             caputPV(cavity.genAcclPV(pushPV), "1")
 
         else:
-            print("Old and new {PARAM} differ by more than 0.15 - please "
-                  "inspect and push manually".format(PARAM=param))
-
+            # print("Old and new {PARAM} differ by more than 0.15 - please "
+            #       "inspect and push manually".format(PARAM=param))
+            raise AssertionError("Old and new {PARAM} differ by more than 0.15"
+                                 " - please inspect and push manually"
+                                 .format(PARAM=param))
 
     caputPV(cavity.genAcclPV("SSACALSTRT"), "1")
 
@@ -98,11 +109,19 @@ def characterize(cavity):
                  "CAV:CAL_SCALEB_NEW")
 
 
-def launchHeaterRun(cavity):
-    # type: (Cryomodule.Cavity) -> datetime
-    # TODO check cryo levels
+def launchHeaterRun(cavity, desPos):
+    # type: (Cavity, float) -> datetime
 
-    for heaterPV in cavity.heaterPVs:
+    proceed = (getStrLim("Proceed to the heater calibration without refilling?",
+                         ["y", "n", "Y", "N"]) in ["y", "Y"])
+
+    if not proceed:
+        print("**** REMINDER: refills aren't automated - please contact the"
+              " cryo group ****")
+        waitForLL(cavity)
+        waitForJT(cavity, desPos)
+
+    for heaterPV in cavity.parent.heaterDesPVs:
         curVal = float(cagetPV(heaterPV))
         caputPV(heaterPV, str(curVal + 1))
         
@@ -126,7 +145,7 @@ def launchHeaterRun(cavity):
     duration = (endTime - startTime).total_seconds() / 3600
     print("Duration in hours: {DUR}".format(DUR=duration))
 
-    for heaterPV in cavity.heaterPVs:
+    for heaterPV in cavity.parent.heaterDesPVs:
         curVal = float(cagetPV(heaterPV))
         caputPV(heaterPV, str(curVal - 1))
 
@@ -158,13 +177,17 @@ def checkAndSetOnTime(cavity):
     if onTime != "70":
         print("Setting RF Pulse On Time to 70ms")
         caputPV(onTimePV, "70")
-        
+
+
+# noinspection PyTupleAssignmentBalance
 def checkCryo(cavity, numHours, checkForFlatness=True):
+    # type: (Cavity, int, bool) -> float
     print("\nDetermining Required JT Valve Position...")
-    csvReader = parseRawData(datetime.now() - timedelta(hours=numHours),
-                             int((60 / MYSAMPLER_TIME_INTERVAL)
-                                 * (numHours * 60)),
-                             [cavity.dsLevelPV, cavity.valvePV])
+    csvReader = DataSession.parseRawData(datetime.now()
+                                         - timedelta(hours=numHours),
+                                         int((60 / MYSAMPLER_TIME_INTERVAL)
+                                             * (numHours * 60)),
+                                         [cavity.dsLevelPV, cavity.valvePV])
 
     csvReader.next()
     valveVals = []
@@ -183,7 +206,8 @@ def checkCryo(cavity, numHours, checkForFlatness=True):
         desPos = round(mean(valveVals), 1)
         waitForLL(cavity)
         waitForJT(cavity, desPos)
-        print("\nCryo at required values")
+        print("\nDesired JT Valve position is {POS}".format(POS=desPos))
+        return desPos
 
     else:
         print("Need to figure out new JT valve position")
@@ -196,7 +220,7 @@ def checkCryo(cavity, numHours, checkForFlatness=True):
         while((datetime.now() - start).total_seconds() < 6300):
             writeAndWait(".", 5)
             
-        checkCryo(cavity, 0.25, False)
+        return checkCryo(cavity, 0.25, False)
 
 
 def writeAndWait(message, timeToWait=0):
@@ -216,7 +240,7 @@ def waitForLL(cavity):
 
 
 def waitForJT(cavity, desPosJT):
-    # type: (Cryomodule.Cavity, float) -> None
+    # type: (Cavity, float) -> None
 
     writeAndWait("\nWaiting for JT Valve to be locked at {POS}..."
                  .format(POS=desPosJT))
@@ -239,7 +263,7 @@ def waitForJT(cavity, desPosJT):
 
 
 def setPowerSSA(cavity, turnOn):
-    # type: (Cryomodule.Cavity, bool) -> None
+    # type: (Cavity, bool) -> None
 
     # Using double curly braces to trick it into a partial formatting
     ssaFormatPV = cavity.genAcclPV("SSA:{SUFFIX}")
@@ -275,7 +299,7 @@ def setPowerSSA(cavity, turnOn):
 
 
 def setModeRF(cavity, modeDesired):
-    # type: (Cryomodule.Cavity, str) -> None
+    # type: (Cavity, str) -> None
 
     rfModePV = cavity.genAcclPV("RFMODECTRL")
 
@@ -285,7 +309,7 @@ def setModeRF(cavity, modeDesired):
 
 
 def setStateRF(cavity, turnOn):
-    # type: (Cryomodule.Cavity, bool) -> None
+    # type: (Cavity, bool) -> None
 
     rfStatePV = cavity.genAcclPV("RFSTATE")
     rfControlPV = cavity.genAcclPV("RFCTRL")
@@ -297,23 +321,21 @@ def setStateRF(cavity, turnOn):
     if rfState != desiredState:
         print("\nSetting RF State...")
         caputPV(rfControlPV, desiredState)
-        #assert cagetPV(rfStatePV) == desiredState,\
-            #"Unable to set RF state"
 
     print("RF state set\n")
 
 
 def pushGoButton(cavity):
-    # type: (Cryomodule.Cavity) -> None
+    # type: (Cavity) -> None
     rfStatePV = cavity.genAcclPV("PULSEONSTRT")
     caputPV(rfStatePV, "1")
     sleep(2)
-    assert cagetPV(rfStatePV) == "1", \
-        "Unable to set RF state"
+    if cagetPV(rfStatePV) != "1":
+        raise AssertionError("Unable to set RF state")
 
 
 def checkDrive(cavity):
-    # type: (Cryomodule.Cavity) -> None
+    # type: (Cavity) -> None
 
     print("Checking drive...")
 
@@ -334,7 +356,7 @@ def checkDrive(cavity):
 
 
 def phaseCavity(cavity):
-    # type: (Cryomodule.Cavity) -> None
+    # type: (Cavity) -> None
 
     waveformFormatStr = cavity.genAcclPV("{INFIX}:AWF")
 
@@ -446,7 +468,7 @@ def walkToGradient(cavity, desiredGradient):
     while abs(diff) > 0.05:
         gradient = float(cagetPV(cavity.gradPV))
 
-        if gradient < (prevGradient / 2):
+        if gradient < (prevGradient * 0.9):
             raise AssertionError("Detected a quench - aborting")
 
         currAmp = float(cagetPV(amplitudePV))
@@ -464,7 +486,7 @@ def walkToGradient(cavity, desiredGradient):
     print("Gradient at desired value")
 
 def holdGradient(cavity, desiredGradient):
-    # type: (Cryomodule.Cavity, float) -> datetime
+    # type: (Cavity, float) -> datetime
 
     amplitudePV = cavity.genAcclPV("ADES")
 
@@ -485,7 +507,7 @@ def holdGradient(cavity, desiredGradient):
 
         gradient = float(cagetPV(cavity.gradPV))
         
-        if hitTarget and gradient <= (desiredGradient / 4):
+        if hitTarget and gradient <= (desiredGradient * 0.9):
             raise AssertionError("Detected a quench - aborting")
 
         currAmp = float(cagetPV(amplitudePV))
@@ -529,6 +551,6 @@ def powerDown(cavity):
 
 if __name__ == "__main__":
     # noinspection PyUnboundLocalVariable
-    runQ0Meas(Cryomodule(int(input("SLAC CM: ")), int(input("JLAB CM: ")),
-                         None, 0, 0).cavities[int(input("Cavity: "))],
+    runQ0Meas(Cryomodule(int(input("SLAC CM: ")), int(input("JLAB CM: ")))
+              .cavities[int(input("Cavity: "))],
               float(input("Desired Gradient: ")))

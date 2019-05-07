@@ -18,6 +18,7 @@ from numpy import polyfit
 from matplotlib import pyplot as plt
 from subprocess import check_output, CalledProcessError
 from re import compile, findall
+from abc import abstractproperty, ABCMeta
 
 # The LL readings get wonky when the upstream liquid level dips below 66
 from epicsShell import cagetPV
@@ -48,6 +49,7 @@ MYSAMPLER_TIME_INTERVAL = 1
 
 
 class Container(object):
+    __metaclass__ = ABCMeta
 
     def __init__(self, cryModNumSLAC, cryModNumJLAB):
         self.cryModNumSLAC = cryModNumSLAC
@@ -72,8 +74,14 @@ class Container(object):
 
         self.dataSessions = {}
 
-        self.heaterDesPVs = None
-        self.heaterActPVs = None
+
+    @abstractproperty
+    def heaterDesPVs(self):
+        raise NotImplementedError
+
+    @abstractproperty
+    def heaterActPVs(self):
+        raise NotImplementedError
 
     @staticmethod
     def makeTimeFromStr(row, idx):
@@ -135,8 +143,8 @@ class Cryomodule(Container):
         # Give each cryomodule 8 cavities
         cavities = {}
 
-        self.heaterDesPVs = []
-        self.heaterActPVs = []
+        self._heaterDesPVs = []
+        self._heaterActPVs = []
 
         heaterDesStr = self.addNumToStr("CHTR:CM0{CM}:1{{CAV}}55:HV:{SUFF}",
                                         "POWER_SETPT")
@@ -145,10 +153,18 @@ class Cryomodule(Container):
 
         for i in range(1, 9):
             cavities[i] = Cavity(cryMod=self, cavNumber=i)
-            self.heaterDesPVs.append(heaterDesStr.format(CAV=i))
-            self.heaterActPVs.append(heaterActStr.format(CAV=i))
+            self._heaterDesPVs.append(heaterDesStr.format(CAV=i))
+            self._heaterActPVs.append(heaterActStr.format(CAV=i))
 
         self.cavities = OrderedDict(sorted(cavities.items()))
+
+    @property
+    def heaterDesPVs(self):
+        return self._heaterDesPVs
+
+    @property
+    def heaterActPVs(self):
+        return self._heaterActPVs
 
 
 class Cavity(Container):
@@ -162,6 +178,15 @@ class Cavity(Container):
         self.name = "Cavity {cavNum}".format(cavNum=cavNumber)
         self.cavNum = cavNumber
         self.delta = 0
+        self.idxFile = "q0MeasurementsCM{CM}.csv".format(CM=cryMod.cryModNumSLAC)
+
+    @property
+    def heaterDesPVs(self):
+        return self.parent.heaterDesPVs
+
+    @property
+    def heaterActPVs(self):
+        return self.parent.heaterActPVs
 
     def addDataSessionFromRow(self, row, indices, calibSession=None,
                               refGradVal=None):
@@ -1104,9 +1129,8 @@ class Q0DataRun(DataRun):
 
 def main():
     cryomodule = Cryomodule(cryModNumSLAC=12, cryModNumJLAB=2)
-    for idx, cav in cryomodule.cavities.items():
-        print(cav.gradientPV)
-        print(cav.heaterPV)
+    for idx, cav in cryomodule.cavities.items():  # type: (int, Cavity)
+        print(cav.gradPV)
 
 
 if __name__ == '__main__':

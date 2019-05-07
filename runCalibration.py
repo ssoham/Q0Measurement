@@ -45,12 +45,12 @@ def runCalibration(cryomodule):
 
 
 if __name__ == "__main__":
-    # Should be sorted in reverse order
-    heatLoads = [13, 10, 7, 4, 1]
+    # @pre Should be sorted in reverse order
+    heatLoads = [8, 16, 24, 32, 40]
 
     # noinspection PyCompatibility
     cryoModule = Cryomodule(int(raw_input("SLAC CM: ")),
-                            int(raw_input("JLAB CM: ")), None, 0, 0)
+                            int(raw_input("JLAB CM: ")))
 
     currHeatLoad = 0
 

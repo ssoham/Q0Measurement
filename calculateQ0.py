@@ -7,22 +7,16 @@
 from __future__ import division, print_function
 
 from collections import OrderedDict
-from datetime import datetime
 from json import dumps
 from csv import reader
-from os import walk
-from os.path import join, abspath, dirname
-from fnmatch import fnmatch
 from time import sleep
 
 from matplotlib import pyplot as plt
 from numpy import linspace
 from sys import stderr
 from cryomodule import (Cryomodule, Container, Cavity, DataSession,
-                        MYSAMPLER_TIME_INTERVAL, Q0DataSession)
+                        Q0DataSession)
 
-# Used in custom input functions just below
-from epicsShell import cagetPV
 
 ERROR_MESSAGE = "Please provide valid input"
 
@@ -54,8 +48,6 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
 
     while response < lowLim or response > highLim:
         stderr.write(ERROR_MESSAGE + "\n")
-        # Need to pause briefly for some reason to make sure the error message
-        # shows up before the next prompt
         sleep(0.01)
         response = get_input(prompt, inputType)
 
@@ -88,23 +80,6 @@ def getStrLim(prompt, acceptable_strings):
         response = get_input(prompt, str)
 
     return response
-
-
-# Finds files whose names start with prefix and indexes them consecutively
-# (instead of just using its index in the directory)
-def findDataFiles(prefix):
-    fileDict = {}
-    numFiles = 1
-
-    for root, dirs, files in walk(abspath(dirname(__file__))):
-        for name in files:
-            if fnmatch(name, prefix + "*"):
-                fileDict[numFiles] = name
-                # fileDict[numFiles] = join(root, name)
-                numFiles += 1
-
-    fileDict[numFiles] = "Generate a new CSV"
-    return fileDict
 
 
 def genCalibSession(cryModIdxMap, calIdxKeys, slacNum, cryoModules,
