@@ -12,7 +12,7 @@ from subprocess import CalledProcessError
 from time import sleep
 from numpy import mean
 from cryomodule import (MYSAMPLER_TIME_INTERVAL, TEST_MODE, Cryomodule, Cavity,
-                        Container, DataSession, Q0DataSession)
+                        Container, DataSession, Q0DataSession, MAX_DS_LL)
 from sys import stderr, stdout
 from matplotlib import pyplot as plt
 from datetime import datetime, timedelta
@@ -20,17 +20,62 @@ from epicsShell import cagetPV, caputPV
 from scipy.stats import linregress
 from math import log10
 from csv import writer
-from calculateQ0 import getStrLim, get_float_lim
+# from calculateQ0 import getStrLim, get_float_lim
+
+
+ERROR_MESSAGE = "Please provide valid input"
+
 
 if hasattr(__builtins__, 'raw_input'):
     input = raw_input
 
 
-def runQ0Meas(cavity, desiredGradient, calibSession=None):
-    # type: (Cavity, float, DataSession) -> Q0DataSession
+def get_float_lim(prompt, low_lim, high_lim):
+    return getNumericalInput(prompt, low_lim, high_lim, float)
+
+
+def getNumericalInput(prompt, lowLim, highLim, inputType):
+    response = get_input(prompt, inputType)
+
+    while response < lowLim or response > highLim:
+        stderr.write(ERROR_MESSAGE + "\n")
+        sleep(0.01)
+        response = get_input(prompt, inputType)
+
+    return response
+
+
+def get_input(prompt, desired_type):
+    response = input(prompt)
+
+    try:
+        response = desired_type(response)
+    except ValueError:
+        stderr.write(str(desired_type) + " required\n")
+        sleep(0.01)
+        return get_input(prompt, desired_type)
+
+    return response
+
+
+def getStrLim(prompt, acceptable_strings):
+    response = get_input(prompt, str)
+
+    while response not in acceptable_strings:
+        stderr.write(ERROR_MESSAGE + "\n")
+        sleep(0.01)
+        response = get_input(prompt, str)
+
+    return response
+
+
+
+def runQ0Meas(cavity, desiredGradient, calibSession=None, refValvePos=None):
+    # type: (Cavity, float, DataSession, float) -> (Q0DataSession, float)
     try:
         # cavity.refGradVal = desiredGradient
-        refValvePos = checkCryo(cavity, 2)
+        if not refValvePos:
+            refValvePos = checkCryo(cavity, 2)
 
         checkAcqControl(cavity)
         setPowerSSA(cavity, True)
@@ -68,7 +113,6 @@ def runQ0Meas(cavity, desiredGradient, calibSession=None):
                                         MYSAMPLER_TIME_INTERVAL, refValvePos,
                                         refGradVal=desiredGradient,
                                         calibSession=calibSession)
-        # session.generateCSV()
 
         with open(cavity.idxFile, 'a') as f:
             csvWriter = writer(f)
@@ -77,7 +121,7 @@ def runQ0Meas(cavity, desiredGradient, calibSession=None):
                                 endTime.strftime("%m/%d/%y %H:%M"),
                                 session.refHeatLoad, MYSAMPLER_TIME_INTERVAL])
 
-        return session
+        return session, refValvePos
 
     except(CalledProcessError, IndexError, OSError, ValueError,
            AssertionError) as e:
@@ -85,13 +129,13 @@ def runQ0Meas(cavity, desiredGradient, calibSession=None):
         # powerDown(cavity)
 
 
-# noinspection PyTupleAssignmentBalance
+# noinspection PyTupleAssignmentBalance,PyTypeChecker
 def checkCryo(container, numHours, checkForFlatness=True):
     # type: (Container, float, bool) -> float
 
-    getNewPos = (
-                getStrLim("Determine new JT Valve Position? (May take 2 hours)",
-                          ["y", "n", "Y", "N"]) in ["y", "Y"])
+    getNewPos = (getStrLim("Determine new JT Valve Position?"
+                           " (May take 2 hours)", ["y", "n", "Y", "N"])
+                 in ["y", "Y"])
 
     if not getNewPos:
         desPos = get_float_lim("Desired JT Valve Position: ", 0, 100)
@@ -136,18 +180,18 @@ def checkCryo(container, numHours, checkForFlatness=True):
         writeAndWait("\nWaiting 1 hour 45 minutes for LL to stabilize...")
 
         start = datetime.now()
-        while ((datetime.now() - start).total_seconds() < 6300):
+        while (datetime.now() - start).total_seconds() < 6300:
             writeAndWait(".", 5)
-
+            
         return checkCryo(container, 0.25, False)
 
 
 def waitForLL(container):
     # type: (Container) -> None
     writeAndWait("\nWaiting for downstream liquid level to be {LL}%..."
-                 .format(LL=DESIRED_LL))
+                 .format(LL=MAX_DS_LL))
 
-    while abs(DESIRED_LL - float(cagetPV(container.dsLevelPV))) > 1:
+    while abs(MAX_DS_LL - float(cagetPV(container.dsLevelPV))) > 1:
         writeAndWait(".", 5)
 
     print("\ndownstream liquid level at required value")
@@ -321,6 +365,7 @@ def checkDrive(cavity):
     currDrive = float(cagetPV(drivePV))
 
     while (float(cagetPV(cavity.gradPV)) < 1) or (currDrive < 15):
+        
         print("Increasing drive...")
         driveDes = str(currDrive + 1)
 
@@ -489,7 +534,7 @@ def holdGradient(cavity, desiredGradient):
         stdout.write(".")
 
         gradient = float(cagetPV(cavity.gradPV))
-
+        
         if hitTarget and gradient <= (desiredGradient * 0.9):
             raise AssertionError("Detected a quench - aborting")
 
@@ -547,13 +592,13 @@ def launchHeaterRun(cavity, desPos):
     for heaterPV in cavity.parent.heaterDesPVs:
         curVal = float(cagetPV(heaterPV))
         caputPV(heaterPV, str(curVal + 1))
-        
+
     startTime = datetime.now()
-    
+
     print("\nStart time: {START}".format(START=startTime))
-    
+
     stdout.write("\nRunning heaters for 40 minutes...")
-    
+
     while (datetime.now() - startTime).total_seconds() < 2400:
         stdout.write(".")
         stdout.flush()

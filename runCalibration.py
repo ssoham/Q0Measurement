@@ -8,37 +8,45 @@
 from __future__ import division
 from datetime import datetime
 from sys import stdout
-from cryomodule import Cryomodule, MIN_DS_LL, MAX_DS_LL
+from cryomodule import (Cryomodule, MIN_DS_LL, MAX_DS_LL, DataSession,
+                        MYSAMPLER_TIME_INTERVAL)
 from epicsShell import cagetPV, caputPV
 from time import sleep
 from runQ0Measurement import checkCryo, waitForLL, waitForJT
+from csv import writer
 
 
 # The number of distinct heater settings we're using for cryomodule calibrations
 NUM_CAL_RUNS = 5
 
-# CAVITY_MAX_HEAT_LOAD = 15
-#
-# CAVITY_MIN_HEAT_LOAD = 0
-#
+
 # HEAT_LOAD_PARAMS = {2: {"low": 16, "high": 120}, 3: {"low": 64, "high": 120}}
 
 
-def runCalibration(cryoModule):
-    # type: (Cryomodule) -> DataSession
-    refValvePos = checkCryo(cryoModule, 2)
+def runCalibration(cryoModule, refValvePos=None):
+    # type: (Cryomodule, float) -> (DataSession, float)
 
-    for runNum in range(NUM_CAL_RUNS + 1):
-        stdout.write("\nRamping heaters to the next setting...")
+    def launchHeaterRun():
+        print("Ramping heaters to the next setting...")
+        walkHeaters(cryoModule, 1)
+        runStartTime = datetime.now()
+        stdout.write("\nWaiting either 40 minutes or for the LL to drop below"
+                     " 90...")
         stdout.flush()
-
-        walkHeaters(cryoModule, 8 * runNum)
-
-        startTime = datetime.now()
-
-        while ((datetime.now() - startTime).total_seconds() < 2400
+        while ((datetime.now() - runStartTime).total_seconds() < 2400
                and float(cagetPV(cryoModule.dsLevelPV)) > MIN_DS_LL):
             stdout.write(".")
+
+        print("\nDone\n")
+
+    if not refValvePos:
+        refValvePos = checkCryo(cryoModule, 2)
+
+    startTime = datetime.now()
+
+    for _ in range(NUM_CAL_RUNS - 1):
+
+        launchHeaterRun()
 
         print("Please ask the cryo group to refill to {LL} on the downstream "
               "sensor".format(LL=MAX_DS_LL))
@@ -46,17 +54,31 @@ def runCalibration(cryoModule):
         waitForLL(cryoModule)
         waitForJT(cryoModule, refValvePos)
 
-    walkHeaters(cryoModule, -8 * runNum)
+    launchHeaterRun()
+
+    endTime = datetime.now()
+
+    walkHeaters(cryoModule, -NUM_CAL_RUNS)
+
+    session = cryoModule.addDataSession(startTime, endTime,
+                                        MYSAMPLER_TIME_INTERVAL, refValvePos)
+
+    with open(cryoModule.idxFile, 'a') as f:
+        csvWriter = writer(f)
+        csvWriter.writerow([cryoModule.cryModNumJLAB, session.refHeatLoad,
+                            refValvePos, startTime.strftime("%m/%d/%y %H:%M"),
+                            endTime.strftime("%m/%d/%y %H:%M"),
+                            MYSAMPLER_TIME_INTERVAL])
+
+    return session, refValvePos
 
 
-def walkHeaters(cryomodule, elecHeatDelta):
+def walkHeaters(cryomodule, heaterDelta):
     # type: (Cryomodule, int) -> None
 
-    step = 1 if elecHeatDelta > 0 else -1
+    step = 1 if heaterDelta > 0 else -1
 
-    elecHeatDelta = abs(elecHeatDelta)
-
-    for _ in range(1, int(elecHeatDelta / 8) + 1):
+    for _ in range(abs(heaterDelta)):
         for heaterSetpointPV in cryomodule.heaterDesPVs:
             currVal = float(cagetPV(heaterSetpointPV))
             caputPV(heaterSetpointPV, str(currVal + step))
@@ -65,28 +87,5 @@ def walkHeaters(cryomodule, elecHeatDelta):
 
 
 if __name__ == "__main__":
-    pass
-    # @pre Should be sorted in reverse order
-    # numRuns = 5
-    #
-    # # noinspection PyCompatibility
-    # cryoModule = Cryomodule(int(raw_input("SLAC CM: ")),
-    #                         int(raw_input("JLAB CM: ")))
-    #
-    # currHeatLoad = 0
-    #
-    # for cavity in cryoModule.cavities:
-    #     currHeatLoad += float(cagetPV(cavity.genHeaterPV("POWER_SETPT")))
-    #
-    # maxLoad = HEAT_LOAD_PARAMS[cryoModule.cryModNumJLAB]["high"]
-    # headroom = maxLoad - currHeatLoad
-    #
-    # if headroom < 0:
-    #     print("High heat load detected. (1) Walk down to 120 before calibrating"
-    #           " or (2) calibrate here?")
-    #
-    #
-    # if heatLoads[0] > headroom:
-    #     delta = ceil(heatLoads[0] / 8)
-    #     for i in range(1, 9):
-    #         pass
+    cryMod = Cryomodule(int(input("SLAC CM: ")), int(input("JLAB CM: ")))
+    runCalibration(cryMod)
