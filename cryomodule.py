@@ -23,6 +23,18 @@ from abc import abstractproperty, ABCMeta
 # The LL readings get wonky when the upstream liquid level dips below 66
 from epicsShell import cagetPV
 
+
+# Set True to use a known data set for debugging and/or demoing
+# Set False to prompt the user for real data
+TEST_MODE = True
+
+# The relationship between the LHE content of a cryomodule and the readback from
+# the liquid level sensors isn't linear over the full range of the sensors. We
+# have chosen to gather all our data with the downstream sensor reading between
+# 90% and 95%.
+MIN_DS_LL = 90
+MAX_DS_LL = 95
+
 UPSTREAM_LL_LOWER_LIMIT = 66
 
 # Used to reject data where the JT valve wasn't at the correct position
@@ -36,10 +48,6 @@ MIN_RUN_DURATION = 900
 
 # Used to reject data where the cavity gradient wasn't at the correct value
 GRAD_TOLERANCE = 0.7
-
-# Set True to use a known data set for debugging and/or demoing
-# Set False to prompt the user for real data
-IS_DEMO = True
 
 # We fetch data from the JLab archiver with a program called MySampler, which
 # samples the chosen PVs at a user-specified time interval. Increase to improve
@@ -514,7 +522,7 @@ class DataSession(object):
 
         self.calibIntercept = 0
 
-        if IS_DEMO:
+        if TEST_MODE:
             for i, run in enumerate(self.runs):
                 startTime = self.unixTimeBuff[run.startIdx]
                 endTime = self.unixTimeBuff[run.endIdx]
@@ -567,7 +575,7 @@ class DataSession(object):
 
             self.runs[i].startIdx = idx
 
-            if IS_DEMO:
+            if TEST_MODE:
                 print("cutoff: " + str(cutoff))
 
     ############################################################################
@@ -805,7 +813,7 @@ class Q0DataSession(DataSession):
             # Print R^2 to diagnose whether or not we had a long enough data run
             print("R^2: " + str(r_val ** 2))
 
-        if IS_DEMO:
+        if TEST_MODE:
             for i, run in enumerate(self.runs):
                 startTime = self.unixTimeBuff[run.startIdx]
                 endTime = self.unixTimeBuff[run.endIdx]
@@ -917,7 +925,7 @@ class Q0DataSession(DataSession):
 
             self.runs[i].startIdx = idx
 
-            if IS_DEMO:
+            if TEST_MODE:
                 print("cutoff: " + str(cutoff))
 
     @property

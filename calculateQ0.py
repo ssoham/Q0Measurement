@@ -5,12 +5,10 @@
 ################################################################################
 
 from __future__ import division, print_function
-
 from collections import OrderedDict
 from json import dumps
 from csv import reader
 from time import sleep
-
 from matplotlib import pyplot as plt
 from numpy import linspace
 from sys import stderr
