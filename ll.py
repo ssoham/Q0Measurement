@@ -48,7 +48,7 @@ with open("ll.csv") as csvFile:
 
     pointsPerMin = 4
 
-    timeChunk = pointsPerMin * 15
+    timeChunk = pointsPerMin * 60
     chunks = int(ceil(len(data) / timeChunk))
 
 

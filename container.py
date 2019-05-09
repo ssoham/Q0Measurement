@@ -8,54 +8,22 @@ from __future__ import print_function, division
 from csv import writer, reader
 from copy import deepcopy
 from decimal import Decimal
-from collections import OrderedDict
 from os.path import isfile
 from sys import stderr
-from datetime import datetime
-
 from matplotlib.axes import Axes
-from numpy import mean, exp
+from numpy import mean, exp, log10
 from scipy.stats import linregress
 from numpy import polyfit
 from matplotlib import pyplot as plt
 from subprocess import check_output, CalledProcessError
 from re import compile, findall
-from abc import abstractproperty, ABCMeta
-
-# The LL readings get wonky when the upstream liquid level dips below 66
-from epicsShell import cagetPV
-
-
-# Set True to use a known data set for debugging and/or demoing
-# Set False to prompt the user for real data
-TEST_MODE = True
-
-# The relationship between the LHE content of a cryomodule and the readback from
-# the liquid level sensors isn't linear over the full range of the sensors. We
-# have chosen to gather all our data with the downstream sensor reading between
-# 90% and 95%.
-MIN_DS_LL = 90
-MAX_DS_LL = 95
-
-UPSTREAM_LL_LOWER_LIMIT = 66
-
-# Used to reject data where the JT valve wasn't at the correct position
-VALVE_POSITION_TOLERANCE = 2
-
-# Used to reject data where the cavity heater wasn't at the correct value
-HEATER_TOLERANCE = 1
-
-# The minimum acceptable run length is fifteen minutes  (900 seconds)
-MIN_RUN_DURATION = 900
-
-# Used to reject data where the cavity gradient wasn't at the correct value
-GRAD_TOLERANCE = 0.7
-
-# We fetch data from the JLab archiver with a program called MySampler, which
-# samples the chosen PVs at a user-specified time interval. Increase to improve
-# statistics, decrease to lower the size of the CSV files and speed up
-# MySampler data acquisition.
-MYSAMPLER_TIME_INTERVAL = 1
+from collections import OrderedDict
+from datetime import datetime, timedelta
+from abc import abstractproperty, ABCMeta, abstractmethod
+from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
+                   VALVE_POSITION_TOLERANCE, UPSTREAM_LL_LOWER_LIMIT,
+                   HEATER_TOLERANCE, GRAD_TOLERANCE, MIN_RUN_DURATION, getYesNo,
+                   get_float_lim, writeAndWait, MAX_DS_LL, cagetPV, caputPV)
 
 
 class Container(object):
@@ -84,6 +52,10 @@ class Container(object):
 
         self.dataSessions = {}
 
+    @abstractmethod
+    def walkHeaters(self, perHeaterDelta):
+        raise NotImplementedError
+
     @abstractproperty
     def idxFile(self):
         raise NotImplementedError
@@ -110,6 +82,100 @@ class Container(object):
                         else MYSAMPLER_TIME_INTERVAL)
 
         return startTime, endTime, timeInterval
+
+    def getRefValvePos(self, numHours, checkForFlatness=True):
+        # type: (float, bool) -> float
+
+        getNewPos = getYesNo("Determine new JT Valve Position? (May take 2 "
+                             "hours) ")
+
+        if not getNewPos:
+            desPos = get_float_lim("Desired JT Valve Position: ", 0, 100)
+            print("\nDesired JT Valve position is {POS}".format(POS=desPos))
+            return desPos
+
+        print("\nDetermining Required JT Valve Position...")
+
+        start = datetime.now() - timedelta(hours=numHours)
+        numPoints = int((60 / MYSAMPLER_TIME_INTERVAL) * (numHours * 60))
+        signals = [self.dsLevelPV, self.valvePV]
+
+        csvReader = DataSession.parseRawData(start, numPoints, signals)
+
+        csvReader.next()
+        valveVals = []
+        llVals = []
+
+        for row in csvReader:
+            try:
+                valveVals.append(float(row.pop()))
+                llVals.append(float(row.pop()))
+            except ValueError:
+                pass
+
+        # Fit a line to the liquid level over the last [numHours] hours
+        m, b, _, _, _ = linregress(range(len(llVals)), llVals)
+
+        # If the LL slope is small enough, return the average JT valve position
+        # over the requested time span
+        if not checkForFlatness or (checkForFlatness and log10(abs(m)) < 5):
+            desPos = round(mean(valveVals), 1)
+            # waitForLL(container)
+            # waitForJT(container, desPos)
+            print("\nDesired JT Valve position is {POS}".format(POS=desPos))
+            return desPos
+
+        # If the LL slope isn't small enough, wait for it to stabilize and then
+        # repeat this process (and assume that it's flat enough at that point)
+        else:
+            print("Need to figure out new JT valve position")
+
+            self.waitForLL()
+
+            writeAndWait("\nWaiting 1 hour 45 minutes for LL to stabilize...")
+
+            start = datetime.now()
+            while (datetime.now() - start).total_seconds() < 6300:
+                writeAndWait(".", 5)
+
+            return self.getRefValvePos(0.25, False)
+
+    def waitForCryo(self, desPos):
+        # type: (float) -> None
+        self.waitForLL()
+        self.waitForJT(desPos)
+
+    def waitForLL(self):
+        # type: () -> None
+        writeAndWait("\nWaiting for downstream liquid level to be {LL}%..."
+                     .format(LL=MAX_DS_LL))
+
+        while abs(MAX_DS_LL - float(cagetPV(self.dsLevelPV))) > 1:
+            writeAndWait(".", 5)
+
+        print("\ndownstream liquid level at required value")
+
+    def waitForJT(self, desPosJT):
+        # type: (float) -> None
+
+        writeAndWait("\nWaiting for JT Valve to be locked at {POS}..."
+                     .format(POS=desPosJT))
+
+        mode = cagetPV(self.jtModePV)
+
+        if mode == "0":
+            while float(cagetPV(self.jtPosSetpointPV)) != desPosJT:
+                writeAndWait(".", 5)
+
+        else:
+
+            while float(cagetPV(self.cvMinPV)) != desPosJT:
+                writeAndWait(".", 5)
+
+            while float(cagetPV(self.cvMaxPV)) != desPosJT:
+                writeAndWait(".", 5)
+
+        print("\nJT Valve locked")
 
     def addDataSessionFromRow(self, row, indices, calibSession=None,
                               refGradVal=None):
@@ -174,9 +240,21 @@ class Cryomodule(Container):
 
         self.cavities = OrderedDict(sorted(cavities.items()))
 
+    def walkHeaters(self, perHeaterDelta):
+        # type: (int) -> None
+
+        # negative if we're decrementing heat
+        step = 1 if perHeaterDelta > 0 else -1
+
+        for _ in range(abs(perHeaterDelta)):
+            for heaterSetpointPV in self.heaterDesPVs:
+                currVal = float(cagetPV(heaterSetpointPV))
+                caputPV(heaterSetpointPV, str(currVal + step))
+                writeAndWait("\nWaiting 30s for cryo to stabilize...\n", 30)
+
     @property
     def idxFile(self):
-        return ("calibrationsCM{CM}.csv".format(CM=self.cryModNumSLAC))
+        return "calibrationsCM{CM}.csv".format(CM=self.cryModNumSLAC)
 
     @property
     def heaterDesPVs(self):
@@ -199,10 +277,12 @@ class Cavity(Container):
         self.cavNum = cavNumber
         self.delta = 0
 
+    def walkHeaters(self, perHeaterDelta):
+        return self.parent.walkHeaters(perHeaterDelta)
 
     @property
     def idxFile(self):
-        return ("q0MeasurementsCM{CM}.csv".format(CM=self.parent.cryModNumSLAC))
+        return "q0MeasurementsCM{CM}.csv".format(CM=self.parent.cryModNumSLAC)
 
     @property
     def heaterDesPVs(self):
@@ -339,7 +419,7 @@ class DataSession(object):
         try:
             return check_output(cmd)
         except (CalledProcessError, OSError) as e:
-            stderr.write("mySampler failed with error: " + str(e) + "\n")
+            writeAndFlushStdErr("mySampler failed with error: " + str(e) + "\n")
             return None
 
     @staticmethod
@@ -373,7 +453,9 @@ class DataSession(object):
             return "\t".join(reformattedRow.strip().split())
 
         except IndexError:
-            stderr.write("Could not reformat date for row: " + str(row) + "\n")
+
+            writeAndFlushStdErr("Could not reformat date for row: " + str(row)
+                                + "\n")
             return "\t".join(row.strip().split())
 
     @property
@@ -511,7 +593,7 @@ class DataSession(object):
                 run.times, run.data)
 
             # Print R^2 to diagnose whether or not we had a long enough data run
-            print("R^2: " + str(r_val ** 2))
+            print("Run {NUM} R^2: ".format(NUM=run.num) + str(r_val ** 2))
 
         # TODO we should consider whether all runs should be weighted equally
 
@@ -523,7 +605,8 @@ class DataSession(object):
         xIntercept = -yIntercept / self.calibSlope
 
         self.delta = -xIntercept
-        print("Delta = " + str(self.delta))
+        print("Calibration curve intercept adjust = {DELTA} W"
+              .format(DELTA=self.delta))
 
         self.calibIntercept = 0
 
@@ -666,7 +749,7 @@ class DataSession(object):
                 columnDict[column] = {"idx": headerRow.index(column),
                                       "buffer": dataBuff}
             except ValueError:
-                stderr.write("Column " + column + " not found in CSV\n")
+                writeAndFlushStdErr("Column " + column + " not found in CSV\n")
 
         columnDict = {}
 
@@ -714,8 +797,8 @@ class DataSession(object):
                         idxBuffDict["buffer"].append(
                             float(row[idxBuffDict["idx"]]))
                     except ValueError:
-                        stderr.write(
-                            "Could not fill buffer: " + str(col) + "\n")
+                        writeAndFlushStdErr("Could not fill buffer: " + str(col)
+                                            + "\n")
                         idxBuffDict["buffer"].append(None)
 
     def isEndOfCalibRun(self, idx, elecHeatLoad):
@@ -838,7 +921,7 @@ class Q0DataSession(DataSession):
                 run.times, run.data)
 
             # Print R^2 to diagnose whether or not we had a long enough data run
-            print("R^2: " + str(r_val ** 2))
+            print("Run {NUM} R^2: ".format(NUM=run.num) + str(r_val ** 2))
 
         if TEST_MODE:
             for i, run in enumerate(self.runs):
@@ -954,11 +1037,8 @@ class Q0DataSession(DataSession):
         self.runs.append(Q0DataRun(startIdx, endIdx, self, len(self.runs) + 1))
 
 
-# There are two types of data runs that we need to store - cryomodule heater
-# calibration runs and cavity Q0 measurement runs. The DataRun class stores
-# information that is common to both data run types.
 class DataRun(object):
-    __metaclass__ = ABCMeta
+    # __metaclass__ = ABCMeta
 
     def __init__(self, runStartIdx=None, runEndIdx=None, container=None,
                  num=None):
@@ -1027,7 +1107,7 @@ class Q0DataRun(DataRun):
             return self.elecHeatLoad
         else:
             return (((self.slope - self.dataSession.calibSession.calibIntercept)
-                    / self.dataSession.calibSession.calibSlope)
+                     / self.dataSession.calibSession.calibSlope)
                     + self.dataSession.offset)
 
     # The RF heat load is equal to the total heat load minus the electric
@@ -1071,10 +1151,11 @@ class Q0DataRun(DataRun):
                                        self.dataSession.dsPressBuff[idx]))
 
             if numInvalidGrads:
-                stderr.write("\nGradient buffer had {NUM} invalid points (used "
-                             "reference gradient value instead) - "
-                             "Consider refetching the data from the archiver\n"
-                             .format(NUM=numInvalidGrads))
+                writeAndFlushStdErr("\nGradient buffer had {NUM} invalid points"
+                                    " (used reference gradient value instead) "
+                                    "- Consider refetching the data from the "
+                                    "archiver\n"
+                                    .format(NUM=numInvalidGrads))
                 stderr.flush()
 
             self._calculatedQ0 = mean(q0s)

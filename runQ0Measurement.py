@@ -6,81 +6,31 @@
 # Author: Lisa Zacarias
 ################################################################################
 
-from __future__ import print_function
-from __future__ import division
+from __future__ import print_function, division
 from subprocess import CalledProcessError
 from time import sleep
-from numpy import mean
-from cryomodule import (MYSAMPLER_TIME_INTERVAL, TEST_MODE, Cryomodule, Cavity,
-                        Container, DataSession, Q0DataSession, MAX_DS_LL)
-from sys import stderr, stdout
+from container import Cryomodule, Cavity, DataSession, Q0DataSession
 from matplotlib import pyplot as plt
-from datetime import datetime, timedelta
-from epicsShell import cagetPV, caputPV
-from scipy.stats import linregress
-from math import log10
+from datetime import datetime
 from csv import writer
-# from calculateQ0 import getStrLim, get_float_lim
-
-
-ERROR_MESSAGE = "Please provide valid input"
-
-
-if hasattr(__builtins__, 'raw_input'):
-    input = raw_input
-
-
-def get_float_lim(prompt, low_lim, high_lim):
-    return getNumericalInput(prompt, low_lim, high_lim, float)
-
-
-def getNumericalInput(prompt, lowLim, highLim, inputType):
-    response = get_input(prompt, inputType)
-
-    while response < lowLim or response > highLim:
-        stderr.write(ERROR_MESSAGE + "\n")
-        sleep(0.01)
-        response = get_input(prompt, inputType)
-
-    return response
-
-
-def get_input(prompt, desired_type):
-    response = input(prompt)
-
-    try:
-        response = desired_type(response)
-    except ValueError:
-        stderr.write(str(desired_type) + " required\n")
-        sleep(0.01)
-        return get_input(prompt, desired_type)
-
-    return response
-
-
-def getStrLim(prompt, acceptable_strings):
-    response = get_input(prompt, str)
-
-    while response not in acceptable_strings:
-        stderr.write(ERROR_MESSAGE + "\n")
-        sleep(0.01)
-        response = get_input(prompt, str)
-
-    return response
-
+from utils import (writeAndFlushStdErr, getYesNo, cagetPV, caputPV,
+                   MYSAMPLER_TIME_INTERVAL, TEST_MODE, MIN_DS_LL, writeAndWait)
 
 
 def runQ0Meas(cavity, desiredGradient, calibSession=None, refValvePos=None):
     # type: (Cavity, float, DataSession, float) -> (Q0DataSession, float)
     try:
-        # cavity.refGradVal = desiredGradient
         if not refValvePos:
-            refValvePos = checkCryo(cavity, 2)
+            refValvePos = cavity.getRefValvePos(2)
+
+        cavity.waitForCryo(refValvePos)
 
         checkAcqControl(cavity)
-        setPowerSSA(cavity, True)
+        setPowerStateSSA(cavity, True)
         characterize(cavity)
 
+        # Setting the RF low and ramping up is time consuming so we skip it
+        # during testing
         if not TEST_MODE:
             caputPV(cavity.genAcclPV("SEL_ASET"), "15")
 
@@ -91,7 +41,7 @@ def runQ0Meas(cavity, desiredGradient, calibSession=None, refValvePos=None):
         pushGoButton(cavity)
 
         checkAndSetOnTime(cavity)
-        checkDrive(cavity)
+        checkAndSetDrive(cavity)
 
         phaseCavity(cavity)
 
@@ -126,107 +76,13 @@ def runQ0Meas(cavity, desiredGradient, calibSession=None, refValvePos=None):
     except(CalledProcessError, IndexError, OSError, ValueError,
            AssertionError) as e:
         writeAndFlushStdErr("Procedure failed with error:\n{E}\n".format(E=e))
-        # powerDown(cavity)
+        powerDown(cavity)
 
 
-# noinspection PyTupleAssignmentBalance,PyTypeChecker
-def checkCryo(container, numHours, checkForFlatness=True):
-    # type: (Container, float, bool) -> float
-
-    getNewPos = (getStrLim("Determine new JT Valve Position?"
-                           " (May take 2 hours)", ["y", "n", "Y", "N"])
-                 in ["y", "Y"])
-
-    if not getNewPos:
-        desPos = get_float_lim("Desired JT Valve Position: ", 0, 100)
-        waitForLL(container)
-        waitForJT(container, desPos)
-        print("\nDesired JT Valve position is {POS}".format(POS=desPos))
-        return desPos
-
-    print("\nDetermining Required JT Valve Position...")
-    csvReader = DataSession.parseRawData(datetime.now()
-                                         - timedelta(hours=numHours),
-                                         int((60 / MYSAMPLER_TIME_INTERVAL)
-                                             * (numHours * 60)),
-                                         [container.dsLevelPV,
-                                          container.valvePV])
-
-    csvReader.next()
-    valveVals = []
-    llVals = []
-
-    for row in csvReader:
-        try:
-            valveVals.append(float(row.pop()))
-            llVals.append(float(row.pop()))
-        except ValueError:
-            pass
-
-    m, b, _, _, _ = linregress(range(len(valveVals)), valveVals)
-
-    if not checkForFlatness or (checkForFlatness and log10(abs(m)) < 5):
-        desPos = round(mean(valveVals), 1)
-        waitForLL(container)
-        waitForJT(container, desPos)
-        print("\nDesired JT Valve position is {POS}".format(POS=desPos))
-        return desPos
-
-    else:
-        print("Need to figure out new JT valve position")
-
-        waitForLL(container)
-
-        writeAndWait("\nWaiting 1 hour 45 minutes for LL to stabilize...")
-
-        start = datetime.now()
-        while (datetime.now() - start).total_seconds() < 6300:
-            writeAndWait(".", 5)
-            
-        return checkCryo(container, 0.25, False)
-
-
-def waitForLL(container):
-    # type: (Container) -> None
-    writeAndWait("\nWaiting for downstream liquid level to be {LL}%..."
-                 .format(LL=MAX_DS_LL))
-
-    while abs(MAX_DS_LL - float(cagetPV(container.dsLevelPV))) > 1:
-        writeAndWait(".", 5)
-
-    print("\ndownstream liquid level at required value")
-
-
-def writeAndWait(message, timeToWait=0):
-    stdout.write(message)
-    stdout.flush()
-    sleep(timeToWait)
-
-
-def waitForJT(container, desPosJT):
-    # type: (Container, float) -> None
-
-    writeAndWait("\nWaiting for JT Valve to be locked at {POS}..."
-                 .format(POS=desPosJT))
-
-    mode = cagetPV(container.jtModePV)
-
-    if mode == "0":
-        while float(cagetPV(container.jtPosSetpointPV)) != desPosJT:
-            writeAndWait(".", 5)
-
-    else:
-
-        while float(cagetPV(container.cvMinPV)) != desPosJT:
-            writeAndWait(".", 5)
-
-        while float(cagetPV(container.cvMaxPV)) != desPosJT:
-            writeAndWait(".", 5)
-
-    print("\nJT Valve locked")
-
-
+# Checks that the parameters associated with acquisition of the cavity RF
+# waveforms are configured properly
 def checkAcqControl(cavity):
+    # type: (Cavity) -> None
     print("Checking Waveform Data Acquisition Control...")
     for infix in ["CAV", "FWD", "REV", "DRV", "DAC"]:
         enablePV = cavity.genAcclPV(infix + ":ENABLE")
@@ -244,7 +100,7 @@ def checkAcqControl(cavity):
             caputPV(pv, str(val))
 
 
-def setPowerSSA(cavity, turnOn):
+def setPowerStateSSA(cavity, turnOn):
     # type: (Cavity, bool) -> None
 
     # Using double curly braces to trick it into a partial formatting
@@ -275,12 +131,24 @@ def setPowerSSA(cavity, turnOn):
             caputPV(genPV("FaultReset"), "1")
             assert cagetPV(ssaStatusPV) in ["2", "3"], \
                 "Could not reset SSA"
-            setPowerSSA(cavity, turnOn)
+            setPowerStateSSA(cavity, turnOn)
 
     print("SSA power set\n")
 
 
+################################################################################
+# Characterize various cavity parameters.
+# * Runs the SSA through its range and constructs a polynomial describing the
+#   relationship between requested SSA output and actual output
+# * Calibrates the cavity's RF probe so that the gradient readback will be
+#   accurate.
+################################################################################
 def characterize(cavity):
+    # type: (Cavity) -> None
+
+    def pushAndWait(suffix):
+        caputPV(cavity.genAcclPV(suffix), "1")
+        sleep(10)
 
     def checkAndPush(basePV, pushPV, param, newPV=None):
         oldVal = float(cagetPV(cavity.genAcclPV(basePV)))
@@ -290,20 +158,18 @@ def characterize(cavity):
                   else float(cagetPV(cavity.genAcclPV(basePV + "_NEW"))))
 
         if abs(newVal - oldVal) < 0.15:
-            caputPV(cavity.genAcclPV(pushPV), "1")
+            pushAndWait(pushPV)
 
         else:
-            # print("Old and new {PARAM} differ by more than 0.15 - please "
-            #       "inspect and push manually".format(PARAM=param))
             raise AssertionError("Old and new {PARAM} differ by more than 0.15"
                                  " - please inspect and push manually"
                                  .format(PARAM=param))
 
-    caputPV(cavity.genAcclPV("SSACALSTRT"), "1")
+    pushAndWait("SSACALSTRT")
 
     checkAndPush("SLOPE", "PUSH_SSASLOPE.PROC", "slopes")
 
-    caputPV(cavity.genAcclPV("PROBECALSTRT"), "1")
+    pushAndWait("PROBECALSTRT")
 
     checkAndPush("QLOADED", "PUSH_QLOADED.PROC", "Loaded Qs")
 
@@ -311,6 +177,7 @@ def characterize(cavity):
                  "CAV:CAL_SCALEB_NEW")
 
 
+# Switches the cavity to a given operational mode (pulsed, CW, etc.)
 def setModeRF(cavity, modeDesired):
     # type: (Cavity, str) -> None
 
@@ -321,6 +188,7 @@ def setModeRF(cavity, modeDesired):
         assert cagetPV(rfModePV) == modeDesired, "Unable to set RF mode"
 
 
+# Turn the cavity on or off
 def setStateRF(cavity, turnOn):
     # type: (Cavity, bool) -> None
 
@@ -338,6 +206,8 @@ def setStateRF(cavity, turnOn):
     print("RF state set\n")
 
 
+# Many of the changes made to a cavity don't actually take effect until the
+# go button is pressed
 def pushGoButton(cavity):
     # type: (Cavity) -> None
     rfStatePV = cavity.genAcclPV("PULSEONSTRT")
@@ -347,16 +217,21 @@ def pushGoButton(cavity):
         raise AssertionError("Unable to set RF state")
 
 
+# In pulsed mode the cavity has a duty cycle determined by the on time and off
+# time. We want the on time to be 70 ms or else the various cavity parameters
+# calculated from the waveform (e.g. the RF gradient) won't be accurate.
 def checkAndSetOnTime(cavity):
     print("Checking RF Pulse On Time...")
     onTimePV = cavity.genAcclPV("PULSE_ONTIME")
     onTime = cagetPV(onTimePV)
     if onTime != "70":
-        print("Setting RF Pulse On Time to 70ms")
+        print("Setting RF Pulse On Time to 70 ms")
         caputPV(onTimePV, "70")
 
 
-def checkDrive(cavity):
+# Ramps the cavity's RF drive (only relevant in pulsed mode) up until the RF
+# gradient is high enough for phasing
+def checkAndSetDrive(cavity):
     # type: (Cavity) -> None
 
     print("Checking drive...")
@@ -377,6 +252,9 @@ def checkDrive(cavity):
     print("Drive set")
 
 
+# Corrects the cavity phasing in pulsed mode based on analysis of the RF
+# waveform. Doesn't currently work if the phase is very far off and the
+# waveform is distorted.
 def phaseCavity(cavity):
     # type: (Cavity) -> None
 
@@ -385,7 +263,7 @@ def phaseCavity(cavity):
     def getWaveformPV(infix):
         return waveformFormatStr.format(INFIX=infix)
 
-    # get rid of trailing zeros - might be more elegant way of doing this
+    # Get rid of trailing zeros - might be more elegant way of doing this
     def trimWaveform(inputWaveform):
         try:
             maxValIdx = inputWaveform.index(max(inputWaveform))
@@ -410,6 +288,8 @@ def phaseCavity(cavity):
     def getLine(inputWaveform, lbl):
         return ax.plot(range(len(inputWaveform)), inputWaveform, label=lbl)
 
+    # The waveforms have trailing and leading tails down to zero that would mess
+    # with our analysis - have to trim those off.
     revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
 
     plt.ion()
@@ -431,6 +311,9 @@ def phaseCavity(cavity):
 
     phasePV = cavity.genAcclPV("SEL_POFF")
 
+    # When the cavity is properly phased the reverse waveform should dip down
+    # very close to zero. Phasing the cavity consists of minimizing that minimum
+    # value as we vary the RF phase.
     minVal = min(revWaveform)
 
     print("Minimum reverse waveform value: {MIN}".format(MIN=minVal))
@@ -473,16 +356,16 @@ def phaseCavity(cavity):
             step *= -1
 
 
-def writeAndFlushStdErr(message):
-    stderr.write("\n{MSSG}\n".format(MSSG=message))
-    stderr.flush()
-
-
+# Lowers the requested CW amplitude to a safe level where cavities have a very
+# low chance of quenching at turnon
 def lowerAmplitude(cavity):
     print("Lowering amplitude")
     caputPV(cavity.genAcclPV("ADES"), "2")
 
 
+# Walks the cavity to a given gradient in CW mode with exponential backoff
+# in the step size (steps get smaller each time you cross over the desired
+# gradient until the error is very low)
 def walkToGradient(cavity, desiredGradient):
     amplitudePV = cavity.genAcclPV("ADES")
     step = 0.5
@@ -513,6 +396,9 @@ def walkToGradient(cavity, desiredGradient):
     print("Gradient at desired value")
 
 
+# When cavities are turned on in CW mode they slowly heat up, which causes the
+# gradient to drop over time. This function holds the gradient at the requested
+# value during the Q0 run.
 def holdGradient(cavity, desiredGradient):
     # type: (Cavity, float) -> datetime
 
@@ -525,16 +411,18 @@ def holdGradient(cavity, desiredGradient):
 
     print("\nStart time: {START}".format(START=startTime))
 
-    stdout.write("\nHolding gradient for 40 minutes...")
-    stdout.flush()
+    writeAndWait("\nWaiting either 40 minutes or for the LL to drop below"
+                 " {NUM}...".format(NUM=MIN_DS_LL))
 
     hitTarget = False
 
-    while (datetime.now() - startTime).total_seconds() < 2400:
-        stdout.write(".")
+    while ((datetime.now() - startTime).total_seconds() < 2400
+            and float(cagetPV(cavity.dsLevelPV)) > MIN_DS_LL):
 
         gradient = float(cagetPV(cavity.gradPV))
-        
+
+        # If the gradient suddenly drops by a noticeable amount, that probably
+        # indicates a quench in progress and we should abort
         if hitTarget and gradient <= (desiredGradient * 0.9):
             raise AssertionError("Detected a quench - aborting")
 
@@ -554,8 +442,7 @@ def holdGradient(cavity, desiredGradient):
 
         prevDiff = diff
 
-        sleep(15)
-        stdout.flush()
+        writeAndWait(".", 15)
 
     print("\nEnd Time: {END}".format(END=datetime.now()))
     duration = (datetime.now() - startTime).total_seconds() / 3600
@@ -567,7 +454,7 @@ def powerDown(cavity):
     try:
         print("\nPowering down...")
         setStateRF(cavity, False)
-        setPowerSSA(cavity, False)
+        setPowerStateSSA(cavity, False)
         caputPV(cavity.genAcclPV("SEL_ASET"), "15")
         lowerAmplitude(cavity)
 
@@ -577,45 +464,38 @@ def powerDown(cavity):
                             .format(E=e))
 
 
+# After doing a data run with the cavity's RF on we also do a run with the
+# electric heaters turned up by a known amount. This is used to reduce the error
+# in our calculated RF heat load due to the JT valve not being at exactly the
+# correct position to keep the liquid level steady over time, which would show
+# up as an extra term in the heat load.
 def launchHeaterRun(cavity, desPos):
     # type: (Cavity, float) -> datetime
 
-    proceed = (getStrLim("Proceed to the heater calibration without refilling?",
-                         ["y", "n", "Y", "N"]) in ["y", "Y"])
+    print("**** REMINDER: refills aren't automated - please contact the"
+          " cryo group ****")
+    cavity.waitForCryo(desPos)
 
-    if not proceed:
-        print("**** REMINDER: refills aren't automated - please contact the"
-              " cryo group ****")
-        waitForLL(cavity)
-        waitForJT(cavity, desPos)
-
-    for heaterPV in cavity.parent.heaterDesPVs:
-        curVal = float(cagetPV(heaterPV))
-        caputPV(heaterPV, str(curVal + 1))
+    cavity.walkHeaters(3)
 
     startTime = datetime.now()
 
     print("\nStart time: {START}".format(START=startTime))
 
-    stdout.write("\nRunning heaters for 40 minutes...")
+    writeAndWait("\nWaiting either 40 minutes or for the LL to drop below"
+                 " {NUM}...".format(NUM=MIN_DS_LL))
 
-    while (datetime.now() - startTime).total_seconds() < 2400:
-        stdout.write(".")
-        stdout.flush()
-
-        # Abort the run if the downstream liquid helium level dips below 90
-        if float(cagetPV(cavity.dsLevelPV)) < 90:
-            break
-        sleep(5)
+    while ((datetime.now() - startTime).total_seconds() < 2400
+           and float(cagetPV(cavity.dsLevelPV)) > MIN_DS_LL):
+        writeAndWait(".", 15)
 
     endTime = datetime.now()
+
     print("\nEnd Time: {END}".format(END=endTime))
     duration = (endTime - startTime).total_seconds() / 3600
     print("Duration in hours: {DUR}".format(DUR=duration))
 
-    for heaterPV in cavity.parent.heaterDesPVs:
-        curVal = float(cagetPV(heaterPV))
-        caputPV(heaterPV, str(curVal - 1))
+    cavity.walkHeaters(-3)
 
     return endTime
 

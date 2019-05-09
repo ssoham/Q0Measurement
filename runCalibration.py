@@ -7,19 +7,18 @@
 
 from __future__ import division
 from datetime import datetime
-from sys import stdout
-from cryomodule import (Cryomodule, MIN_DS_LL, MAX_DS_LL, DataSession,
-                        MYSAMPLER_TIME_INTERVAL)
-from epicsShell import cagetPV, caputPV
-from time import sleep
-from runQ0Measurement import checkCryo, waitForLL, waitForJT
+from container import Cryomodule, DataSession
 from csv import writer
+from utils import MIN_DS_LL, MAX_DS_LL, MYSAMPLER_TIME_INTERVAL, cagetPV
 
 
 # The number of distinct heater settings we're using for cryomodule calibrations
+from utils import writeAndWait
+
 NUM_CAL_RUNS = 5
 
-
+# Information about the acceptable heat load ranges for the LERF cryomodueles
+# (not currently used)
 # HEAT_LOAD_PARAMS = {2: {"low": 16, "high": 120}, 3: {"low": 64, "high": 120}}
 
 
@@ -28,19 +27,25 @@ def runCalibration(cryoModule, refValvePos=None):
 
     def launchHeaterRun():
         print("Ramping heaters to the next setting...")
-        walkHeaters(cryoModule, 1)
+
+        cryoModule.walkHeaters(1)
         runStartTime = datetime.now()
-        stdout.write("\nWaiting either 40 minutes or for the LL to drop below"
-                     " 90...")
-        stdout.flush()
+
+        writeAndWait("\nWaiting either 40 minutes or for the LL to drop below"
+                     " {NUM}...".format(NUM=MIN_DS_LL))
+
         while ((datetime.now() - runStartTime).total_seconds() < 2400
                and float(cagetPV(cryoModule.dsLevelPV)) > MIN_DS_LL):
-            stdout.write(".")
+            writeAndWait(".", 10)
 
         print("\nDone\n")
 
+    # Check whether or not we've already found a good JT position during this
+    # program execution
     if not refValvePos:
-        refValvePos = checkCryo(cryoModule, 2)
+        refValvePos = cryoModule.getRefValvePos(2)
+
+    cryoModule.waitForCryo(refValvePos)
 
     startTime = datetime.now()
 
@@ -51,41 +56,37 @@ def runCalibration(cryoModule, refValvePos=None):
         print("Please ask the cryo group to refill to {LL} on the downstream "
               "sensor".format(LL=MAX_DS_LL))
 
-        waitForLL(cryoModule)
-        waitForJT(cryoModule, refValvePos)
+        cryoModule.waitForCryo(refValvePos)
 
+    # Kinda jank way to avoid waiting for cryo conditions after the final run
     launchHeaterRun()
 
     endTime = datetime.now()
 
-    walkHeaters(cryoModule, -NUM_CAL_RUNS)
+    print("\nEnd Time: {END}".format(END=datetime.now()))
+    duration = (datetime.now() - startTime).total_seconds() / 3600
+    print("Duration in hours: {DUR}".format(DUR=duration))
 
-    session = cryoModule.addDataSession(startTime, endTime,
-                                        MYSAMPLER_TIME_INTERVAL, refValvePos)
+    # Walking the heaters back to their starting settings
+    cryoModule.walkHeaters(-NUM_CAL_RUNS)
 
+    dataSession = cryoModule.addDataSession(startTime, endTime,
+                                            MYSAMPLER_TIME_INTERVAL,
+                                            refValvePos)
+
+    # Record this calibration dataSession's metadata
     with open(cryoModule.idxFile, 'a') as f:
         csvWriter = writer(f)
-        csvWriter.writerow([cryoModule.cryModNumJLAB, session.refHeatLoad,
+        csvWriter.writerow([cryoModule.cryModNumJLAB, dataSession.refHeatLoad,
                             refValvePos, startTime.strftime("%m/%d/%y %H:%M"),
                             endTime.strftime("%m/%d/%y %H:%M"),
                             MYSAMPLER_TIME_INTERVAL])
 
-    return session, refValvePos
-
-
-def walkHeaters(cryomodule, heaterDelta):
-    # type: (Cryomodule, int) -> None
-
-    step = 1 if heaterDelta > 0 else -1
-
-    for _ in range(abs(heaterDelta)):
-        for heaterSetpointPV in cryomodule.heaterDesPVs:
-            currVal = float(cagetPV(heaterSetpointPV))
-            caputPV(heaterSetpointPV, str(currVal + step))
-            print("Waiting 30s for cryo to stabilize...")
-            sleep(30)
+    return dataSession, refValvePos
 
 
 if __name__ == "__main__":
     cryMod = Cryomodule(int(input("SLAC CM: ")), int(input("JLAB CM: ")))
-    runCalibration(cryMod)
+    session, _ = runCalibration(cryMod)
+    session.generateCSV()
+    session.processData()
