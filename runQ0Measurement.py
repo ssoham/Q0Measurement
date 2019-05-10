@@ -13,7 +13,7 @@ from container import Cryomodule, Cavity, DataSession, Q0DataSession
 from matplotlib import pyplot as plt
 from datetime import datetime
 from csv import writer
-from utils import (writeAndFlushStdErr, getYesNo, cagetPV, caputPV,
+from utils import (writeAndFlushStdErr, cagetPV, caputPV,
                    MYSAMPLER_TIME_INTERVAL, TEST_MODE, MIN_DS_LL, writeAndWait)
 
 

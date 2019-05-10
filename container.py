@@ -83,6 +83,7 @@ class Container(object):
 
         return startTime, endTime, timeInterval
 
+    # noinspection PyTupleAssignmentBalance,PyTypeChecker
     def getRefValvePos(self, numHours, checkForFlatness=True):
         # type: (float, bool) -> float
 
@@ -254,7 +255,8 @@ class Cryomodule(Container):
 
     @property
     def idxFile(self):
-        return "calibrationsCM{CM}.csv".format(CM=self.cryModNumSLAC)
+        return ("calibrations/calibrationsCM{CM}.csv"
+                .format(CM=self.cryModNumSLAC))
 
     @property
     def heaterDesPVs(self):
@@ -282,7 +284,8 @@ class Cavity(Container):
 
     @property
     def idxFile(self):
-        return "q0MeasurementsCM{CM}.csv".format(CM=self.parent.cryModNumSLAC)
+        return ("q0Measurements/q0MeasurementsCM{CM}.csv"
+                .format(CM=self.parent.cryModNumSLAC))
 
     @property
     def heaterDesPVs(self):
@@ -350,7 +353,7 @@ class DataSession(object):
         self.container = container
 
         # e.g. calib_CM12_2019-02-25--11-25_18672.csv
-        self.fileNameFormatter = "data/calib_{cryoMod}{suff}"
+        self.fileNameFormatter = "data/calib/cm{CM}/calib_{cryoMod}{suff}"
 
         self._dataFileName = None
         self._numPoints = None
@@ -514,7 +517,8 @@ class DataSession(object):
                 cryMod=self.container.cryModNumSLAC)
 
             self._dataFileName = self.fileNameFormatter.format(
-                cryoMod=cryoModStr, suff=suffix)
+                cryoMod=cryoModStr, suff=suffix,
+                CM=self.container.cryModNumSLAC)
 
         return self._dataFileName
 
@@ -864,7 +868,8 @@ class Q0DataSession(DataSession):
         # type: (Cavity, datetime, datetime, int, float, float, float, DataSession) -> None
         super(Q0DataSession, self).__init__(container, startTime, endTime,
                                             timeInt, refValvePos, refHeatLoad)
-        self.fileNameFormatter = "data/q0meas_{cryoMod}_cav{cavityNum}{suff}"
+        self.fileNameFormatter = ("data/q0meas/cm{CM}"
+                                  "/q0meas_{cryoMod}_cav{cavityNum}{suff}")
         self.pvBuffMap = {container.parent.valvePV: self.valvePosBuff,
                           container.parent.dsLevelPV: self.dsLevelBuff,
                           container.parent.usLevelPV: self.usLevelBuff,
@@ -1029,7 +1034,8 @@ class Q0DataSession(DataSession):
 
             self._dataFileName = self.fileNameFormatter.format(
                 cryoMod=cryoModStr, suff=suffix,
-                cavityNum=self.container.cavNum)
+                cavityNum=self.container.cavNum,
+                CM=self.container.cryModNumSLAC)
 
         return self._dataFileName
 

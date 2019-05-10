@@ -8,7 +8,7 @@ from os import devnull
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
-TEST_MODE = False
+TEST_MODE = True
 
 # The relationship between the LHE content of a cryomodule and the readback from
 # the liquid level sensors isn't linear over the full range of the sensors. We
@@ -118,6 +118,7 @@ def getStrLim(prompt, acceptable_strings):
 
 
 # PyEpics doesn't work at LERF yet...
+# noinspection PyArgumentList
 def cagetPV(pv, startIdx=1, attempt=1):
     # type: (str, int, int) -> [str]
 
@@ -137,6 +138,7 @@ def cagetPV(pv, startIdx=1, attempt=1):
         raise CalledProcessError("caget failed too many times")
 
 
+# noinspection PyArgumentList
 def caputPV(pv, val, attempt=1):
     # type: (str, str, int) -> int
 

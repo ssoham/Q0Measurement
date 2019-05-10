@@ -14,12 +14,12 @@ the following vessel at a constant rate:
 ```
      ----------------       D
     |                |
-    |                |
+    |~^~^~^~^~^~^~^~^|
      ----        ----       C
          |      |
          |      |
      ----        ----       B
-    |~^~^~^~^~^~^~^~^|
+    |                |
     |                |
      ----------------       A
     
@@ -30,7 +30,8 @@ at one rate in the [A,B] and [C,D] regions and at another (higher) rate in the
 
 We only take data with the downstream liquid level sensor
 reading 90-95% in our calculations. Everything is nice and linear in this 
-region, just as it is in any of the three regions in the vessel depicted above.
+region, just as it would be in region [C,D] (crossing 90 is analogous to 
+crossing into region [B,C])
 
 ### Cryomodule Calibration ###
 Run the handy dandy script! It makes a calibration curve that maps heat load to 
