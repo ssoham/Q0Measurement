@@ -40,6 +40,7 @@ MYSAMPLER_TIME_INTERVAL = 1
 # Used in custom input functions
 ERROR_MESSAGE = "Please provide valid input"
 
+# This is used to suppress the output of the caput function.
 FNULL = open(devnull, "w")
 
 

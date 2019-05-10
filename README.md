@@ -6,50 +6,80 @@ generating at a given gradient. We figure out that heat load by looking at how
 quickly the helium evaporates inside the cryomodule (more heat, faster 
 evaporation).
 
-### Calibration ###
-We make a calibration curve that maps heat load to dLL/dt (change in liquid
-level over time)
+Note that the relationship between the liquid level sensor readback and the
+volume of LHE held in the cryomodule is not consistently linear. This is due to
+the interior shape of the helium vessel. Imagine you were pouring liquid into
+the following vessel at a constant rate:
+
+```
+     ----------------       D
+    |                |
+    |                |
+     ----        ----       C
+         |      |
+         |      |
+     ----        ----       B
+    |~^~^~^~^~^~^~^~^|
+    |                |
+     ----------------       A
+    
+```
+If there were a level sensor in the vessel, it would increase
+at one rate in the [A,B] and [C,D] regions and at another (higher) rate in the
+[B,C] region. 
+
+We only take data with the downstream liquid level sensor
+reading 90-95% in our calculations. Everything is nice and linear in this 
+region, just as it is in any of the three regions in the vessel depicted above.
+
+### Cryomodule Calibration ###
+Run the handy dandy script! It makes a calibration curve that maps heat load to 
+dLL/dt (change in liquid level over time) for the cryomodule in question. 
+But as to what the script actually does:
   
-1) Look at the past couple of hours and see if the liquid level has been
-stable (the idea is to find the JT valve position that neither leaks nor adds
-helium, so that any change in liquid level is due *only* to the heat load)
+1) Looks at the past couple of hours to see if the liquid level has been
+stable. The idea is to find the JT valve position that lets helium in at the
+same rate at which it's being boiled off by the static heat on the cryomodule
+(where the static heat is the heat leaking into the cryomodule from the outside
+world plus a contribution from the electric heaters at their default settings).
+After locking the valve at this setting we know that any change in liquid level
+is due \*only* to the heat load that we've added.
 
-    1) If so, find the average JT valve position over that time
+    1) If the liquid level has been stable, finds the average JT valve position
+    over that time span.
     
-    2) If not, ask cryo to fill to 95% on the downstream sensor and wait for the
-    liquid level to stabilize (at least 1.5 hours), then average the JT position
-    over the last 5-10 minutes (dealer's choice of whatever looks the most flat)
+    2) If not, prompts the user to ask cryo to fill to 95% on the downstream 
+    sensor and wait 1.75 hours for the liquid level to stabilize, then average 
+    the JT position over the last 15 minutes.
  
-2) Ask cryo to lock the JT Valve at the position found in step 1
+2) Prompts the user to ask the cryo group to lock the JT Valve at the position 
+found in step 1.
 
-3) Using the heaters, increase the heat load on the cryomodule by 13 W.
-Distribute that heat across the heaters as evenly as possible
+3) Increases the heat load on the cryomodule by 8 W using the heaters 
+(distributed evenly across them)
 
-4) Wait for 40 minutes.
+4) Waits for 40 minutes or until the liquid level falls below 90%.
 
-5) Ask cryo to refill to 95%
+5) Prompts the user to ask cryo to refill to 95%.
 
-6) Repeat steps 2 through 5 with 10, 7, 4, and 1 W from the heaters.
-    - Note that you might be able to skip step 5 if you think that the liquid
-    level won't dip below 90% during the next heater run (where the behavior is
-    no longer linear)
+6) Repeats steps 2 through 5 with 16, 24, 32, and 40 W from the heaters.
     
-### Q0 Measurement ###
-Run the handy dandy script! But as to what the script does per cavity:
+### Cavity Q0 Measurement ###
+Run the other handy dandy script! But as to what the script does per cavity:
+1) Determines a new JT Valve position if necessary (using the same method as in
+Calibration step 1)
+
+2) Checks that the downstream liquid level is at 95% and that the valve is
+locked to the correct value
 
 1) Makes sure that all the waveform acquisition controls are enabled/at the
 correct values
-
-2) Checks that the downstream liquid level is at 95% and that the valve is
-locked
-    1) Note that manual mode locking isn't detected yet, so it won't wait for
-    that
-    2) Also note that it doesn't check that the locked value is CORRECT in 
-    automatic mode, just that it's locked
     
 3) Turns the SSA on
 
-4) Turns the RF on in pulsed
+4) Characterizes the cavity
+
+4) Turns the RF on in pulsed mode
 
 5) Checks that the On Time in 70ms (and sets it if not)
 
@@ -58,47 +88,64 @@ locked
 7) Phases the cavity by getting the "valley" of the reverse waveform as close
 to 0 as possible 
 
-8) Goes to CW
+8) Goes to CW mode
 
-9) Walks the gradient up to the requested gradient (usually 16) and holds it
-there for 40 minutes n (with some rudimentary quench detection built in that 
-triggers an abort)
+9) Walks the gradient up to the requested value (usually 16 MV/m) and holds it
+there for 40 minutes or until the liquid level dips below 90% (with some quench
+detection built in that triggers an abort)
 
 10) Powers down the RF
 
-11) Launches a heater run for normalization (in order to find an offset for the 
-RF heat load later)
-    1) Increases each heater by 1 W
-    2) Holds for 40 minutes or until the downstream level dips below 90
-    3) Decreases each heater by 1 W
+11) Launches a heater run to be used for error correction during analysis (in
+order to find an offset for the RF heat load)
+    1) Increases each heater by 3 W
+    2) Holds for 40 minutes or until the downstream liquid level dips below 90%
+    3) Decreases each heater by 3 W
     
 ### Analysis ###
 
 #### Input ####
 
-A TSV file (for human readability)
-- Row[0] is cryomodule metadata (SLAC number, JLAB number, Electric
- Heat Load, JT Valve Position, Start Time, End Time).
-    - EX: 12	2	16	24	3-27-2019-11-00	3-27-2019-16-00
+A CSV file (input.csv) where each row follows the header format:
 
-- Rows[1:n] are cavity metadata (cavity number, gradient, valve position, start
-time, end time, electric heat load)
-    - EX: 1	16	26	3-28-2019-14-30	3-28-2019-15-10 16
+| SLAC Cryomodule Number | Cavity 1 Gradient | Cavity 2 Gradient | Cavity 3 Gradient | Cavity 4 Gradient | Cavity 5 Gradient | Cavity 6 Gradient | Cavity 7 Gradient | Cavity 8 Gradient |
+|------------------------|-------------------|-------------------|-------------------|-------------------|-------------------|-------------------|-------------------|-------------------|
 
+As currently written, the program reads \*every* row after the header and runs
+a separate analysis on each. Per row, the script will:
+
+1) Read the first cell to determine the desired cryomodule
+2) Look through an internal record of previous calibrations and 
+   present them as options, along with an option to run a brand new calibration
+3) Analyze that data to generate a calibration curve (mapping dLL/dt to heat 
+   load)
+4) Iterate through the remaining cells, reading the desired gradient per 
+   cavity (a blank cell will simply skip that cavity)
+5) Look through an internal record of previous Q0 measurements for each desired
+   cavity and present them as options, along with an option to run a brand new
+   measurement
+    
 #### Calculation ####
-1) Using the information from the metadata TSV, it either generates a CSV with
-the archive data from that time period, or it uses a previously 
-generated CSV.
+After pulling all the required data, the script parses it into data runs based 
+on heater and/or RF settings.
 
-2) It parses that data into data runs based on heater and/or RF settings
+For the calibration, it fits the 5 data points (one per heater setting) 
+to a line (heat load vs dLL).
 
-    - For the calibration, it fits the 5 data points (one per heater setting) 
-    to a line (heat load vs dLL)
-    - For the Q0 measurement:
-        - It fits the liquid level to a line and finds that dLL/dt
-        - For the heater run, it plugs that dLL/dt into the calibration curve to
-        get a heat load. If that back-calculated heat load is not equal to the 
-        heat put on the heaters, find that offset
-        - For the RF run, it does the same thing and adjusts the heat load by 
-        the amount determined from the heater run
-        - It plugs the RF heat load into a magic formula to calculate Q0!
+For the Q0 measurement, it:
+
+1) Fits the liquid level to a line and finds that dLL/dt for both the RF and 
+heater runs
+
+2) Plugs the dLL/dt from the heater run into the calibration curve to
+get a heat load
+    
+    - If that back-calculated heat load is not equal to the heat put on the 
+    heaters, finds that offset
+
+3) Plugs the dLL/dt from the RF run into the calibration curve to
+get a heat load
+
+4) Adjusts the RF heat load by the amount determined in step 2
+
+5) Plugs that adjusted RF heat load into a magic formula to calculate Q0!

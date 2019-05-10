@@ -17,77 +17,11 @@ from runQ0Measurement import runQ0Meas
 from utils import getNumInputFromLst, getYesNo
 
 
-def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
-                refValvePos=None):
-    # type: (dict, int, Cryomodule, int, float) -> (DataSession, float)
-
-    if calibIdx:
-        calibSess = addDataSessionAdv("calibrationsCM{CM_SLAC}.csv",
-                                      cryModIdxMap[slacNum], slacNum,
-                                      cryoModule, calibIdx)
-
-    else:
-        calibSess, refValvePos = addDataSession("calibrationsCM{CM_SLAC}.csv",
-                                                cryModIdxMap[slacNum], slacNum,
-                                                cryoModule,
-                                                refValvePos=refValvePos)
-
-    calibSess.generateCSV()
-    calibSess.processData()
-
-    return calibSess, refValvePos
-
-
-# noinspection PyTypeChecker
-def addNewCryMod(cryModIdxMap, calIdxKeys, slacNum, cryoModules, calibIdx=None,
-                 refValvePos=None):
-    # type: (dict, [], int, dict, int, float) -> (DataSession, float)
-
-    populateIdxMap("calibrationsCM{CM_SLAC}.csv", cryModIdxMap, calIdxKeys,
-                   slacNum)
-
-    if calibIdx:
-        calibSess, _ = addDataSessionAdv("calibrationsCM{CM_SLAC}.csv",
-                                         cryModIdxMap[slacNum], slacNum, None,
-                                         calibIdx)
-
-    else:
-        calibSess, refValvePos = addDataSession("calibrationsCM{CM_SLAC}.csv",
-                                                cryModIdxMap[slacNum], slacNum,
-                                                None, refValvePos=refValvePos)
-
-    cryoModules[slacNum] = calibSess.container
-    calibSess.generateCSV()
-    calibSess.processData()
-
-    return calibSess, refValvePos
-
-
-def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
-                 cavity, calibSession, cavIdxKeys, refValvePos=None):
-    # type: (callable, float, dict, int, Cavity, DataSession, [], float) -> float
-    if slacNum not in cavIdxMap:
-        populateIdxMap("q0MeasurementsCM{CM_SLAC}.csv", cavIdxMap, cavIdxKeys,
-                       slacNum)
-
-    sessionQ0, refValvePos = addDataSessionFunc("q0MeasurementsCM{CM_SLAC}.csv",
-                                                cavIdxMap[slacNum], slacNum,
-                                                cavity, dataSessionFuncParam,
-                                                calibSession, refValvePos)
-
-    sessionQ0.generateCSV()
-    sessionQ0.processData()
-
-    print("\n---------- {CM} {CAV} ----------\n"
-          .format(CM=calibSession.container.name, CAV=cavity.name))
-    sessionQ0.printReport()
-
-    updateCalibCurve(calibSession.heaterCalibAxis, sessionQ0,
-                     calibSession)
-
-    return refValvePos
-
-
+################################################################################
+# User input to the analysis script comes in the form of CSV files. There are
+# three flavors of input file: basic, advanced, and demo.
+# * Basic input:
+################################################################################
 def parseInputFile(inputFile):
     csvReader = reader(open(inputFile))
     header = csvReader.next()
@@ -128,10 +62,6 @@ def parseInputFile(inputFile):
                 if calibIdx not in dataSessions[slacNum]:
                     calibSess, _ = addToCryMod(cryModIdxMap, slacNum,
                                                cryoModules[slacNum], calibIdx)
-
-                    # calibSess = addNewCryMod(cryModIdxMap, calIdxKeys,
-                    #                             slacNum, cryoModules,
-                    #                             calibIdx)
 
                     dataSessions[slacNum][calibIdx] = calibSess
 
@@ -195,8 +125,6 @@ def parseInputFile(inputFile):
                     calibSess, refValvePos = addToCryMod(cryModIdxMap, slacNum,
                                                          cryoModules[slacNum],
                                                          refValvePos=refValvePos)
-                    # calibSess = addNewCryMod(cryModIdxMap, calIdxKeys,
-                    #                             slacNum, cryoModules)
 
                 else:
                     calibSess = idx2session[selection]
@@ -234,38 +162,57 @@ def parseInputFile(inputFile):
         plt.show()
 
 
-def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
-    # type: (Axes, Q0DataSession, DataSession) -> None
+# noinspection PyTypeChecker
+def addNewCryMod(cryModIdxMap, calIdxKeys, slacNum, cryoModules, calibIdx=None,
+                 refValvePos=None):
+    # type: (dict, [], int, dict, int, float) -> (DataSession, float)
 
-    calibCurveAxis.plot(q0Session.runHeatLoads,
-                        q0Session.adjustedRunSlopes,
-                        marker="o", linestyle="None",
-                        label="Projected Data for " + q0Session.container.name)
+    populateIdxMap("calibrationsCM{CM_SLAC}.csv", cryModIdxMap, calIdxKeys,
+                   slacNum)
 
-    calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
+    if calibIdx:
+        calibSess, _ = addDataSessionAdv("calibrationsCM{CM_SLAC}.csv",
+                                         cryModIdxMap[slacNum], slacNum, None,
+                                         calibIdx)
 
-    minCavHeatLoad = min(q0Session.runHeatLoads)
-    minCalibHeatLoad = min(calibSession.runElecHeatLoads)
+    else:
+        calibSess, refValvePos = addDataSession("calibrationsCM{CM_SLAC}.csv",
+                                                cryModIdxMap[slacNum], slacNum,
+                                                None, refValvePos=refValvePos)
 
-    if minCavHeatLoad < minCalibHeatLoad:
-        yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
-        calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
-                                     + calibSession.calibIntercept
-                                     for i in yRange])
+    cryoModules[slacNum] = calibSess.container
+    calibSess.generateCSV()
+    calibSess.processData()
 
-    maxCavHeatLoad = max(q0Session.runHeatLoads)
-    maxCalibHeatLoad = max(calibSession.runElecHeatLoads)
-
-    if maxCavHeatLoad > maxCalibHeatLoad:
-        yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
-        calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
-                                     + calibSession.calibIntercept
-                                     for i in yRange])
+    return calibSess, refValvePos
 
 
-def printOptions(options):
-    print(("\n" + dumps(options, indent=4) + "\n")
-          .replace('"', '').replace(',', ''))
+def populateIdxMap(fileFormatter, idxMap, idxkeys, slacNum):
+    sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
+    with open(sessionCSV) as csvFile:
+        csvReader = reader(csvFile)
+        header = csvReader.next()
+        indices = {}
+        for key, column in idxkeys:
+            indices[key] = header.index(column)
+        idxMap[slacNum] = indices
+
+
+def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
+                      calibSession=None, refValvePos=None):
+    # type: (str, dict, int, Container, int, DataSession, float) -> (DataSession, float)
+
+    sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
+    row = open(sessionCSV).readlines()[idx - 1]
+    selectedRow = reader([row]).next()
+
+    if not container:
+        jlabIdx = indices["jlabNumIdx"]
+        container = Cryomodule(cryModNumSLAC=slacNum,
+                               cryModNumJLAB=int(selectedRow[jlabIdx]))
+
+    return (container.addDataSessionFromRow(selectedRow, indices, calibSession),
+            None)
 
 
 def addDataSession(fileFormatter, indices, slacNum, container,
@@ -355,32 +302,84 @@ def addDataSession(fileFormatter, indices, slacNum, container,
             return runCalibration(container, refValvePos)
 
 
-def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
-                      calibSession=None, refValvePos=None):
-    # type: (str, dict, int, Container, int, DataSession, float) -> (DataSession, float)
-
-    sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
-    row = open(sessionCSV).readlines()[idx - 1]
-    selectedRow = reader([row]).next()
-
-    if not container:
-        jlabIdx = indices["jlabNumIdx"]
-        container = Cryomodule(cryModNumSLAC=slacNum,
-                               cryModNumJLAB=int(selectedRow[jlabIdx]))
-
-    return (container.addDataSessionFromRow(selectedRow, indices, calibSession),
-            None)
+def printOptions(options):
+    print(("\n" + dumps(options, indent=4) + "\n")
+          .replace('"', '').replace(',', ''))
 
 
-def populateIdxMap(fileFormatter, idxMap, idxkeys, slacNum):
-    sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
-    with open(sessionCSV) as csvFile:
-        csvReader = reader(csvFile)
-        header = csvReader.next()
-        indices = {}
-        for key, column in idxkeys:
-            indices[key] = header.index(column)
-        idxMap[slacNum] = indices
+def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
+                refValvePos=None):
+    # type: (dict, int, Cryomodule, int, float) -> (DataSession, float)
+
+    if calibIdx:
+        calibSess = addDataSessionAdv("calibrationsCM{CM_SLAC}.csv",
+                                      cryModIdxMap[slacNum], slacNum,
+                                      cryoModule, calibIdx)
+
+    else:
+        calibSess, refValvePos = addDataSession("calibrationsCM{CM_SLAC}.csv",
+                                                cryModIdxMap[slacNum], slacNum,
+                                                cryoModule,
+                                                refValvePos=refValvePos)
+
+    calibSess.generateCSV()
+    calibSess.processData()
+
+    return calibSess, refValvePos
+
+
+def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
+                 cavity, calibSession, cavIdxKeys, refValvePos=None):
+    # type: (callable, float, dict, int, Cavity, DataSession, [], float) -> float
+    if slacNum not in cavIdxMap:
+        populateIdxMap("q0MeasurementsCM{CM_SLAC}.csv", cavIdxMap, cavIdxKeys,
+                       slacNum)
+
+    sessionQ0, refValvePos = addDataSessionFunc("q0MeasurementsCM{CM_SLAC}.csv",
+                                                cavIdxMap[slacNum], slacNum,
+                                                cavity, dataSessionFuncParam,
+                                                calibSession, refValvePos)
+
+    sessionQ0.generateCSV()
+    sessionQ0.processData()
+
+    print("\n---------- {CM} {CAV} ----------\n"
+          .format(CM=calibSession.container.name, CAV=cavity.name))
+    sessionQ0.printReport()
+
+    updateCalibCurve(calibSession.heaterCalibAxis, sessionQ0,
+                     calibSession)
+
+    return refValvePos
+
+
+def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
+    # type: (Axes, Q0DataSession, DataSession) -> None
+
+    calibCurveAxis.plot(q0Session.runHeatLoads,
+                        q0Session.adjustedRunSlopes,
+                        marker="o", linestyle="None",
+                        label="Projected Data for " + q0Session.container.name)
+
+    calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
+
+    minCavHeatLoad = min(q0Session.runHeatLoads)
+    minCalibHeatLoad = min(calibSession.runElecHeatLoads)
+
+    if minCavHeatLoad < minCalibHeatLoad:
+        yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
+        calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
+                                     + calibSession.calibIntercept
+                                     for i in yRange])
+
+    maxCavHeatLoad = max(q0Session.runHeatLoads)
+    maxCalibHeatLoad = max(calibSession.runElecHeatLoads)
+
+    if maxCavHeatLoad > maxCalibHeatLoad:
+        yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
+        calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
+                                     + calibSession.calibIntercept
+                                     for i in yRange])
 
 
 if __name__ == "__main__":
