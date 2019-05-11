@@ -17,21 +17,27 @@ from runQ0Measurement import runQ0Meas
 from utils import getNumInputFromLst, getYesNo, TEST_MODE
 
 
-################################################################################
-# User input to the analysis script comes in the form of CSV files. There are
-# three flavors of input file: basic, advanced, and demo.
-# * Basic input:
-################################################################################
 def parseInputFile(inputFile):
     csvReader = reader(open(inputFile))
     header = csvReader.next()
     slacNumIdx = header.index("SLAC Cryomodule Number")
 
+    # A dict of dicts where the format is:
+    #   {[SLAC cryomodule number]:
+    #       {[line number from record-keeping CSV]: [DataSession object]}}
     dataSessions = {}
+
+    # Dicts of dicts where the format is:
+    #   {[SLAC cryomodule number]:
+    #       {[column name shorthand]: [index in the relevant CSV header]}}
     cryModIdxMap = {}
     cavIdxMap = {}
+
+    # A dict of the form {[SLAC cryomodule number]: [Cryomodule Object]}
     cryoModules = {}
 
+    # Used to populate cryModIdxMap and cavIdxMap. Each tuple in the list is of
+    # the form: ([column name shorthand], [column title in the CSV])
     baseIdxKeys = [("startIdx", "Start"), ("endIdx", "End"),
                    ("refHeatIdx", "Reference Heat Load"),
                    ("jtIdx", "JT Valve Position"),
@@ -44,8 +50,15 @@ def parseInputFile(inputFile):
 
     figStartIdx = 1
 
+    # We store the JT Valve position from the first time that we run
+    # getRefValvePos (in Container) so that we don't have to rerun that
+    # function every time we get new data (each call takes 2 hours)
     refValvePos = None
 
+    # If the program is set to test mode we use different input CSVs and don't
+    # prompt the user for any input in determining which data sets to use.
+    # Note that this only uses historical data - it'll never actually initiate
+    # a calibration or q0 measurement.
     if "Adv" in inputFile or "Demo" in inputFile:
         cryModFileIdx = header.index("Calibration Index")
 
@@ -53,12 +66,16 @@ def parseInputFile(inputFile):
             slacNum = int(row[slacNumIdx])
             calibIdx = int(row[cryModFileIdx])
 
+            # Create a cryomodule object if one doesn't already exist and add
+            # a calibration DataSession to it
             if slacNum not in dataSessions:
                 calibSess, _ = addNewCryMod(cryModIdxMap, calIdxKeys,
                                             slacNum, cryoModules, calibIdx)
                 dataSessions[slacNum] = {calibIdx: calibSess}
 
             else:
+                # Add a DataSession object to the cryomodule if one doesn't
+                # already exist for the specified calibration
                 if calibIdx not in dataSessions[slacNum]:
                     calibSess, _ = addToCryMod(cryModIdxMap, slacNum,
                                                cryoModules[slacNum], calibIdx)
@@ -92,6 +109,7 @@ def parseInputFile(inputFile):
         plt.draw()
         plt.show()
 
+    # If the program is not in test mode we use the basic input file (input.csv)
     else:
         for row in csvReader:
             slacNum = int(row[slacNumIdx])
@@ -106,6 +124,10 @@ def parseInputFile(inputFile):
                 idx = 1
                 idx2session = {}
 
+                # Multiple rows in the input file may have the same SLAC
+                # cryomodule number. However, they might want to use different
+                # calibrations. This is where we give the user the option to
+                # reuse a calibration we've already loaded up and processed.
                 for _, dataSession in cryoModules[slacNum].dataSessions.items():
                     options[idx] = str(dataSession)
                     idx2session[idx] = dataSession
@@ -121,7 +143,6 @@ def parseInputFile(inputFile):
                 reuseCalibration = (selection != max(options))
 
                 if not reuseCalibration:
-                    # TODO cryModIdxMap or cryModIdxMap[slacNum]?
                     calibSess, refValvePos = addToCryMod(cryModIdxMap, slacNum,
                                                          cryoModules[slacNum],
                                                          refValvePos=refValvePos)
@@ -147,7 +168,7 @@ def parseInputFile(inputFile):
                                                calibSess, cavIdxKeys,
                                                refValvePos)
 
-                # If blank
+                # Don't do anything if this cell in the CSV is blank
                 except ValueError:
                     pass
 
@@ -187,6 +208,8 @@ def addNewCryMod(cryModIdxMap, calIdxKeys, slacNum, cryoModules, calibIdx=None,
     return calibSess, refValvePos
 
 
+# Reads the header from a CSV and populates the idxMap dict passed in from
+# parseInputFile.
 def populateIdxMap(fileFormatter, idxMap, idxkeys, slacNum):
     sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
     with open(sessionCSV) as csvFile:
@@ -198,6 +221,12 @@ def populateIdxMap(fileFormatter, idxMap, idxkeys, slacNum):
         idxMap[slacNum] = indices
 
 
+################################################################################
+# Either adds a new DataSession to an existing Container object or creates a
+# Cryomodule and adds a new DataSession object to it
+# @param container: either a Cavity or Cryomodule object, or None (in which
+#                   case it generates a Cryomodule object)
+################################################################################
 def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
                       calibSession=None, refValvePos=None):
     # type: (str, dict, int, Container, int, DataSession, float) -> (DataSession, float)
@@ -206,6 +235,8 @@ def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
     row = open(sessionCSV).readlines()[idx - 1]
     selectedRow = reader([row]).next()
 
+    # There is no contingency for creating a Cavity object, because they are
+    # created inside of a Cryomodule's init function
     if not container:
         jlabIdx = indices["jlabNumIdx"]
         container = Cryomodule(cryModNumSLAC=slacNum,
