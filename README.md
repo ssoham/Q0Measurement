@@ -131,7 +131,7 @@ After pulling all the required data, the script parses it into data runs based
 on heater and/or RF settings.
 
 For the calibration, it fits the 5 data points (one per heater setting) 
-to a line (heat load vs dLL).
+to a line (heat load vs. dLL).
 
 For the Q0 measurement, it:
 
@@ -141,8 +141,8 @@ heater runs
 2) Plugs the dLL/dt from the heater run into the calibration curve to
 get a heat load
     
-    - If that back-calculated heat load is not equal to the heat put on the 
-    heaters, finds that offset
+    - If that back-calculated heat load is not equal to the heat added to the 
+    heaters during the run, finds that offset
 
 3) Plugs the dLL/dt from the RF run into the calibration curve to
 get a heat load
