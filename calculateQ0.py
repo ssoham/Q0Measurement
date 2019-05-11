@@ -387,6 +387,6 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
 
 if __name__ == "__main__":
     if TEST_MODE:
-        parseInputFile("testFiles/inputAdv.csv")
+        parseInputFile("testFiles/inputDemo.csv")
     else:
         parseInputFile("input.csv")
