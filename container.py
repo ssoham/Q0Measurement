@@ -23,16 +23,15 @@ from abc import abstractproperty, ABCMeta, abstractmethod
 from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POSITION_TOLERANCE, UPSTREAM_LL_LOWER_LIMIT,
                    HEATER_TOLERANCE, GRAD_TOLERANCE, MIN_RUN_DURATION, getYesNo,
-                   get_float_lim, writeAndWait, MAX_DS_LL, cagetPV, caputPV)
+                   get_float_lim, writeAndWait, MAX_DS_LL, cagetPV, caputPV,
+                   getTimeParams)
 
 
 class Container(object):
-    __metaclass__ = ABCMeta
 
     def __init__(self, cryModNumSLAC, cryModNumJLAB):
         self.cryModNumSLAC = cryModNumSLAC
         self.cryModNumJLAB = cryModNumJLAB
-        self.name = None
 
         self.name = self.addNumToStr("CM{CM}")
 
@@ -40,17 +39,23 @@ class Container(object):
         self.jtModePV = self.addNumToStr("CPV:CM0{CM}:3001:JT:MODE")
         self.jtPosSetpointPV = self.addNumToStr("CPV:CM0{CM}:3001:JT:POS_SETPT")
 
+        # The double curly braces are to trick it into a partial formatting
+        # (CM gets replaced first, and {{INFIX}} -> {INFIX} for later)
         lvlFormatStr = self.addNumToStr("CLL:CM0{CM}:{{INFIX}}:{{LOC}}:LVL")
 
         self.dsLevelPV = lvlFormatStr.format(INFIX="2301", LOC="DS")
         self.usLevelPV = lvlFormatStr.format(INFIX="2601", LOC="US")
 
-        self.cvMaxPV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFF}", "MAX")
-        self.cvMinPV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFF}", "MIN")
-        self.valvePV = self.addNumToStr("CPID:CM0{CM}:3001:JT:CV_{SUFF}",
-                                        "VALUE")
+        valveLockFormatter = "CPID:CM0{CM}:3001:JT:CV_{SUFF}"
+        self.cvMaxPV = self.addNumToStr(valveLockFormatter, "MAX")
+        self.cvMinPV = self.addNumToStr(valveLockFormatter, "MIN")
+        self.valvePV = self.addNumToStr(valveLockFormatter, "VALUE")
 
         self.dataSessions = {}
+
+    # setting this allows me to create abstract methods and parameters, which
+    # are basically things that all inheriting classes MUST implement
+    __metaclass__ = ABCMeta
 
     @abstractmethod
     def walkHeaters(self, perHeaterDelta):
@@ -68,20 +73,25 @@ class Container(object):
     def heaterActPVs(self):
         raise NotImplementedError
 
-    @staticmethod
-    def makeTimeFromStr(row, idx):
-        return datetime.strptime(row[idx], "%m/%d/%y %H:%M")
+    @abstractmethod
+    def addDataSessionFromRow(self, row, indices, refHeatLoad,
+                              calibSession=None, refGradVal=None):
+        return NotImplementedError
 
-    @staticmethod
-    def getTimeParams(row, indices):
-        startTime = Container.makeTimeFromStr(row, indices["startIdx"])
-        endTime = Container.makeTimeFromStr(row, indices["endIdx"])
+    @abstractmethod
+    def genDataSession(self, startTime, endTime, timeInt, refValvePos,
+                       refHeatLoad, refGradVal=None, calibSession=None):
+        return NotImplementedError
 
-        timeIntervalStr = row[indices["timeIntIdx"]]
-        timeInterval = (int(timeIntervalStr) if timeIntervalStr
-                        else MYSAMPLER_TIME_INTERVAL)
+    # Returns a list of the PVs used for this container's data acquisition
+    @abstractmethod
+    def getPVs(self):
+        return NotImplementedError
 
-        return startTime, endTime, timeInterval
+    @abstractmethod
+    def hash(self, startTime, endTime, timeInt, slacNum, jlabNum,
+             calibSession=None, refGradVal=None):
+        return NotImplementedError
 
     # noinspection PyTupleAssignmentBalance,PyTypeChecker
     def getRefValvePos(self, numHours, checkForFlatness=True):
@@ -121,8 +131,6 @@ class Container(object):
         # over the requested time span
         if not checkForFlatness or (checkForFlatness and log10(abs(m)) < 5):
             desPos = round(mean(valveVals), 1)
-            # waitForLL(container)
-            # waitForJT(container, desPos)
             print("\nDesired JT Valve position is {POS}".format(POS=desPos))
             return desPos
 
@@ -141,6 +149,8 @@ class Container(object):
 
             return self.getRefValvePos(0.25, False)
 
+    # We consider the cryo situation to be good when the liquid level is high
+    # enough and the JT valve is locked in the correct position
     def waitForCryo(self, desPos):
         # type: (float) -> None
         self.waitForLL()
@@ -164,10 +174,15 @@ class Container(object):
 
         mode = cagetPV(self.jtModePV)
 
+        # One way for the JT valve to be locked in the correct position is for
+        # it to be in manual mode and at the desired value
         if mode == "0":
             while float(cagetPV(self.jtPosSetpointPV)) != desPosJT:
                 writeAndWait(".", 5)
 
+        # Another way for the JT valve to be locked in the correct position is
+        # for it to be automatically regulating and have the upper and lower
+        # regulation limits be set to the desired value
         else:
 
             while float(cagetPV(self.cvMinPV)) != desPosJT:
@@ -178,17 +193,6 @@ class Container(object):
 
         print("\nJT Valve locked")
 
-    def addDataSessionFromRow(self, row, indices, calibSession=None,
-                              refGradVal=None):
-        # type: ([], dict, DataSession, float) -> DataSession
-
-        startTime, endTime, timeInterval = Container.getTimeParams(row, indices)
-
-        refHeatLoad = float(row[indices["refHeatIdx"]])
-
-        return self.addDataSession(startTime, endTime, timeInterval,
-                                   float(row[indices["jtIdx"]]), refHeatLoad)
-
     def addNumToStr(self, formatStr, suffix=None):
         if suffix:
             return formatStr.format(CM=self.cryModNumJLAB, SUFF=suffix)
@@ -196,32 +200,36 @@ class Container(object):
             return formatStr.format(CM=self.cryModNumJLAB)
 
     def addDataSession(self, startTime, endTime, timeInt, refValvePos,
-                       refHeatLoad=None, refGradVal=None):
-        # type: (datetime, datetime, int, float, float, None) -> DataSession
+                       refHeatLoad=None, refGradVal=None, calibSession=None):
+        # type: (datetime, datetime, int, float, float, float, DataSession) -> DataSession
 
+        # Determine the current electric heat load on the cryomodule (the sum
+        # of all the heater act values). This will only ever be None when we're
+        # taking new data
         if not refHeatLoad:
             refHeatLoad = 0
             for heaterActPV in self.heaterActPVs:
                 refHeatLoad += float(cagetPV(heaterActPV))
 
-        session = DataSession(self, startTime, endTime, timeInt, refValvePos,
-                              refHeatLoad)
-        self.dataSessions[hash(session)] = session
-        return session
+        sessionHash = self.hash(startTime, endTime, timeInt,
+                                self.cryModNumSLAC, self.cryModNumJLAB,
+                                calibSession, refGradVal)
 
-    # Returns a list of the PVs used for its data acquisition, including
-    # the PV of the cavity heater used for calibration
-    def getPVs(self):
-        return ([self.valvePV, self.dsLevelPV, self.usLevelPV]
-                + self.heaterDesPVs + self.heaterActPVs)
+        # Only create a new calibration data session if one doesn't already
+        # exist with those exact parameters
+        if sessionHash not in self.dataSessions:
+            session = self.genDataSession(startTime, endTime, timeInt,
+                                          refValvePos, refHeatLoad, refGradVal,
+                                          calibSession)
+            self.dataSessions[sessionHash] = session
+
+        return self.dataSessions[sessionHash]
 
 
 class Cryomodule(Container):
 
     def __init__(self, cryModNumSLAC, cryModNumJLAB):
         super(Cryomodule, self).__init__(cryModNumSLAC, cryModNumJLAB)
-
-        self.name = self.addNumToStr("CM{CM}")
 
         # Give each cryomodule 8 cavities
         cavities = {}
@@ -239,7 +247,34 @@ class Cryomodule(Container):
             self._heaterDesPVs.append(heaterDesStr.format(CAV=i))
             self._heaterActPVs.append(heaterActStr.format(CAV=i))
 
+        # Using an ordered dictionary so that when we generate the report
+        # down the line (iterating over the cavities in a cryomodule), we
+        # print the results in order (basic dictionaries aren't guaranteed to
+        # be ordered)
         self.cavities = OrderedDict(sorted(cavities.items()))
+
+    def hash(self, startTime, endTime, timeInt, slacNum, jlabNum,
+             calibSession=None, refGradVal=None):
+        return DataSession.hash(startTime, endTime, timeInt, slacNum, jlabNum)
+
+    # calibSession and refGradVal are unused here, they're just there to match
+    # the signature of the overloading method in Cavity (which is why they're in
+    # the signature for Container - could probably figure out a way around this)
+    def addDataSessionFromRow(self, row, indices, refHeatLoad,
+                              calibSession=None, refGradVal=None):
+        # type: ([], dict, float, DataSession, float) -> DataSession
+
+        startTime, endTime, timeInterval = getTimeParams(row, indices)
+
+        # refHeatLoad = float(row[indices["refHeatIdx"]])
+
+        return self.addDataSession(startTime, endTime, timeInterval,
+                                   float(row[indices["jtIdx"]]),
+                                   refHeatLoad)
+
+    def getPVs(self):
+        return ([self.valvePV, self.dsLevelPV, self.usLevelPV]
+                + self.heaterDesPVs + self.heaterActPVs)
 
     def walkHeaters(self, perHeaterDelta):
         # type: (int) -> None
@@ -252,6 +287,11 @@ class Cryomodule(Container):
                 currVal = float(cagetPV(heaterSetpointPV))
                 caputPV(heaterSetpointPV, str(currVal + step))
                 writeAndWait("\nWaiting 30s for cryo to stabilize...\n", 30)
+
+    def genDataSession(self, startTime, endTime, timeInt, refValvePos,
+                       refHeatLoad, refGradVal=None, calibSession=None):
+        return DataSession(self, startTime, endTime, timeInt, refValvePos,
+                           refHeatLoad)
 
     @property
     def idxFile(self):
@@ -271,43 +311,34 @@ class Cavity(Container):
     def __init__(self, cryMod, cavNumber):
         # type: (Cryomodule, int) -> None
 
-        super(Cavity, self).__init__(cryMod.cryModNumSLAC,
-                                     cryMod.cryModNumJLAB)
+        super(Cavity, self).__init__(cryMod.cryModNumSLAC, cryMod.cryModNumJLAB)
         self.parent = cryMod
 
         self.name = "Cavity {cavNum}".format(cavNum=cavNumber)
         self.cavNum = cavNumber
-        self.delta = 0
+
+    # refGradVal and calibSession are required parameters but are nullable to
+    # match the signature in Container
+    def genDataSession(self, startTime, endTime, timeInt, refValvePos,
+                       refHeatLoad, refGradVal=None, calibSession=None):
+        return Q0DataSession(self, startTime, endTime, timeInt, refValvePos,
+                             refHeatLoad, refGradVal, calibSession)
+
+    def hash(self, startTime, endTime, timeInt, slacNum, jlabNum,
+             calibSession=None, refGradVal=None):
+        return Q0DataSession.hash(startTime, endTime, timeInt, slacNum, jlabNum,
+                                  calibSession, refGradVal)
 
     def walkHeaters(self, perHeaterDelta):
         return self.parent.walkHeaters(perHeaterDelta)
 
-    @property
-    def idxFile(self):
-        return ("q0Measurements/q0MeasurementsCM{CM}.csv"
-                .format(CM=self.parent.cryModNumSLAC))
+    # calibSession and refGradVal are required parameters for Cavity data
+    # sessions, but they're nullable to match the signature in Container
+    def addDataSessionFromRow(self, row, indices, refHeatLoad,
+                              calibSession=None, refGradVal=None):
+        # type: ([], dict, float, DataSession, float) -> Q0DataSession
 
-    @property
-    def heaterDesPVs(self):
-        return self.parent.heaterDesPVs
-
-    @property
-    def heaterActPVs(self):
-        return self.parent.heaterActPVs
-
-    def addDataSessionFromRow(self, row, indices, calibSession=None,
-                              refGradVal=None):
-        # type: ([], dict, DataSession, float) -> Q0DataSession
-
-        startTime, endTime, timeInterval = Container.getTimeParams(row, indices)
-
-        try:
-            refHeatLoad = float(row[indices["refHeatIdx"]])
-        except ValueError:
-            refHeatLoad = calibSession.refHeatLoad
-
-        if not refGradVal:
-            refGradVal = float(row[indices["gradIdx"]])
+        startTime, endTime, timeInterval = getTimeParams(row, indices)
 
         return self.addDataSession(startTime, endTime, timeInterval,
                                    float(row[indices["jtIdx"]]), refHeatLoad,
@@ -327,22 +358,21 @@ class Cavity(Container):
                 + self.parent.heaterActPVs)
 
     @property
+    def idxFile(self):
+        return ("q0Measurements/q0MeasurementsCM{CM}.csv"
+                .format(CM=self.parent.cryModNumSLAC))
+
+    @property
+    def heaterDesPVs(self):
+        return self.parent.heaterDesPVs
+
+    @property
+    def heaterActPVs(self):
+        return self.parent.heaterActPVs
+
+    @property
     def gradPV(self):
         return self.genAcclPV("GACT")
-
-    def addDataSession(self, startTime, endTime, timeInt, refValvePos,
-                       refHeatLoad=None, refGradVal=None, calibSession=None):
-        # type: (datetime, datetime, int, float, float, float, DataSession) -> Q0DataSession
-
-        if not refHeatLoad:
-            refHeatLoad = 0
-            for heaterActPV in self.heaterActPVs:
-                refHeatLoad += float(cagetPV(heaterActPV))
-
-        session = Q0DataSession(self, startTime, endTime, timeInt, refValvePos,
-                                refHeatLoad, refGradVal, calibSession)
-        self.dataSessions[hash(session)] = session
-        return session
 
 
 class DataSession(object):
@@ -861,6 +891,10 @@ class DataSession(object):
         return not self.__eq__(other)
 
 
+# There is no CalibDataSession class because DataSession has everything that
+# is needed for a calibration. There *is* a Q0DataSession class because
+# everything inside of DataSession is necessary but not sufficient for cavity
+# Q0 measurements.
 class Q0DataSession(DataSession):
 
     def __init__(self, container, startTime, endTime, timeInt, refValvePos,

@@ -1,4 +1,7 @@
 from __future__ import print_function, division
+
+from datetime import datetime
+
 from builtins import input
 from time import sleep
 from sys import stdout, stderr
@@ -153,3 +156,18 @@ def caputPV(pv, val, attempt=1):
             return caputPV(pv, val, attempt + 1)
     else:
         raise CalledProcessError("caput failed too many times")
+
+
+def makeTimeFromStr(row, idx):
+    return datetime.strptime(row[idx], "%m/%d/%y %H:%M")
+
+
+def getTimeParams(row, indices):
+    startTime = makeTimeFromStr(row, indices["startIdx"])
+    endTime = makeTimeFromStr(row, indices["endIdx"])
+
+    timeIntervalStr = row[indices["timeIntIdx"]]
+    timeInterval = (int(timeIntervalStr) if timeIntervalStr
+                    else MYSAMPLER_TIME_INTERVAL)
+
+    return startTime, endTime, timeInterval
