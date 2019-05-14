@@ -14,7 +14,8 @@ from numpy import linspace
 from container import Cryomodule, Container, Cavity, DataSession, Q0DataSession
 from runCalibration import runCalibration
 from runQ0Measurement import runQ0Meas
-from utils import getNumInputFromLst, getYesNo, TEST_MODE
+from utils import getNumInputFromLst, getYesNo, TEST_MODE, makeTimeFromStr
+from typing import List
 
 
 def parseInputFile(inputFile):
@@ -183,10 +184,16 @@ def parseInputFile(inputFile):
         plt.show()
 
 
+################################################################################
+# addNewCryMod creates a new Cryomodule object and adds a data session to it
+# @param calibIdx: The row number in the target cryomodule's record of previous
+#                  calibrations. If it's None that means we're using basic user
+#                  input.
 # noinspection PyTypeChecker
+################################################################################
 def addNewCryMod(cryModIdxMap, calIdxKeys, slacNum, cryoModules, calibIdx=None,
                  refValvePos=None):
-    # type: (dict, [], int, dict, int, float) -> (DataSession, float)
+    # type: (dict, List[(str, str)], int, dict, int, float) -> (DataSession, float)
 
     calibFile = "calibrations/calibrationsCM{CM_SLAC}.csv"
 
@@ -235,30 +242,45 @@ def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
     row = open(sessionCSV).readlines()[idx - 1]
     selectedRow = reader([row]).next()
 
-    # There is no contingency for creating a Cavity object, because they are
-    # created inside of a Cryomodule's init function
+    # There is no contingency for creating a lone Cavity object, because they
+    # are created inside of a Cryomodule's init function
     if not container:
         jlabIdx = indices["jlabNumIdx"]
         container = Cryomodule(cryModNumSLAC=slacNum,
                                cryModNumJLAB=int(selectedRow[jlabIdx]))
 
-    return (container.addDataSessionFromRow(selectedRow, indices, calibSession),
-            None)
+    # the reference gradient is a required parameter for cavities, but doesn't
+    # exist for cryomodules
+    if isinstance(container, Cavity):
+        refGradVal = float(selectedRow[indices["gradIdx"]])
+    else:
+        refGradVal = None
+
+    refHeatLoad = float(selectedRow[indices["refHeatIdx"]])
+
+    return container.addDataSessionFromRow(selectedRow, indices, refHeatLoad,
+                                           calibSession, refGradVal), None
 
 
+# This is the DataSession creation method called when we are using basic user
+# input.
+# @param container: a Container object (Cryomodule or Cavity), or None. If None,
+#                   create a new Cryomodule
 def addDataSession(fileFormatter, indices, slacNum, container,
                    refGradVal=None, calibSession=None, refValvePos=None):
     # type: (str, dict, int, Container, float, DataSession, float) -> (DataSession, float)
 
     def addOption(csvRow, lineNum):
-        startTime = Container.makeTimeFromStr(csvRow, indices["startIdx"])
-        endTime = Container.makeTimeFromStr(csvRow, indices["endIdx"])
+        startTime = makeTimeFromStr(csvRow, indices["startIdx"])
+        endTime = makeTimeFromStr(csvRow, indices["endIdx"])
         rate = csvRow[indices["timeIntIdx"]]
         options[lineNum] = ("{START} to {END} ({RATE}s sample interval)"
                             .format(START=startTime, END=endTime,
                                     RATE=rate))
 
     def getSelection(duration, suffix):
+        # Running a new Q0 measurement or heater calibration is always presented
+        # as the last option in the list
         options[max(options) + 1] = ("Launch new {TYPE} ({DUR} hours)"
                                      .format(TYPE=suffix, DUR=duration))
         printOptions(options)
@@ -267,15 +289,26 @@ def addDataSession(fileFormatter, indices, slacNum, container,
 
     sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
     rows = open(sessionCSV).readlines()
+
+    # Reversing to get in chronological order (the program appends the most
+    # recent sessions to the end of the file)
     rows.reverse()
     reader([rows.pop()]).next()
 
     fileReader = reader(rows)
+
+    # Unclear if this is actually necessary, but the idea is to have the
+    # output of json.dumps be ordered by index number
     options = OrderedDict()
 
+    # isintance also serves as a None check, so None will return False
     if isinstance(container, Cavity):
         for row in fileReader:
 
+            # We could theoretically have hundreds of results, and that seems
+            # like a seriously unnecessary number of options to show. This
+            # asks the user if they want to keep searching for more every 10
+            # hits
             if (len(options) + 1) % 10 == 0:
                 printOptions(options)
                 showMore = getYesNo("Search for more options? ")
@@ -285,6 +318,10 @@ def addDataSession(fileFormatter, indices, slacNum, container,
             grad = float(row[indices["gradIdx"]])
             cavNum = int(row[indices["cavNumIdx"]])
 
+            # The files are per cryomodule, so there's a lot of different
+            # cavities in the file. We check to make sure that we're only
+            # presenting the options for the requested cavity at the requested
+            # gradient (by just skipping the irrelevant ones)
             if (grad != refGradVal) or (cavNum != container.cavNum):
                 continue
 
@@ -292,11 +329,13 @@ def addDataSession(fileFormatter, indices, slacNum, container,
 
         selection = getSelection(2, "Q0 Measurement")
 
+        # If using an existing data session
         if selection != max(options):
             selectedRow = reader([rows[selection - 1]]).next()
-            return (container.addDataSessionFromRow(selectedRow, indices,
-                                                    calibSession, refGradVal),
-                    None)
+            refHeatLoad = float(selectedRow[indices["refHeatIdx"]])
+            return container.addDataSessionFromRow(selectedRow, indices,
+                                                   refHeatLoad, calibSession,
+                                                   refGradVal), None
 
         else:
             return runQ0Meas(container, refGradVal, calibSession, refValvePos)
@@ -321,7 +360,10 @@ def addDataSession(fileFormatter, indices, slacNum, container,
             if not container:
                 container = Cryomodule(slacNum, calibRow[indices["jlabNumIdx"]])
 
-            return container.addDataSessionFromRow(calibRow, indices), None
+            refHeatLoad = float(calibRow[indices["refHeatIdx"]])
+
+            return container.addDataSessionFromRow(calibRow, indices,
+                                                   refHeatLoad), None
 
         else:
             if not container:
@@ -333,11 +375,18 @@ def addDataSession(fileFormatter, indices, slacNum, container,
             return runCalibration(container, refValvePos)
 
 
+# A surprisingly ugly way to pretty print a dictionary
 def printOptions(options):
     print(("\n" + dumps(options, indent=4) + "\n")
           .replace('"', '').replace(',', ''))
 
 
+################################################################################
+# addToCryMod takes an existing Cryomodule object and adds a data session to it
+# @param calibIdx: The row number in the target cryomodule's record of previous
+#                  calibrations. If it's None that means we're using basic user
+#                  input.
+################################################################################
 def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
                 refValvePos=None):
     # type: (dict, int, Cryomodule, int, float) -> (DataSession, float)
@@ -360,9 +409,11 @@ def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
     return calibSess, refValvePos
 
 
+# @param addDataSessionFunc: either addDataSession or addDataSessionAdv,
+#                            depending on the choice of user input file
 def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
                  cavity, calibSession, cavIdxKeys, refValvePos=None):
-    # type: (callable, float, dict, int, Cavity, DataSession, [], float) -> float
+    # type: (callable, float, dict, int, Cavity, DataSession, List[(str, str)], float) -> float
 
     q0File = "q0Measurements/q0MeasurementsCM{CM_SLAC}.csv"
 
@@ -381,12 +432,14 @@ def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
           .format(CM=calibSession.container.name, CAV=cavity.name))
     sessionQ0.printReport()
 
-    updateCalibCurve(calibSession.heaterCalibAxis, sessionQ0,
-                     calibSession)
+    updateCalibCurve(calibSession.heaterCalibAxis, sessionQ0, calibSession)
 
     return refValvePos
 
 
+# Takes an existing cryomodule calibration curve plot and adds the discrete
+# (heat load, dLL/dt) point(s) from the given Q0 data session. While it is
+# possible that a Q0 data session can contain multiple points, it's unusual
 def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
     # type: (Axes, Q0DataSession, DataSession) -> None
 
@@ -397,13 +450,15 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
 
     calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
 
+    # The rest of this mess is pretty much just extending the fit line to
+    # include outliers
     minCavHeatLoad = min(q0Session.runHeatLoads)
     minCalibHeatLoad = min(calibSession.runElecHeatLoads)
 
     if minCavHeatLoad < minCalibHeatLoad:
         yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
         calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
-                                     + calibSession.calibIntercept
+                                     # + calibSession.calibIntercept
                                      for i in yRange])
 
     maxCavHeatLoad = max(q0Session.runHeatLoads)
@@ -412,7 +467,7 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
     if maxCavHeatLoad > maxCalibHeatLoad:
         yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
         calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
-                                     + calibSession.calibIntercept
+                                     # + calibSession.calibIntercept
                                      for i in yRange])
 
 

@@ -1,4 +1,4 @@
-# JLab Q0 Measurement Using dLL/dt (Rate of Change of Liquid Helium Level) #
+# Q0 Measurement Using dLL/dt (Rate of Change of Liquid Helium Level) #
 
 ## Overview ##
 We're indirectly measuring the Q0 by figuring out how much heat a cavity is

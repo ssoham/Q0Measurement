@@ -1,9 +1,16 @@
 from __future__ import print_function, division
+
+from datetime import datetime
+
 from builtins import input
 from time import sleep
 from sys import stdout, stderr
 from subprocess import check_output, CalledProcessError, check_call
 from os import devnull
+from csv import reader
+from re import compile, findall
+from matplotlib import pyplot as plt
+from matplotlib.axes import Axes
 
 
 # Set True to use a known data set for debugging and/or demoing
@@ -153,3 +160,90 @@ def caputPV(pv, val, attempt=1):
             return caputPV(pv, val, attempt + 1)
     else:
         raise CalledProcessError("caput failed too many times")
+
+
+def makeTimeFromStr(row, idx):
+    return datetime.strptime(row[idx], "%m/%d/%y %H:%M")
+
+
+def getTimeParams(row, indices):
+    startTime = makeTimeFromStr(row, indices["startIdx"])
+    endTime = makeTimeFromStr(row, indices["endIdx"])
+
+    timeIntervalStr = row[indices["timeIntIdx"]]
+    timeInterval = (int(timeIntervalStr) if timeIntervalStr
+                    else MYSAMPLER_TIME_INTERVAL)
+
+    return startTime, endTime, timeInterval
+
+
+############################################################################
+# getArchiveData runs a shell command to get archive data. The syntax we're
+# using is:
+#
+#     mySampler -b "%Y-%m-%d %H:%M:%S" -s 1s -n[numPoints] [pv1] ... [pvn]
+#
+# where the "-b" denotes the start time, "-s 1s" says that the desired time
+# step between data points is 1 second, -n[numPoints] tells us how many
+# points we want, and [pv1]...[pvn] are the PVs we want archived
+#
+# Ex:
+#     mySampler -b "2019-03-28 14:16" -s 30s -n11 R121PMES R221PMES
+#
+# @param startTime: datetime object
+# @param signals: list of PV strings
+############################################################################
+def getArchiveData(startTime, numPoints, signals,
+                   timeInt=MYSAMPLER_TIME_INTERVAL):
+    cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
+           + ['-s', str(timeInt) + 's', '-n' + str(numPoints)]
+           + signals)
+    try:
+        return check_output(cmd)
+    except (CalledProcessError, OSError) as e:
+        writeAndFlushStdErr("mySampler failed with error: " + str(e) + "\n")
+        return None
+
+
+def parseRawData(startTime, numPoints, signals,
+                 timeInt=MYSAMPLER_TIME_INTERVAL):
+    print("\nGetting data from the archive...\n")
+    rawData = getArchiveData(startTime, numPoints, signals, timeInt)
+
+    if not rawData:
+        return None
+
+    else:
+        rawDataSplit = rawData.splitlines()
+        rows = ["\t".join(rawDataSplit.pop(0).strip().split())]
+        rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
+        return reader(rows, delimiter='\t')
+
+
+def reformatDate(row):
+    try:
+        # This clusterfuck regex is pretty much just trying to find strings
+        # that match %Y-%m-%d %H:%M:%S and making them %Y-%m-%d-%H:%M:%S
+        # instead (otherwise the csv parser interprets it as two different
+        # columns)
+        regex = compile("[0-9]{4}-[0-9]{2}-[0-9]{2}"
+                        + " [0-9]{2}:[0-9]{2}:[0-9]{2}")
+        res = findall(regex, row)[0].replace(" ", "-")
+        reformattedRow = regex.sub(res, row)
+        return "\t".join(reformattedRow.strip().split())
+
+    except IndexError:
+
+        writeAndFlushStdErr("Could not reformat date for row: " + str(row)
+                            + "\n")
+        return "\t".join(row.strip().split())
+
+
+def genAxis(title, xlabel, ylabel):
+    # type: (str, str, str) -> Axes
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    return ax
