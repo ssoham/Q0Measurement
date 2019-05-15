@@ -7,7 +7,7 @@
 
 from __future__ import division
 from datetime import datetime
-from container import Cryomodule, DataSession
+from container import Cryomodule, CalibDataSession
 from csv import writer
 from utils import MIN_DS_LL, MAX_DS_LL, MYSAMPLER_TIME_INTERVAL, cagetPV
 
@@ -23,7 +23,7 @@ NUM_CAL_RUNS = 5
 
 
 def runCalibration(cryoModule, refValvePos=None):
-    # type: (Cryomodule, float) -> (DataSession, float)
+    # type: (Cryomodule, float) -> (CalibDataSession, float)
 
     def launchHeaterRun():
         print("Ramping heaters to the next setting...")
@@ -88,5 +88,3 @@ def runCalibration(cryoModule, refValvePos=None):
 if __name__ == "__main__":
     cryMod = Cryomodule(int(input("SLAC CM: ")), int(input("JLAB CM: ")))
     session, _ = runCalibration(cryMod)
-    session.generateCSV()
-    session.processData()
