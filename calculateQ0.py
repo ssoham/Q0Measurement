@@ -20,6 +20,7 @@ from typing import List
 
 
 def parseInputFile(inputFile):
+
     csvReader = reader(open(inputFile))
     header = csvReader.next()
     slacNumIdx = header.index("SLAC Cryomodule Number")
@@ -87,7 +88,8 @@ def parseInputFile(inputFile):
                 calibSess = dataSessions[slacNum][calibIdx]
 
             cryoModule = cryoModules[slacNum]
-            print("\n---------- {CM} ----------\n".format(CM=cryoModule.name))
+
+            calibSess.printSessionReport()
 
             for _, cavity in cryoModule.cavities.items():
                 cavIdx = header.index("Cavity {NUM} Index"
@@ -153,7 +155,8 @@ def parseInputFile(inputFile):
                     calibSess = idx2session[selection]
 
             cryoModule = cryoModules[slacNum]
-            print("\n---------- {CM} ----------\n".format(CM=cryoModule.name))
+
+            calibSess.printSessionReport()
 
             for _, cavity in cryoModule.cavities.items():
                 cavGradIdx = header.index("Cavity {NUM} Gradient"
@@ -415,20 +418,17 @@ def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
 
     q0File = "q0Measurements/q0MeasurementsCM{CM_SLAC}.csv"
 
-    print("\n---------- {CM} {CAV} ----------\n"
-          .format(CM=calibSession.container.name, CAV=cavity.name))
-
     if slacNum not in cavIdxMap:
         populateIdxMap(q0File, cavIdxMap, cavIdxKeys, slacNum)
 
-    sessionQ0, refValvePos = addDataSessionFunc(q0File, cavIdxMap[slacNum],
+    q0Session, refValvePos = addDataSessionFunc(q0File, cavIdxMap[slacNum],
                                                 slacNum, cavity,
                                                 dataSessionFuncParam,
                                                 calibSession, refValvePos)
 
-    sessionQ0.printReport()
+    q0Session.printSessionReport()
 
-    updateCalibCurve(calibSession.heaterCalibAxis, sessionQ0, calibSession)
+    updateCalibCurve(calibSession.heaterCalibAxis, q0Session, calibSession)
 
     return refValvePos
 
