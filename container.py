@@ -10,7 +10,7 @@ from copy import deepcopy
 from decimal import Decimal
 from os.path import isfile
 from sys import stderr
-from numpy import mean, exp, log10
+from numpy import mean, exp, log10, sqrt
 from scipy.stats import linregress
 from numpy import polyfit
 from matplotlib import pyplot as plt
@@ -694,7 +694,7 @@ class DataSession(object):
             self.dataRuns[i].startIdx = idx
 
             if TEST_MODE:
-                print("cutoff: " + str(cutoff))
+                print("Run {NUM} cutoff: ".format(NUM=i+1) + str(cutoff))
 
     def _isEndOfCalibRun(self, idx, elecHeatLoadDes):
         # Find inflection points for the desired heater setting
@@ -1252,13 +1252,23 @@ class Q0DataRun(DataRun):
         reportStr = ("\n{cavName} run {runNum} total heat load: {TOT} W\n"
                      "            Electric heat load: {ELEC} W\n"
                      "                  RF heat load: {RF} W\n"
+                     "              Average Pressure: {PRES} Torr\n"
+                     "               RMS RF Gradient: {GRAD} MV/m\n"
                      "                 Calculated Q0: {{Q0Val}}\n")
+
+        avgPress = mean(self.dataSession.dsPressBuff[self.startIdx:self.endIdx])
+
+        gradVals = self.dataSession.gradBuff[self.startIdx:self.endIdx]
+        rmsGrad = sqrt(sum(g**2 for g in gradVals)
+                       / (self.endIdx - self.startIdx))
 
         report = reportStr.format(cavName=self.dataSession.container.name,
                                   runNum=self.num,
                                   TOT=round(self.adjustedTotalHeatLoad, 2),
                                   ELEC=round(self.elecHeatLoadAct, 2),
-                                  RF=round(self.rfHeatLoad, 2))
+                                  RF=round(self.rfHeatLoad, 2),
+                                  PRES=round(avgPress, 2),
+                                  GRAD=round(rmsGrad, 2))
 
         if self.elecHeatLoadDes != 0:
             print(report.format(Q0Val=None))

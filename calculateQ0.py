@@ -145,7 +145,7 @@ def parseInputFile(inputFile):
                 reuseCalibration = (selection != max(options))
 
                 if not reuseCalibration:
-                    calibSess, refValvePos = addToCryMod(cryModIdxMap, slacNum,
+                    (calibSess, refValvePos) = addToCryMod(cryModIdxMap, slacNum,
                                                          cryoModules[slacNum],
                                                          refValvePos=refValvePos)
 
@@ -232,6 +232,8 @@ def populateIdxMap(fileFormatter, idxMap, idxkeys, slacNum):
 # Cryomodule and adds a new DataSession object to it
 # @param container: either a Cavity or Cryomodule object, or None (in which
 #                   case it generates a Cryomodule object)
+# @param refValvePos: not used in this function but it has to be here to make
+#                     the call signature match addDataSession's.
 ################################################################################
 def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
                       calibSession=None, refValvePos=None):
@@ -241,14 +243,14 @@ def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
     row = open(sessionCSV).readlines()[idx - 1]
     selectedRow = reader([row]).next()
 
-    # There is no contingency for creating a lone Cavity object, because they
-    # are created inside of a Cryomodule's init function
+    # There is no contingency for creating a lone Cavity object because they
+    # are always created inside of a Cryomodule's init function
     if not container:
         jlabIdx = indices["jlabNumIdx"]
         container = Cryomodule(cryModNumSLAC=slacNum,
                                cryModNumJLAB=int(selectedRow[jlabIdx]))
 
-    # the reference gradient is a required parameter for cavities, but doesn't
+    # The reference gradient is a required parameter for cavities but doesn't
     # exist for cryomodules
     if isinstance(container, Cavity):
         refGradVal = float(selectedRow[indices["gradIdx"]])
@@ -413,6 +415,9 @@ def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
 
     q0File = "q0Measurements/q0MeasurementsCM{CM_SLAC}.csv"
 
+    print("\n---------- {CM} {CAV} ----------\n"
+          .format(CM=calibSession.container.name, CAV=cavity.name))
+
     if slacNum not in cavIdxMap:
         populateIdxMap(q0File, cavIdxMap, cavIdxKeys, slacNum)
 
@@ -421,8 +426,6 @@ def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
                                                 dataSessionFuncParam,
                                                 calibSession, refValvePos)
 
-    print("\n---------- {CM} {CAV} ----------\n"
-          .format(CM=calibSession.container.name, CAV=cavity.name))
     sessionQ0.printReport()
 
     updateCalibCurve(calibSession.heaterCalibAxis, sessionQ0, calibSession)
@@ -451,7 +454,6 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
     if minCavHeatLoad < minCalibHeatLoad:
         yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
         calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
-                                     # + calibSession.calibIntercept
                                      for i in yRange])
 
     maxCavHeatLoad = max(q0Session.adjustedRunHeatLoadsRF)
@@ -460,7 +462,6 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
     if maxCavHeatLoad > maxCalibHeatLoad:
         yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
         calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
-                                     # + calibSession.calibIntercept
                                      for i in yRange])
 
 
