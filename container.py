@@ -276,8 +276,6 @@ class Cryomodule(Container):
 
         startTime, endTime, timeInterval = getTimeParams(row, indices)
 
-        # refHeatLoad = float(row[indices["refHeatIdx"]])
-
         return self.addDataSession(startTime, endTime, timeInterval,
                                    float(row[indices["jtIdx"]]),
                                    refHeatLoad)
@@ -383,6 +381,8 @@ class DataSession(object):
 
         self.container = container
         self.dataRuns = []  # type: List[DataRun]
+        self.heaterRunIdxs = []
+        self.rfRunIdxs = []
 
         self._pvBuffMap = None
 
@@ -417,6 +417,14 @@ class DataSession(object):
                         RATE=self.timeInt))
 
     @abstractproperty
+    def calibSlope(self):
+        raise NotImplementedError
+
+    @abstractproperty
+    def heatAdjustment(self):
+        raise NotImplementedError
+
+    @abstractproperty
     def fileName(self):
         raise NotImplementedError
 
@@ -435,9 +443,17 @@ class DataSession(object):
     def adjustedRunSlopes(self):
         raise NotImplementedError
 
-    @abstractmethod
     def _addRun(self, startIdx, endIdx):
-        raise NotImplementedError
+        runIdx = len(self.dataRuns)
+        runNum = runIdx + 1
+
+        isHeaterRun = (self.elecHeatDesBuff[startIdx] - self.refHeatLoad) != 0
+        if isHeaterRun:
+            self.dataRuns.append(HeaterDataRun(startIdx, endIdx, self, runNum))
+            self.heaterRunIdxs.append(runIdx)
+        else:
+            self.dataRuns.append(RFDataRun(startIdx, endIdx, self, runNum))
+            self.rfRunIdxs.append(runIdx)
 
     # Takes the data in an session's buffers and slices it into data "runs"
     # based on cavity heater settings
@@ -462,7 +478,8 @@ class DataSession(object):
 
     @property
     def runElecHeatLoads(self):
-        return [run.elecHeatLoadAct for run in self.dataRuns]
+        return [self.dataRuns[runIdx].elecHeatLoadAct for runIdx
+                in self.heaterRunIdxs]
 
     @property
     def numPoints(self):
@@ -531,13 +548,9 @@ class DataSession(object):
             heaterDesCols = []
             # TODO not tested yet, so not deleting old code
             populateHeaterCols(self.container.heaterDesPVs, heaterDesCols)
-            # for heaterPV in self.container.heaterDesPVs:
-            #     heaterDesCols.append(header.index(heaterPV))
 
             heaterActCols = []
-            populateHeaterCols(self.container.heaterActPVs, heaterDesCols)
-            # for heaterActPV in self.container.heaterActPVs:
-            #     heaterActCols.append(header.index(heaterActPV))
+            populateHeaterCols(self.container.heaterActPVs, heaterActCols)
 
             # So that we don't corrupt the indices while we're deleting them
             colsToDelete = sorted(heaterDesCols + heaterActCols, reverse=True)
@@ -743,18 +756,17 @@ class CalibDataSession(DataSession):
 
         # Overloading these to give the IDE type hints
         self.container = container
-        self.dataRuns = []  # type: List[CalibDataRun]
 
         self._pvBuffMap = {self.container.valvePV: self.valvePosBuff,
                            self.container.dsLevelPV: self.dsLevelBuff}
 
-        self.calibSlope = None
+        self._calibSlope = None
 
         # If we choose the JT valve position correctly, the calibration curve
         # should intersect the origin (0 heat load should translate to 0
         # dLL/dt). The heat adjustment will be equal to the negative x
         # intercept.
-        self.heatAdjustment = None
+        self._heatAdjustment = None
 
         # the dLL/dt vs heat load plot with trend line (back-calculated points
         # for cavity Q0 sessions are added later)
@@ -763,10 +775,19 @@ class CalibDataSession(DataSession):
         self.generateCSV()
         self.processData()
 
+    @property
+    def calibSlope(self):
+        return self._calibSlope
+
+    @property
+    def heatAdjustment(self):
+        return self._heatAdjustment
+
     # returns a list of electric heat loads corrected with self.heatAdjustment
     @property
     def runElecHeatLoadsAdjusted(self):
-        return [run.elecHeatLoadActAdjusted for run in self.dataRuns]
+        return [self.dataRuns[runIdx].elecHeatLoadActAdjusted for runIdx
+                in self.heaterRunIdxs]
 
     @property
     def fileNameFormatter(self):
@@ -775,7 +796,7 @@ class CalibDataSession(DataSession):
 
     @property
     def adjustedRunSlopes(self):
-        return [run.slope for run in self.dataRuns]
+        return [self.dataRuns[runIdx].slope for runIdx in self.heaterRunIdxs]
 
     @property
     def fileName(self):
@@ -804,37 +825,21 @@ class CalibDataSession(DataSession):
             runStartIdx = self._checkAndFlushRun(
                 self._isEndOfCalibRun(idx, elecHeatLoad), idx, runStartIdx)
 
-    def _addRun(self, startIdx, endIdx):
-        self.dataRuns.append(CalibDataRun(startIdx, endIdx, self,
-                                          len(self.dataRuns) + 1))
-
     # noinspection PyTupleAssignmentBalance
     def processRuns(self):
         for run in self.dataRuns:
-            run.slope, run.intercept, r_val, p_val, std_err = linregress(
-                run.timeStamps, run.data)
-
-            # Print R^2 to diagnose whether or not we had a long enough data run
-            print("Run {NUM} R^2: ".format(NUM=run.num) + str(r_val ** 2))
+            run.process()
 
         # We're dealing with a cryomodule here so we need to calculate the
         # fit for the heater calibration curve.
-        self.calibSlope, yIntercept = polyfit(self.runElecHeatLoads,
-                                              self.adjustedRunSlopes, 1)
+        self._calibSlope, yIntercept = polyfit(self.runElecHeatLoads,
+                                               self.adjustedRunSlopes, 1)
 
-        xIntercept = -yIntercept / self.calibSlope
+        xIntercept = -yIntercept / self._calibSlope
 
-        self.heatAdjustment = -xIntercept
+        self._heatAdjustment = -xIntercept
         print("Calibration curve intercept adjust = {ADJUST} W"
               .format(ADJUST=self.heatAdjustment))
-
-        if TEST_MODE:
-            for i, run in enumerate(self.dataRuns):
-                startTime = self.unixTimeBuff[run.startIdx]
-                endTime = self.unixTimeBuff[run.endIdx]
-                runStr = "Duration of run {runNum}: {duration}"
-                print(runStr.format(runNum=(i + 1),
-                                    duration=((endTime - startTime) / 60.0)))
 
     def plotAndFitData(self):
         # TODO improve plots with human-readable time axis
@@ -863,15 +868,16 @@ class CalibDataSession(DataSession):
                                        " Heat Load", "Heat Load (W)",
                                        "dLL/dt (%/s)")
 
-        self.heaterCalibAxis.plot(self.runElecHeatLoadsAdjusted, self.adjustedRunSlopes,
+        self.heaterCalibAxis.plot(self.runElecHeatLoadsAdjusted,
+                                  self.adjustedRunSlopes,
                                   marker="o", linestyle="None",
                                   label="Heater Calibration Data")
 
-        slopeStr = '{:.2e}'.format(Decimal(self.calibSlope))
+        slopeStr = '{:.2e}'.format(Decimal(self._calibSlope))
         labelStr = "Calibration Fit:  {slope} %/(s*W)".format(slope=slopeStr)
 
         self.heaterCalibAxis.plot(self.runElecHeatLoadsAdjusted,
-                                  [self.calibSlope * x
+                                  [self._calibSlope * x
                                    for x in self.runElecHeatLoadsAdjusted],
                                   label=labelStr)
 
@@ -903,7 +909,6 @@ class Q0DataSession(DataSession):
 
         # Overloading these to give the IDE type hints
         self.container = container
-        self.dataRuns = []  # type: List[Q0DataRun]
 
         self._pvBuffMap = {self.container.parent.valvePV: self.valvePosBuff,
                            self.container.parent.dsLevelPV: self.dsLevelBuff,
@@ -923,6 +928,14 @@ class Q0DataSession(DataSession):
                          self.refGradVal)
 
     @property
+    def calibSlope(self):
+        return self.calibSession.calibSlope
+
+    @property
+    def heatAdjustment(self):
+        return self.calibSession.heatAdjustment
+
+    @property
     def fileNameFormatter(self):
         return "data/q0meas/cm{CM}/q0meas_{cryoMod}_cav{cavityNum}{suff}"
 
@@ -933,8 +946,8 @@ class Q0DataSession(DataSession):
     def avgHeatAdjustment(self):
         adjustments = []
 
-        for run in self.dataRuns:
-            runAdjustment = run.heatAdjustment
+        for runIdx in self.heaterRunIdxs:
+            runAdjustment = self.dataRuns[runIdx].heatAdjustment
             if runAdjustment:
                 adjustments.append(runAdjustment)
 
@@ -947,13 +960,13 @@ class Q0DataSession(DataSession):
     @property
     def adjustedRunSlopes(self):
         m = self.calibSession.calibSlope
-        return [(m * run.adjustedTotalHeatLoad) for run in self.dataRuns
-                if not run.isHeaterRun]
+        return [(m * self.dataRuns[runIdx].adjustedTotalHeatLoad) for runIdx
+                in self.rfRunIdxs]
 
     @property
     def adjustedRunHeatLoadsRF(self):
-        return [run.adjustedTotalHeatLoad for run in self.dataRuns
-                if not run.isHeaterRun]
+        return [self.dataRuns[runIdx].adjustedTotalHeatLoad for runIdx
+                in self.rfRunIdxs]
 
     @property
     def fileName(self):
@@ -989,27 +1002,9 @@ class Q0DataSession(DataSession):
 
             runStartIdx = self._checkAndFlushRun(isEndOfQ0Run, idx, runStartIdx)
 
-    def _addRun(self, startIdx, endIdx):
-        self.dataRuns.append(Q0DataRun(startIdx, endIdx, self,
-                                       len(self.dataRuns) + 1))
-
-    # noinspection PyTupleAssignmentBalance
     def processRuns(self):
-
         for run in self.dataRuns:
-            run.slope, run.intercept, r_val, p_val, std_err = linregress(
-                run.timeStamps, run.data)
-
-            # Print R^2 to diagnose whether or not we had a long enough data run
-            print("Run {NUM} R^2: ".format(NUM=run.num) + str(r_val ** 2))
-
-        if TEST_MODE:
-            for i, run in enumerate(self.dataRuns):
-                startTime = self.unixTimeBuff[run.startIdx]
-                endTime = self.unixTimeBuff[run.endIdx]
-                runStr = "Duration of run {runNum}: {duration}"
-                print(runStr.format(runNum=(i + 1),
-                                    duration=((endTime - startTime) / 60.0)))
+            run.process()
 
     def plotAndFitData(self):
         # TODO improve plots with human-readable time axis
@@ -1024,11 +1019,14 @@ class Q0DataSession(DataSession):
 
         for run in self.dataRuns:
             # First we plot the actual run data
-            self.liquidVsTimeAxis.plot(run.timeStamps, run.data, label=run.label)
+            self.liquidVsTimeAxis.plot(run.timeStamps, run.data,
+                                       label=run.label)
 
             # Then we plot the linear fit to the run data
-            self.liquidVsTimeAxis.plot(run.timeStamps, [run.slope * x + run.intercept
-                                                        for x in run.timeStamps])
+            self.liquidVsTimeAxis.plot(run.timeStamps, [(run.slope * x)
+                                                        + run.intercept
+                                                        for x
+                                                        in run.timeStamps])
 
         self.liquidVsTimeAxis.legend(loc='best')
 
@@ -1103,12 +1101,24 @@ class DataRun(object):
         self.intercept = None
 
     @abstractproperty
-    def elecHeatLoadAct(self):
+    def name(self):
+        raise NotImplementedError
+
+    @abstractproperty
+    def adjustedTotalHeatLoad(self):
         raise NotImplementedError
 
     @abstractproperty
     def label(self):
         raise NotImplementedError
+
+    @abstractmethod
+    def printReport(self):
+        raise NotImplementedError
+
+    @property
+    def elecHeatLoadAct(self):
+        return self.heatActDelta
 
     @property
     def data(self):
@@ -1123,19 +1133,44 @@ class DataRun(object):
         return labelStr.format(slope='%.2E' % Decimal(self.slope),
                                heatLoad=round(self.elecHeatLoadAct, 2))
 
+    def process(self):
+        # noinspection PyTupleAssignmentBalance
+        self.slope, self.intercept, r_val, p_val, std_err = linregress(
+            self.timeStamps, self.data)
 
-class CalibDataRun(DataRun):
+        # Print R^2 to diagnose whether or not we had a long enough data run
+        print("{NAME} R^2: ".format(NAME=self.name) + str(r_val ** 2))
+
+        if TEST_MODE:
+            startTime = self.dataSession.unixTimeBuff[self.startIdx]
+            endTime = self.dataSession.unixTimeBuff[self.endIdx]
+            runStr = "Duration of run {runNum}: {duration}"
+            print(runStr.format(runNum=self.num,
+                                duration=((endTime - startTime) / 60.0)))
+
+
+class HeaterDataRun(DataRun):
+
+    @property
+    def name(self):
+        return "{TYPE} Run {NUM}".format(TYPE="Heater", NUM=self.num)
 
     def __init__(self, runStartIdx, runEndIdx, dataSession, num):
-        # type: (int, int, CalibDataSession, int) -> None
+        # type: (int, int, DataSession, int) -> None
 
-        super(CalibDataRun, self).__init__(runStartIdx, runEndIdx, dataSession,
-                                           num)
+        super(HeaterDataRun, self).__init__(runStartIdx, runEndIdx, dataSession,
+                                            num)
         self.dataSession = dataSession
 
     @property
-    def elecHeatLoadAct(self):
-        return self.heatActDelta
+    def adjustedTotalHeatLoad(self):
+        return self.elecHeatLoadAct
+
+    # Heat error due to the position of the JT valve
+    @property
+    def heatAdjustment(self):
+        calcHeatLoad = (self.slope / self.dataSession.calibSlope)
+        return self.elecHeatLoadAct - calcHeatLoad
 
     @property
     def elecHeatLoadActAdjusted(self):
@@ -1145,13 +1180,28 @@ class CalibDataRun(DataRun):
     def label(self):
         return self.genElecLabel()
 
+    def printReport(self):
+        reportStr = ("\n{NAME} Heater run {runNum} total heat load: {TOT} W\n"
+                     "                   Electric heat load: {ELEC} W\n")
 
-class Q0DataRun(DataRun):
+        report = reportStr.format(NAME=self.dataSession.container.name,
+                                  runNum=self.num,
+                                  TOT=round(self.adjustedTotalHeatLoad, 2),
+                                  ELEC=round(self.elecHeatLoadAct, 2))
+
+        print(report.format(Q0Val=None))
+
+
+class RFDataRun(DataRun):
+
+    @property
+    def name(self):
+        return "{TYPE} Run {NUM}".format(TYPE="RF", NUM=self.num)
 
     def __init__(self, runStartIdx, runEndIdx, dataSession, num):
         # type: (int, int, Q0DataSession, int) -> None
 
-        super(Q0DataRun, self).__init__(runStartIdx, runEndIdx, dataSession,
+        super(RFDataRun, self).__init__(runStartIdx, runEndIdx, dataSession,
                                         num)
 
         # Stores the average RF gradient for this run
@@ -1160,65 +1210,42 @@ class Q0DataRun(DataRun):
         self._calculatedQ0 = None
         self.dataSession = dataSession
 
-    @property
-    def elecHeatLoadAct(self):
-        return self.heatActDelta
-
     # Each Q0 measurement run has a total heat load value. If it is an RF run
     # we calculate the heat load by projecting the run's dLL/dt on the
     # cryomodule's heater calibration curve. If it is a heater run we just
     # return the electric heat load.
     @property
     def adjustedTotalHeatLoad(self):
-        if not self.isHeaterRun:
-            return ((self.slope / self.dataSession.calibSession.calibSlope)
-                    + self.dataSession.avgHeatAdjustment)
-        else:
-            return self.elecHeatLoadAct
-
-    @property
-    def isHeaterRun(self):
-        return self.elecHeatLoadDes != 0
+        return ((self.slope / self.dataSession.calibSlope)
+                + self.dataSession.avgHeatAdjustment)
 
     # The RF heat load is equal to the total heat load minus the electric
     # heat load.
     @property
     def rfHeatLoad(self):
-        if self.isHeaterRun:
-            return 0
-        else:
-            return self.adjustedTotalHeatLoad - self.elecHeatLoadAct
+        return self.adjustedTotalHeatLoad - self.elecHeatLoadAct
 
-    # Heat error due to the position of the JT valve
-    @property
-    def heatAdjustment(self):
-        if self.elecHeatLoadDes != 0:
-            calcHeatLoad = (self.slope
-                            / self.dataSession.calibSession.calibSlope)
-            return self.elecHeatLoadAct - calcHeatLoad
-        else:
-            return None
-
-    # The calculated Q0 value for this run. Magical formula from Mike Drury
-    # (drury@jlab.org) to calculate Q0 from the measured heat load on a cavity,
-    # the RF gradient used during the test, and the pressure of the incoming
-    # 2 K helium.
     @property
     def q0(self):
-        if self.elecHeatLoadDes != 0:
-            return None
 
         if not self._calculatedQ0:
             q0s = []
-            numInvalidGrads = self.dataSession.gradBuff.count(0)
+            numInvalidGrads = 0
 
             for idx in range(self.startIdx, self.endIdx):
                 archiveGrad = self.dataSession.gradBuff[idx]
 
-                q0s.append(self.calcQ0(archiveGrad if archiveGrad
-                                       else self.dataSession.refGradVal,
-                                       self.rfHeatLoad,
-                                       self.dataSession.dsPressBuff[idx]))
+                if archiveGrad:
+                    q0s.append(self.calcQ0(archiveGrad, self.rfHeatLoad,
+                                           self.dataSession.dsPressBuff[idx]))
+
+                # Sometimes the archiver messes up and records 0 for some
+                # reason. We use the reference desired value as an approximation
+                else:
+                    numInvalidGrads += 1
+                    q0s.append(self.calcQ0(self.dataSession.refGradVal,
+                                           self.rfHeatLoad,
+                                           self.dataSession.dsPressBuff[idx]))
 
             if numInvalidGrads:
                 writeAndFlushStdErr("\nGradient buffer had {NUM} invalid points"
@@ -1226,7 +1253,6 @@ class Q0DataRun(DataRun):
                                     "- Consider refetching the data from the "
                                     "archiver\n"
                                     .format(NUM=numInvalidGrads))
-                stderr.flush()
 
             self._calculatedQ0 = mean(q0s)
 
@@ -1234,25 +1260,18 @@ class Q0DataRun(DataRun):
 
     @property
     def label(self):
-        # This is a heater run. It could be part of a cryomodule heater
-        # calibration or it could be part of a cavity Q0 measurement.
-        if self.elecHeatLoadDes != 0:
-            return self.genElecLabel()
 
-        # This is an RF run taken during a cavity Q0 measurement.
-        else:
+        labelStr = "{slope} %/s @ {grad} MV/m\nCalculated Q0: {Q0}"
+        q0Str = '{:.2e}'.format(Decimal(self.q0))
 
-            labelStr = "{slope} %/s @ {grad} MV/m\nCalculated Q0: {Q0}"
-            q0Str = '{:.2e}'.format(Decimal(self.q0))
-
-            return labelStr.format(slope='%.2E' % Decimal(self.slope),
-                                   grad=self.dataSession.refGradVal, Q0=q0Str)
+        return labelStr.format(slope='%.2E' % Decimal(self.slope),
+                               grad=self.dataSession.refGradVal, Q0=q0Str)
 
     def printReport(self):
-        reportStr = ("\n{cavName} run {runNum} total heat load: {TOT} W\n"
-                     "            Electric heat load: {ELEC} W\n"
-                     "                  RF heat load: {RF} W\n"
-                     "                 Calculated Q0: {{Q0Val}}\n")
+        reportStr = ("\n{cavName} RF run {runNum} total heat load: {TOT} W\n"
+                     "               Electric heat load: {ELEC} W\n"
+                     "                     RF heat load: {RF} W\n"
+                     "                    Calculated Q0: {{Q0Val}}\n")
 
         report = reportStr.format(cavName=self.dataSession.container.name,
                                   runNum=self.num,
@@ -1260,39 +1279,32 @@ class Q0DataRun(DataRun):
                                   ELEC=round(self.elecHeatLoadAct, 2),
                                   RF=round(self.rfHeatLoad, 2))
 
-        if self.elecHeatLoadDes != 0:
-            print(report.format(Q0Val=None))
+        Q0 = '{:.2e}'.format(Decimal(self.q0))
+        print(report.format(Q0Val=Q0))
 
-        else:
-            Q0 = '{:.2e}'.format(Decimal(self.q0))
-            print(report.format(Q0Val=Q0))
-
+    # The calculated Q0 value for this run. Magical formula from Mike Drury
+    # (drury@jlab.org) to calculate Q0 from the measured heat load on a cavity,
+    # the RF gradient used during the test, and the pressure of the incoming
+    # 2 K helium.
     @staticmethod
-    def calcQ0(grad, rfHeatLoad, avgPressure=None):
+    def calcQ0(grad, rfHeatLoad, avgPressure):
         # The initial Q0 calculation doesn't account for the temperature
         # variation of the 2 K helium
         uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
 
         # We can correct Q0 for the helium temperature!
-        if avgPressure:
-            tempFromPress = (avgPressure * 0.0125) + 1.705
+        tempFromPress = (avgPressure * 0.0125) + 1.705
 
-            C1 = 271
-            C2 = 0.0000726
-            C3 = 0.00000214
-            C4 = grad - 0.7
-            C5 = 0.000000043
-            C6 = -17.02
-            C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))
+        C1 = 271
+        C2 = 0.0000726
+        C3 = 0.00000214
+        C4 = grad - 0.7
+        C5 = 0.000000043
+        C6 = -17.02
+        C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))
 
-            correctedQ0 = C1 / ((C7 / 2) * exp(C6 / 2)
-                                + C1 / uncorrectedQ0
-                                - (C7 / tempFromPress)
-                                * exp(C6 / tempFromPress))
-            return correctedQ0
-
-        else:
-            return uncorrectedQ0
+        return (C1 / ((C7 / 2) * exp(C6 / 2) + C1 / uncorrectedQ0
+                      - (C7 / tempFromPress) * exp(C6 / tempFromPress)))
 
 
 def main():
