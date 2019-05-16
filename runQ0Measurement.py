@@ -9,7 +9,7 @@
 from __future__ import print_function, division
 from subprocess import CalledProcessError
 from time import sleep
-from container import Cryomodule, Cavity, DataSession, Q0DataSession
+from container import Cryomodule, Cavity, Q0DataSession, CalibDataSession
 from matplotlib import pyplot as plt
 from datetime import datetime
 from csv import writer
@@ -18,7 +18,7 @@ from utils import (writeAndFlushStdErr, cagetPV, caputPV,
 
 
 def runQ0Meas(cavity, desiredGradient, calibSession=None, refValvePos=None):
-    # type: (Cavity, float, DataSession, float) -> (Q0DataSession, float)
+    # type: (Cavity, float, CalibDataSession, float) -> (Q0DataSession, float)
     try:
         if not refValvePos:
             refValvePos = cavity.getRefValvePos(2)

@@ -142,7 +142,7 @@ def cagetPV(pv, startIdx=1, attempt=1):
             return cagetPV(pv, startIdx, attempt + 1)
 
     else:
-        raise CalledProcessError("caget failed too many times")
+        raise CalledProcessError("caget failed too many timeStamps")
 
 
 # noinspection PyArgumentList
@@ -159,7 +159,7 @@ def caputPV(pv, val, attempt=1):
             print("Retrying caput")
             return caputPV(pv, val, attempt + 1)
     else:
-        raise CalledProcessError("caput failed too many times")
+        raise CalledProcessError("caput failed too many timeStamps")
 
 
 def makeTimeFromStr(row, idx):

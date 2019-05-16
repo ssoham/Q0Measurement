@@ -11,7 +11,8 @@ from csv import reader
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from numpy import linspace
-from container import Cryomodule, Container, Cavity, DataSession, Q0DataSession
+from container import (Cryomodule, Container, Cavity, DataSession,
+                       Q0DataSession, CalibDataSession)
 from runCalibration import runCalibration
 from runQ0Measurement import runQ0Meas
 from utils import getNumInputFromLst, getYesNo, TEST_MODE, makeTimeFromStr
@@ -193,7 +194,7 @@ def parseInputFile(inputFile):
 ################################################################################
 def addNewCryMod(cryModIdxMap, calIdxKeys, slacNum, cryoModules, calibIdx=None,
                  refValvePos=None):
-    # type: (dict, List[(str, str)], int, dict, int, float) -> (DataSession, float)
+    # type: (dict, List[(str, str)], int, dict, int, float) -> (CalibDataSession, float)
 
     calibFile = "calibrations/calibrationsCM{CM_SLAC}.csv"
 
@@ -209,8 +210,6 @@ def addNewCryMod(cryModIdxMap, calIdxKeys, slacNum, cryoModules, calibIdx=None,
                                                 None, refValvePos=refValvePos)
 
     cryoModules[slacNum] = calibSess.container
-    calibSess.generateCSV()
-    calibSess.processData()
 
     return calibSess, refValvePos
 
@@ -236,7 +235,7 @@ def populateIdxMap(fileFormatter, idxMap, idxkeys, slacNum):
 ################################################################################
 def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
                       calibSession=None, refValvePos=None):
-    # type: (str, dict, int, Container, int, DataSession, float) -> (DataSession, float)
+    # type: (str, dict, int, Container, int, CalibDataSession, float) -> (DataSession, float)
 
     sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
     row = open(sessionCSV).readlines()[idx - 1]
@@ -268,7 +267,7 @@ def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
 #                   create a new Cryomodule
 def addDataSession(fileFormatter, indices, slacNum, container,
                    refGradVal=None, calibSession=None, refValvePos=None):
-    # type: (str, dict, int, Container, float, DataSession, float) -> (DataSession, float)
+    # type: (str, dict, int, Container, float, CalibDataSession, float) -> (DataSession, float)
 
     def addOption(csvRow, lineNum):
         startTime = makeTimeFromStr(csvRow, indices["startIdx"])
@@ -389,7 +388,7 @@ def printOptions(options):
 ################################################################################
 def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
                 refValvePos=None):
-    # type: (dict, int, Cryomodule, int, float) -> (DataSession, float)
+    # type: (dict, int, Cryomodule, int, float) -> (CalibDataSession, float)
 
     calibFile = "calibrations/calibrationsCM{CM_SLAC}.csv"
 
@@ -403,9 +402,6 @@ def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
                                                 cryoModule,
                                                 refValvePos=refValvePos)
 
-    calibSess.generateCSV()
-    calibSess.processData()
-
     return calibSess, refValvePos
 
 
@@ -413,7 +409,7 @@ def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
 #                            depending on the choice of user input file
 def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
                  cavity, calibSession, cavIdxKeys, refValvePos=None):
-    # type: (callable, float, dict, int, Cavity, DataSession, List[(str, str)], float) -> float
+    # type: (callable, float, dict, int, Cavity, CalibDataSession, List[(str, str)], float) -> float
 
     q0File = "q0Measurements/q0MeasurementsCM{CM_SLAC}.csv"
 
@@ -424,9 +420,6 @@ def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
                                                 slacNum, cavity,
                                                 dataSessionFuncParam,
                                                 calibSession, refValvePos)
-
-    sessionQ0.generateCSV()
-    sessionQ0.processData()
 
     print("\n---------- {CM} {CAV} ----------\n"
           .format(CM=calibSession.container.name, CAV=cavity.name))
@@ -441,9 +434,9 @@ def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
 # (heat load, dLL/dt) point(s) from the given Q0 data session. While it is
 # possible that a Q0 data session can contain multiple points, it's unusual
 def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
-    # type: (Axes, Q0DataSession, DataSession) -> None
+    # type: (Axes, Q0DataSession, CalibDataSession) -> None
 
-    calibCurveAxis.plot(q0Session.runHeatLoads,
+    calibCurveAxis.plot(q0Session.adjustedRunHeatLoadsRF,
                         q0Session.adjustedRunSlopes,
                         marker="o", linestyle="None",
                         label="Projected Data for " + q0Session.container.name)
@@ -452,8 +445,8 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
 
     # The rest of this mess is pretty much just extending the fit line to
     # include outliers
-    minCavHeatLoad = min(q0Session.runHeatLoads)
-    minCalibHeatLoad = min(calibSession.runElecHeatLoads)
+    minCavHeatLoad = min(q0Session.adjustedRunHeatLoadsRF)
+    minCalibHeatLoad = min(calibSession.runElecHeatLoadsAdjusted)
 
     if minCavHeatLoad < minCalibHeatLoad:
         yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
@@ -461,8 +454,8 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
                                      # + calibSession.calibIntercept
                                      for i in yRange])
 
-    maxCavHeatLoad = max(q0Session.runHeatLoads)
-    maxCalibHeatLoad = max(calibSession.runElecHeatLoads)
+    maxCavHeatLoad = max(q0Session.adjustedRunHeatLoadsRF)
+    maxCalibHeatLoad = max(calibSession.runElecHeatLoadsAdjusted)
 
     if maxCavHeatLoad > maxCalibHeatLoad:
         yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
@@ -473,6 +466,6 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
 
 if __name__ == "__main__":
     if TEST_MODE:
-        parseInputFile("testFiles/inputDemo.csv")
+        parseInputFile("testFiles/inputAdv.csv")
     else:
         parseInputFile("input.csv")
