@@ -2,6 +2,8 @@ from __future__ import print_function, division
 
 from _csv import reader as _reader
 from datetime import datetime
+from json import dumps
+
 from builtins import input
 from time import sleep
 from sys import stdout, stderr
@@ -15,6 +17,7 @@ from typing import List, Callable, Union, Dict, Tuple, Optional
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
+
 TEST_MODE = True
 
 # The relationship between the LHE content of a cryomodule and the readback from
@@ -49,6 +52,9 @@ ERROR_MESSAGE = "Please provide valid input"
 
 # This is used to suppress the output of the caput function.
 FNULL = open(devnull, "w")
+
+# The number of distinct heater settings we're using for cryomodule calibrations
+NUM_CAL_RUNS = 5
 
 
 def isYes(prompt):
@@ -260,3 +266,10 @@ def genAxis(title, xlabel, ylabel):
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     return ax
+
+
+# A surprisingly ugly way to pretty print a dictionary
+def printOptions(options):
+    # type: (Dict[int, str]) -> None
+    print(("\n" + dumps(options, indent=4) + "\n")
+          .replace('"', '').replace(',', ''))

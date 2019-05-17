@@ -9,7 +9,9 @@ from csv import writer, reader
 from copy import deepcopy
 from decimal import Decimal
 from os.path import isfile
-from numpy import mean, exp, log10, sqrt
+from subprocess import CalledProcessError
+from time import sleep
+from numpy import mean, exp, log10, sqrt, linspace
 from scipy.stats import linregress
 from numpy import polyfit
 from matplotlib import pyplot as plt
@@ -21,7 +23,7 @@ from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POSITION_TOLERANCE, HEATER_TOLERANCE, GRAD_TOLERANCE,
                    MIN_RUN_DURATION, isYes, get_float_lim, writeAndWait,
                    MAX_DS_LL, cagetPV, caputPV, getTimeParams, MIN_DS_LL,
-                   parseRawData, genAxis)
+                   parseRawData, genAxis, NUM_CAL_RUNS)
 
 
 class Container(object):
@@ -201,7 +203,7 @@ class Container(object):
 
     def addDataSession(self, startTime, endTime, timeInt, refValvePos,
                        refHeatLoad=None, refGradVal=None, calibSession=None):
-        # type: (datetime, datetime, int, float, float, float, CalibDataSession) -> CalibDataSession
+        # type: (datetime, datetime, int, float, float, float, CalibDataSession) -> DataSession
 
         # Determine the current electric heat load on the cryomodule (the sum
         # of all the heater act values). This will only ever be None when we're
@@ -316,6 +318,73 @@ class Cryomodule(Container):
         return CalibDataSession(self, startTime, endTime, timeInt, refValvePos,
                                 refHeatLoad)
 
+    def runCalibration(self, refValvePos=None):
+        # type: (float) -> (CalibDataSession, float)
+
+        def launchHeaterRun():
+            # type: () -> None
+            print("Ramping heaters to the next setting...")
+
+            self.walkHeaters(1)
+            runStartTime = datetime.now()
+
+            writeAndWait(
+                "\nWaiting either 40 minutes or for the LL to drop below"
+                " {NUM}...".format(NUM=MIN_DS_LL))
+
+            while ((datetime.now() - runStartTime).total_seconds() < 2400
+                   and float(cagetPV(self.dsLevelPV)) > MIN_DS_LL):
+                writeAndWait(".", 10)
+
+            print("\nDone\n")
+
+        # Check whether or not we've already found a good JT position during
+        # this program execution
+        if not refValvePos:
+            refValvePos = self.getRefValvePos(2)
+
+        self.waitForCryo(refValvePos)
+
+        startTime = datetime.now()
+
+        for _ in range(NUM_CAL_RUNS - 1):
+            launchHeaterRun()
+
+            print("Please ask the cryo group to refill to {LL} on the"
+                  " downstream sensor".format(LL=MAX_DS_LL))
+
+            self.waitForCryo(refValvePos)
+
+        # Kinda jank way to avoid waiting for cryo conditions after the final
+        # run
+        launchHeaterRun()
+
+        endTime = datetime.now()
+
+        print("\nStart Time: {START}".format(START=startTime))
+        print("End Time: {END}".format(END=datetime.now()))
+
+        duration = (datetime.now() - startTime).total_seconds() / 3600
+        print("Duration in hours: {DUR}".format(DUR=duration))
+
+        # Walking the heaters back to their starting settings
+        self.walkHeaters(-NUM_CAL_RUNS)
+
+        dataSession = self.addDataSession(startTime, endTime,
+                                          MYSAMPLER_TIME_INTERVAL,
+                                          refValvePos)
+
+        # Record this calibration dataSession's metadata
+        with open(self.idxFile, 'a') as f:
+            csvWriter = writer(f)
+            csvWriter.writerow(
+                [self.cryModNumJLAB, dataSession.refHeatLoad,
+                 refValvePos, startTime.strftime("%m/%d/%y %H:%M"),
+                 endTime.strftime("%m/%d/%y %H:%M"),
+                 MYSAMPLER_TIME_INTERVAL])
+
+        return dataSession, refValvePos
+
 
 class Cavity(Container):
 
@@ -398,6 +467,485 @@ class Cavity(Container):
                  self.parent.usLevelPV, self.gradPV,
                  self.parent.dsPressurePV] + self.parent.heaterDesPVs
                 + self.parent.heaterActPVs)
+
+    # Checks that the parameters associated with acquisition of the cavity RF
+    # waveforms are configured properly
+    def checkAcqControl(self):
+        # type: () -> None
+        print("Checking Waveform Data Acquisition Control...")
+        for infix in ["CAV", "FWD", "REV", "DRV", "DAC"]:
+            enablePV = self.genAcclPV(infix + ":ENABLE")
+            if float(cagetPV(enablePV)) != 1:
+                print("Enabling {INFIX}".format(INFIX=infix))
+                caputPV(enablePV, "1")
+
+        suffixValPairs = [("MODE", 1), ("HLDOFF", 0.1), ("STAT_START", 0.065),
+                          ("STAT_WIDTH", 0.004), ("DECIM", 255)]
+
+        for suffix, val in suffixValPairs:
+            pv = self.genAcclPV("ACQ_" + suffix)
+            if float(cagetPV(enablePV)) != val:
+                print("Setting {SUFFIX}".format(SUFFIX=suffix))
+                caputPV(pv, str(val))
+
+    def setPowerStateSSA(self, turnOn):
+        # type: (bool) -> None
+
+        # Using double curly braces to trick it into a partial formatting
+        ssaFormatPV = self.genAcclPV("SSA:{SUFFIX}")
+
+        def genPV(suffix):
+            return ssaFormatPV.format(SUFFIX=suffix)
+
+        ssaStatusPV = genPV("StatusMsg")
+
+        value = cagetPV(ssaStatusPV)
+
+        if turnOn:
+            stateMap = {"desired": "3", "opposite": "2", "pv": "PowerOn"}
+        else:
+            stateMap = {"desired": "2", "opposite": "3", "pv": "PowerOff"}
+
+        if value != stateMap["desired"]:
+            if value == stateMap["opposite"]:
+                print("\nSetting SSA power...")
+                caputPV(genPV(stateMap["pv"]), "1")
+
+                if cagetPV(ssaStatusPV) != stateMap["desired"]:
+                    raise AssertionError("Could not set SSA Power")
+
+            else:
+                print("\nResetting SSA...")
+                caputPV(genPV("FaultReset"), "1")
+
+                if cagetPV(ssaStatusPV) not in ["2", "3"]:
+                    raise AssertionError("Could not reset SSA")
+
+                self.setPowerStateSSA(turnOn)
+
+        print("SSA power set\n")
+
+    ############################################################################
+    # Characterize various cavity parameters.
+    # * Runs the SSA through its range and constructs a polynomial describing
+    #   the relationship between requested SSA output and actual output
+    # * Calibrates the cavity's RF probe so that the gradient readback will be
+    #   accurate.
+    ############################################################################
+    def characterize(self):
+        # type: () -> None
+
+        def pushAndWait(suffix):
+            caputPV(self.genAcclPV(suffix), "1")
+            sleep(10)
+
+        def checkAndPush(basePV, pushPV, param, newPV=None):
+            oldVal = float(cagetPV(self.genAcclPV(basePV)))
+
+            newVal = (float(cagetPV(self.genAcclPV(newPV)))
+                      if newPV
+                      else float(cagetPV(self.genAcclPV(basePV + "_NEW"))))
+
+            if abs(newVal - oldVal) < 0.15:
+                pushAndWait(pushPV)
+
+            else:
+                raise AssertionError(
+                    "Old and new {PARAM} differ by more than 0.15"
+                    " - please inspect and push manually"
+                    .format(PARAM=param))
+
+        pushAndWait("SSACALSTRT")
+
+        checkAndPush("SLOPE", "PUSH_SSASLOPE.PROC", "slopes")
+
+        pushAndWait("PROBECALSTRT")
+
+        checkAndPush("QLOADED", "PUSH_QLOADED.PROC", "Loaded Qs")
+
+        checkAndPush("CAV:SCALER_SEL.B", "PUSH_CAV_SCALE.PROC", "Cavity Scales",
+                     "CAV:CAL_SCALEB_NEW")
+
+    # Switches the cavity to a given operational mode (pulsed, CW, etc.)
+    def setModeRF(self, modeDesired):
+        # type: (str) -> None
+
+        rfModePV = self.genAcclPV("RFMODECTRL")
+
+        if cagetPV(rfModePV) is not modeDesired:
+            caputPV(rfModePV, modeDesired)
+            assert cagetPV(rfModePV) == modeDesired, "Unable to set RF mode"
+
+    # Turn the cavity on or off
+    def setStateRF(self, turnOn):
+        # type: (bool) -> None
+
+        rfStatePV = self.genAcclPV("RFSTATE")
+        rfControlPV = self.genAcclPV("RFCTRL")
+
+        rfState = cagetPV(rfStatePV)
+
+        desiredState = ("1" if turnOn else "0")
+
+        if rfState != desiredState:
+            print("\nSetting RF State...")
+            caputPV(rfControlPV, desiredState)
+
+        print("RF state set\n")
+
+    # Many of the changes made to a cavity don't actually take effect until the
+    # go button is pressed
+    def pushGoButton(self):
+        # type: (Cavity) -> None
+        rfStatePV = self.genAcclPV("PULSEONSTRT")
+        caputPV(rfStatePV, "1")
+        sleep(2)
+        if cagetPV(rfStatePV) != "1":
+            raise AssertionError("Unable to set RF state")
+
+    # In pulsed mode the cavity has a duty cycle determined by the on time and
+    # off time. We want the on time to be 70 ms or else the various cavity
+    # parameters calculated from the waveform (e.g. the RF gradient) won't be
+    # accurate.
+    def checkAndSetOnTime(self):
+        # type: () -> None
+        print("Checking RF Pulse On Time...")
+        onTimePV = self.genAcclPV("PULSE_ONTIME")
+        onTime = cagetPV(onTimePV)
+        if onTime != "70":
+            print("Setting RF Pulse On Time to 70 ms")
+            caputPV(onTimePV, "70")
+
+    # Ramps the cavity's RF drive (only relevant in pulsed mode) up until the RF
+    # gradient is high enough for phasing
+    def checkAndSetDrive(self):
+        # type: () -> None
+
+        print("Checking drive...")
+
+        drivePV = self.genAcclPV("SEL_ASET")
+        currDrive = float(cagetPV(drivePV))
+
+        while (float(cagetPV(self.gradPV)) < 1) or (currDrive < 15):
+            print("Increasing drive...")
+            driveDes = str(currDrive + 1)
+
+            caputPV(drivePV, driveDes)
+            self.pushGoButton()
+
+            currDrive = float(cagetPV(drivePV))
+
+        print("Drive set")
+
+    # Corrects the cavity phasing in pulsed mode based on analysis of the RF
+    # waveform. Doesn't currently work if the phase is very far off and the
+    # waveform is distorted.
+    def phaseCavity(self):
+        # type: () -> None
+
+        waveformFormatStr = self.genAcclPV("{INFIX}:AWF")
+
+        def getWaveformPV(infix):
+            return waveformFormatStr.format(INFIX=infix)
+
+        # Get rid of trailing zeros - might be more elegant way of doing this
+        def trimWaveform(inputWaveform):
+            try:
+                maxValIdx = inputWaveform.index(max(inputWaveform))
+                del inputWaveform[maxValIdx:]
+
+                first = inputWaveform.pop(0)
+                while inputWaveform[0] >= first:
+                    first = inputWaveform.pop(0)
+            except IndexError:
+                pass
+
+        def getAndTrimWaveforms():
+            res = []
+
+            for suffix in ["REV", "FWD", "CAV"]:
+                res.append(cagetPV(getWaveformPV(suffix), startIdx=2))
+                res[-1] = list(map(lambda x: float(x), res[-1]))
+                trimWaveform(res[-1])
+
+            return res
+
+        def getLine(inputWaveform, lbl):
+            return ax.plot(range(len(inputWaveform)), inputWaveform, label=lbl)
+
+        # The waveforms have trailing and leading tails down to zero that would
+        # mess with our analysis - have to trim those off.
+        revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
+
+        plt.ion()
+        ax = genAxis("Waveforms", "Seconds", "Amplitude")
+
+        ax.set_autoscale_on(True)
+        ax.autoscale_view(True, True, True)
+
+        lineRev, = getLine(revWaveform, "Reverse")
+        lineCav, = getLine(cavWaveform, "Cavity")
+        lineFwd, = getLine(fwdWaveform, "Forward")
+
+        ax.figure.canvas.draw()
+        ax.figure.canvas.flush_events()
+
+        phasePV = self.genAcclPV("SEL_POFF")
+
+        # When the cavity is properly phased the reverse waveform should dip
+        # down very close to zero. Phasing the cavity consists of minimizing
+        # that minimum value as we vary the RF phase.
+        minVal = min(revWaveform)
+
+        print("Minimum reverse waveform value: {MIN}".format(MIN=minVal))
+        step = 1
+
+        while abs(minVal) > 0.5:
+            val = float(cagetPV(phasePV))
+
+            print("step: {STEP}".format(STEP=step))
+            newVal = val + step
+            caputPV(phasePV, str(newVal))
+
+            if float(cagetPV(phasePV)) != newVal:
+                writeAndFlushStdErr("Mismatch between desired and actual phase")
+
+            revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
+
+            lineWaveformPairs = [(lineRev, revWaveform), (lineCav, cavWaveform),
+                                 (lineFwd, fwdWaveform)]
+
+            for line, waveform in lineWaveformPairs:
+                line.set_data(range(len(waveform)), waveform)
+
+            ax.set_autoscale_on(True)
+            ax.autoscale_view(True, True, True)
+
+            ax.figure.canvas.draw()
+            ax.figure.canvas.flush_events()
+
+            prevMin = minVal
+            minVal = min(revWaveform)
+            print("Minimum reverse waveform value: {MIN}".format(MIN=minVal))
+
+            # I think this accounts for inflection points? Hopefully the
+            # decrease in step size addresses the potential for it to get stuck
+            if (prevMin <= 0 < minVal) or (prevMin >= 0 > minVal):
+                step *= -0.5
+
+            elif abs(minVal) > abs(prevMin) + 0.01:
+                step *= -1
+
+    # Lowers the requested CW amplitude to a safe level where cavities have a
+    # very low chance of quenching at turnon
+    def lowerAmplitude(self):
+        # type: () -> None
+        print("Lowering amplitude")
+        caputPV(self.genAcclPV("ADES"), "2")
+
+    # Walks the cavity to a given gradient in CW mode with exponential back-off
+    # in the step size (steps get smaller each time you cross over the desired
+    # gradient until the error is very low)
+    def walkToGradient(self, desiredGradient):
+        # type: (float) -> None
+        amplitudePV = self.genAcclPV("ADES")
+        step = 0.5
+        gradient = float(cagetPV(self.gradPV))
+        prevGradient = gradient
+        diff = gradient - desiredGradient
+        prevDiff = diff
+        print("Walking gradient...")
+
+        while abs(diff) > 0.05:
+            gradient = float(cagetPV(self.gradPV))
+
+            if gradient < (prevGradient * 0.9):
+                raise AssertionError("Detected a quench - aborting")
+
+            currAmp = float(cagetPV(amplitudePV))
+            diff = gradient - desiredGradient
+            mult = 1 if (diff <= 0) else -1
+
+            if (prevDiff >= 0 > diff) or (prevDiff <= 0 < diff):
+                step *= (0.5 if step > 0.01 else 1.5)
+
+            caputPV(amplitudePV, str(currAmp + mult * step))
+
+            prevDiff = diff
+            sleep(2.5)
+
+        print("Gradient at desired value")
+
+    # When cavities are turned on in CW mode they slowly heat up, which causes
+    # the gradient to drop over time. This function holds the gradient at the
+    # requested value during the Q0 run.
+    def holdGradient(self, desiredGradient):
+        # type: (float) -> datetime
+
+        amplitudePV = self.genAcclPV("ADES")
+
+        startTime = datetime.now()
+
+        step = 0.01
+        prevDiff = float(cagetPV(self.gradPV)) - desiredGradient
+
+        print("\nStart time: {START}".format(START=startTime))
+
+        writeAndWait("\nWaiting either 40 minutes or for the LL to drop below"
+                     " {NUM}...".format(NUM=MIN_DS_LL))
+
+        hitTarget = False
+
+        while ((datetime.now() - startTime).total_seconds() < 2400
+               and float(cagetPV(self.dsLevelPV)) > MIN_DS_LL):
+
+            gradient = float(cagetPV(self.gradPV))
+
+            # If the gradient suddenly drops by a noticeable amount, that
+            # probably indicates a quench in progress and we should abort
+            if hitTarget and gradient <= (desiredGradient * 0.9):
+                raise AssertionError("Detected a quench - aborting")
+
+            currAmp = float(cagetPV(amplitudePV))
+
+            diff = gradient - desiredGradient
+
+            if abs(diff) <= 0.01:
+                hitTarget = True
+
+            mult = 1 if (diff <= 0) else -1
+
+            if (prevDiff >= 0 > diff) or (prevDiff <= 0 < diff):
+                step *= (0.5 if step > 0.01 else 1.5)
+
+            caputPV(amplitudePV, str(currAmp + mult * step))
+
+            prevDiff = diff
+
+            writeAndWait(".", 15)
+
+        print("\nEnd Time: {END}".format(END=datetime.now()))
+        duration = (datetime.now() - startTime).total_seconds() / 3600
+        print("Duration in hours: {DUR}".format(DUR=duration))
+        return startTime
+
+    def powerDown(self):
+        # type: (Cavity) -> None
+        try:
+            print("\nPowering down...")
+            self.setStateRF(False)
+            self.setPowerStateSSA(False)
+            caputPV(self.genAcclPV("SEL_ASET"), "15")
+            self.lowerAmplitude()
+        except(CalledProcessError, IndexError, OSError,
+               ValueError, AssertionError) as e:
+            writeAndFlushStdErr("Powering down failed with error:\n{E}\n"
+                                .format(E=e))
+
+    # After doing a data run with the cavity's RF on we also do a run with the
+    # electric heaters turned up by a known amount. This is used to reduce the
+    # error in our calculated RF heat load due to the JT valve not being at
+    # exactly the correct position to keep the liquid level steady over time,
+    # which would show up as an extra term in the heat load.
+    def launchHeaterRun(self, desPos):
+        # type: (Cavity, float) -> datetime
+
+        print("**** REMINDER: refills aren't automated - please contact the"
+              " cryo group ****")
+        self.waitForCryo(desPos)
+
+        self.walkHeaters(3)
+
+        startTime = datetime.now()
+
+        print("\nStart time: {START}".format(START=startTime))
+
+        writeAndWait("\nWaiting either 40 minutes or for the LL to drop below"
+                     " {NUM}...".format(NUM=MIN_DS_LL))
+
+        while ((datetime.now() - startTime).total_seconds() < 2400
+               and float(cagetPV(self.dsLevelPV)) > MIN_DS_LL):
+            writeAndWait(".", 15)
+
+        endTime = datetime.now()
+
+        print("\nEnd Time: {END}".format(END=endTime))
+        duration = (endTime - startTime).total_seconds() / 3600
+        print("Duration in hours: {DUR}".format(DUR=duration))
+
+        self.walkHeaters(-3)
+
+        return endTime
+
+    def runQ0Meas(self, desiredGradient, calibSession=None, refValvePos=None):
+        # type: (Cavity, float, CalibDataSession, float) -> (Q0DataSession, float)
+        try:
+            if not refValvePos:
+                refValvePos = self.getRefValvePos(2)
+
+            self.waitForCryo(refValvePos)
+
+            self.checkAcqControl()
+            self.setPowerStateSSA(True)
+            self.characterize()
+
+            # Setting the RF low and ramping up is time consuming so we skip it
+            # during testing
+            if not TEST_MODE:
+                caputPV(self.genAcclPV("SEL_ASET"), "15")
+
+            # Start with pulsed mode
+            self.setModeRF("4")
+
+            self.setStateRF(True)
+            self.pushGoButton()
+
+            self.checkAndSetOnTime()
+            self.checkAndSetDrive()
+
+            self.phaseCavity()
+
+            if not TEST_MODE:
+                self.lowerAmplitude()
+
+            # go to CW
+            self.setModeRF("2")
+
+            self.walkToGradient(desiredGradient)
+
+            startTime = self.holdGradient(desiredGradient)
+
+            self.powerDown()
+
+            endTime = self.launchHeaterRun(refValvePos)
+
+            session = self.addDataSession(startTime, endTime,
+                                          MYSAMPLER_TIME_INTERVAL,
+                                          refValvePos,
+                                          refGradVal=desiredGradient,
+                                          calibSession=calibSession)
+
+            with open(self.idxFile, 'a') as f:
+                csvWriter = writer(f)
+                csvWriter.writerow([self.cavNum, desiredGradient, refValvePos,
+                                    startTime.strftime("%m/%d/%y %H:%M"),
+                                    endTime.strftime("%m/%d/%y %H:%M"),
+                                    session.refHeatLoad,
+                                    MYSAMPLER_TIME_INTERVAL])
+
+            print("\nStart Time: {START}".format(START=startTime))
+            print("End Time: {END}".format(END=endTime))
+
+            duration = (endTime - startTime).total_seconds() / 3600
+            print("Duration in hours: {DUR}".format(DUR=duration))
+
+            return session, refValvePos
+
+        except(CalledProcessError, IndexError, OSError, ValueError,
+               AssertionError) as e:
+            writeAndFlushStdErr(
+                "Procedure failed with error:\n{E}\n".format(E=e))
+            self.powerDown()
 
 
 class DataSession(object):
@@ -1151,11 +1699,39 @@ class Q0DataSession(DataSession):
               .format(CM=self.container.parent.name, CAV=self.container.name))
         print("--------------------------------------\n")
 
-        # print("\n------------- {CM} {CAV} -------------\n"
-        #       .format(CM=self.container.parent.name, CAV=self.container.name))
-
         for run in self.dataRuns:
             run.printRunReport()
+
+    def updateCalibCurve(self):
+        # type: () -> None
+
+        calibSession = self.calibSession
+        calibCurveAxis = calibSession.heaterCalibAxis
+
+        calibCurveAxis.plot(self.adjustedRunHeatLoadsRF,
+                            self.adjustedRunSlopes,
+                            marker="o", linestyle="None",
+                            label="Projected Data for " + self.container.name)
+
+        calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
+
+        # The rest of this mess is pretty much just extending the fit line to
+        # include outliers
+        minCavHeatLoad = min(self.adjustedRunHeatLoadsRF)
+        minCalibHeatLoad = min(calibSession.runElecHeatLoadsAdjusted)
+
+        if minCavHeatLoad < minCalibHeatLoad:
+            yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
+            calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
+                                         for i in yRange])
+
+        maxCavHeatLoad = max(self.adjustedRunHeatLoadsRF)
+        maxCalibHeatLoad = max(calibSession.runElecHeatLoadsAdjusted)
+
+        if maxCavHeatLoad > maxCalibHeatLoad:
+            yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
+            calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
+                                         for i in yRange])
 
 
 class DataRun(object):
