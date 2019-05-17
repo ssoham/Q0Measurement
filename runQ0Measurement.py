@@ -221,6 +221,7 @@ def pushGoButton(cavity):
 # time. We want the on time to be 70 ms or else the various cavity parameters
 # calculated from the waveform (e.g. the RF gradient) won't be accurate.
 def checkAndSetOnTime(cavity):
+    # type: (Cavity) -> None
     print("Checking RF Pulse On Time...")
     onTimePV = cavity.genAcclPV("PULSE_ONTIME")
     onTime = cagetPV(onTimePV)
@@ -359,6 +360,7 @@ def phaseCavity(cavity):
 # Lowers the requested CW amplitude to a safe level where cavities have a very
 # low chance of quenching at turnon
 def lowerAmplitude(cavity):
+    # type: (Cavity) -> None
     print("Lowering amplitude")
     caputPV(cavity.genAcclPV("ADES"), "2")
 
@@ -367,6 +369,7 @@ def lowerAmplitude(cavity):
 # in the step size (steps get smaller each time you cross over the desired
 # gradient until the error is very low)
 def walkToGradient(cavity, desiredGradient):
+    # type: (Cavity, float) -> None
     amplitudePV = cavity.genAcclPV("ADES")
     step = 0.5
     gradient = float(cagetPV(cavity.gradPV))
@@ -451,6 +454,7 @@ def holdGradient(cavity, desiredGradient):
 
 
 def powerDown(cavity):
+    # type: (Cavity) -> None
     try:
         print("\nPowering down...")
         setStateRF(cavity, False)

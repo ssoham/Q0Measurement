@@ -26,6 +26,7 @@ def runCalibration(cryoModule, refValvePos=None):
     # type: (Cryomodule, float) -> (CalibDataSession, float)
 
     def launchHeaterRun():
+        # type: () -> None
         print("Ramping heaters to the next setting...")
 
         cryoModule.walkHeaters(1)

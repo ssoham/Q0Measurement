@@ -1,7 +1,7 @@
 from __future__ import print_function, division
 
+from _csv import reader as _reader
 from datetime import datetime
-
 from builtins import input
 from time import sleep
 from sys import stdout, stderr
@@ -11,7 +11,7 @@ from csv import reader
 from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
-
+from typing import List, Callable, Union, Dict, Tuple, Optional
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -51,11 +51,25 @@ ERROR_MESSAGE = "Please provide valid input"
 FNULL = open(devnull, "w")
 
 
-def getYesNo(prompt):
-    return input(prompt) in ["y", "Y"]
+def isYes(prompt):
+    return getStrLim(prompt + " (y/n) ", ["Y", "y", "N", "n"]) in ["y", "Y"]
+
+
+def getStrLim(prompt, acceptable_strings):
+    # type: (str, List[str]) -> str
+
+    response = get_input(prompt, str)
+
+    while response not in acceptable_strings:
+        stderr.write(ERROR_MESSAGE + "\n")
+        sleep(0.01)
+        response = get_input(prompt, str)
+
+    return response
 
 
 def writeAndFlushStdErr(message):
+    # type: (str) -> None
     stderr.write("\n{MSSG}\n".format(MSSG=message))
     stderr.flush()
 
@@ -68,10 +82,12 @@ def writeAndWait(message, timeToWait=0):
 
 
 def get_float_lim(prompt, low_lim, high_lim):
+    # type: (str, float, float) -> float
     return getNumericalInput(prompt, low_lim, high_lim, float)
 
 
 def getNumInputFromLst(prompt, lst, inputType):
+    # type: (str, List[Union[int, float]], Callable) -> Union[float, int]
     response = get_input(prompt, inputType)
     while response not in lst:
         stderr.write(ERROR_MESSAGE + "\n")
@@ -84,6 +100,7 @@ def getNumInputFromLst(prompt, lst, inputType):
 
 
 def getNumericalInput(prompt, lowLim, highLim, inputType):
+    # type: (str, Union[int, float], Union[int, float], Callable) -> Union[int, float]
     response = get_input(prompt, inputType)
 
     while response < lowLim or response > highLim:
@@ -95,6 +112,7 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
 
 
 def get_input(prompt, desired_type):
+    # type: (str, Callable) -> Union[int, float, str]
 
     response = input(prompt)
 
@@ -109,19 +127,8 @@ def get_input(prompt, desired_type):
 
 
 def get_int_lim(prompt, low_lim, high_lim):
+    # type: (str, int, int) -> int
     return getNumericalInput(prompt, low_lim, high_lim, int)
-
-
-def getStrLim(prompt, acceptable_strings):
-
-    response = get_input(prompt, str)
-
-    while response not in acceptable_strings:
-        stderr.write(ERROR_MESSAGE + "\n")
-        sleep(0.01)
-        response = get_input(prompt, str)
-
-    return response
 
 
 # PyEpics doesn't work at LERF yet...
@@ -163,10 +170,12 @@ def caputPV(pv, val, attempt=1):
 
 
 def makeTimeFromStr(row, idx):
+    # type: (List[str], int) -> datetime
     return datetime.strptime(row[idx], "%m/%d/%y %H:%M")
 
 
 def getTimeParams(row, indices):
+    # type: (List[str], Dict[str, int]) -> Tuple[datetime, datetime, int]
     startTime = makeTimeFromStr(row, indices["startIdx"])
     endTime = makeTimeFromStr(row, indices["endIdx"])
 
@@ -195,11 +204,13 @@ def getTimeParams(row, indices):
 ############################################################################
 def getArchiveData(startTime, numPoints, signals,
                    timeInt=MYSAMPLER_TIME_INTERVAL):
+    # type: (datetime, int, List[str], int) -> Optional[str]
     cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
            + ['-s', str(timeInt) + 's', '-n' + str(numPoints)]
            + signals)
     try:
         return check_output(cmd)
+
     except (CalledProcessError, OSError) as e:
         writeAndFlushStdErr("mySampler failed with error: " + str(e) + "\n")
         return None
@@ -207,6 +218,7 @@ def getArchiveData(startTime, numPoints, signals,
 
 def parseRawData(startTime, numPoints, signals,
                  timeInt=MYSAMPLER_TIME_INTERVAL):
+    # type: (datetime, int, List[str], int) -> Optional[_reader]
     print("\nGetting data from the archive...\n")
     rawData = getArchiveData(startTime, numPoints, signals, timeInt)
 
@@ -221,6 +233,7 @@ def parseRawData(startTime, numPoints, signals,
 
 
 def reformatDate(row):
+    # type: (str) -> unicode
     try:
         # This clusterfuck regex is pretty much just trying to find strings
         # that match %Y-%m-%d %H:%M:%S and making them %Y-%m-%d-%H:%M:%S

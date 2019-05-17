@@ -15,11 +15,13 @@ from container import (Cryomodule, Container, Cavity, DataSession,
                        Q0DataSession, CalibDataSession)
 from runCalibration import runCalibration
 from runQ0Measurement import runQ0Meas
-from utils import getNumInputFromLst, getYesNo, TEST_MODE, makeTimeFromStr
-from typing import List
+from utils import getNumInputFromLst, isYes, TEST_MODE, makeTimeFromStr
+from typing import List, Dict, Tuple
 
 
 def parseInputFile(inputFile):
+    # type: (str) -> None
+
     csvReader = reader(open(inputFile))
     header = csvReader.next()
     slacNumIdx = header.index("SLAC Cryomodule Number")
@@ -87,7 +89,8 @@ def parseInputFile(inputFile):
                 calibSess = dataSessions[slacNum][calibIdx]
 
             cryoModule = cryoModules[slacNum]
-            print("\n---------- {CM} ----------\n".format(CM=cryoModule.name))
+
+            calibSess.printSessionReport()
 
             for _, cavity in cryoModule.cavities.items():
                 cavIdx = header.index("Cavity {NUM} Index"
@@ -145,15 +148,17 @@ def parseInputFile(inputFile):
                 reuseCalibration = (selection != max(options))
 
                 if not reuseCalibration:
-                    calibSess, refValvePos = addToCryMod(cryModIdxMap, slacNum,
-                                                         cryoModules[slacNum],
-                                                         refValvePos=refValvePos)
+                    (calibSess,
+                     refValvePos) = addToCryMod(cryModIdxMap, slacNum,
+                                                cryoModules[slacNum],
+                                                refValvePos=refValvePos)
 
                 else:
                     calibSess = idx2session[selection]
 
             cryoModule = cryoModules[slacNum]
-            print("\n---------- {CM} ----------\n".format(CM=cryoModule.name))
+
+            calibSess.printSessionReport()
 
             for _, cavity in cryoModule.cavities.items():
                 cavGradIdx = header.index("Cavity {NUM} Gradient"
@@ -194,7 +199,7 @@ def parseInputFile(inputFile):
 ################################################################################
 def addNewCryMod(cryModIdxMap, calIdxKeys, slacNum, cryoModules, calibIdx=None,
                  refValvePos=None):
-    # type: (dict, List[(str, str)], int, dict, int, float) -> (CalibDataSession, float)
+    # type: (Dict[int, Dict[str, int]], List[(str, str)], int, Dict[int, Cryomodule], int, float) -> (CalibDataSession, float)
 
     calibFile = "calibrations/calibrationsCM{CM_SLAC}.csv"
 
@@ -217,6 +222,7 @@ def addNewCryMod(cryModIdxMap, calIdxKeys, slacNum, cryoModules, calibIdx=None,
 # Reads the header from a CSV and populates the idxMap dict passed in from
 # parseInputFile.
 def populateIdxMap(fileFormatter, idxMap, idxkeys, slacNum):
+    # type: (str, Dict[int, Dict[str, int]], List[Tuple[str, str]], int) -> None
     sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
     with open(sessionCSV) as csvFile:
         csvReader = reader(csvFile)
@@ -232,23 +238,25 @@ def populateIdxMap(fileFormatter, idxMap, idxkeys, slacNum):
 # Cryomodule and adds a new DataSession object to it
 # @param container: either a Cavity or Cryomodule object, or None (in which
 #                   case it generates a Cryomodule object)
+# @param refValvePos: not used in this function but it has to be here to make
+#                     the call signature match addDataSession's.
 ################################################################################
 def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
                       calibSession=None, refValvePos=None):
-    # type: (str, dict, int, Container, int, CalibDataSession, float) -> (DataSession, float)
+    # type: (str, Dict[str, int], int, Container, int, CalibDataSession, float) -> (DataSession, float)
 
     sessionCSV = fileFormatter.format(CM_SLAC=slacNum)
     row = open(sessionCSV).readlines()[idx - 1]
     selectedRow = reader([row]).next()
 
-    # There is no contingency for creating a lone Cavity object, because they
-    # are created inside of a Cryomodule's init function
+    # There is no contingency for creating a lone Cavity object because they
+    # are always created inside of a Cryomodule's init function
     if not container:
         jlabIdx = indices["jlabNumIdx"]
         container = Cryomodule(cryModNumSLAC=slacNum,
                                cryModNumJLAB=int(selectedRow[jlabIdx]))
 
-    # the reference gradient is a required parameter for cavities, but doesn't
+    # The reference gradient is a required parameter for cavities but doesn't
     # exist for cryomodules
     if isinstance(container, Cavity):
         refGradVal = float(selectedRow[indices["gradIdx"]])
@@ -267,7 +275,7 @@ def addDataSessionAdv(fileFormatter, indices, slacNum, container, idx,
 #                   create a new Cryomodule
 def addDataSession(fileFormatter, indices, slacNum, container,
                    refGradVal=None, calibSession=None, refValvePos=None):
-    # type: (str, dict, int, Container, float, CalibDataSession, float) -> (DataSession, float)
+    # type: (str, Dict[str, int], int, Container, float, CalibDataSession, float) -> (DataSession, float)
 
     def addOption(csvRow, lineNum):
         startTime = makeTimeFromStr(csvRow, indices["startIdx"])
@@ -278,6 +286,7 @@ def addDataSession(fileFormatter, indices, slacNum, container,
                                     RATE=rate))
 
     def getSelection(duration, suffix):
+        # type: (float, str) -> int
         # Running a new Q0 measurement or heater calibration is always presented
         # as the last option in the list
         options[max(options) + 1] = ("Launch new {TYPE} ({DUR} hours)"
@@ -310,7 +319,7 @@ def addDataSession(fileFormatter, indices, slacNum, container,
             # hits
             if (len(options) + 1) % 10 == 0:
                 printOptions(options)
-                showMore = getYesNo("Search for more options? ")
+                showMore = isYes("Search for more options? ")
                 if not showMore:
                     break
 
@@ -344,7 +353,7 @@ def addDataSession(fileFormatter, indices, slacNum, container,
 
             if (len(options) + 1) % 10 == 0:
                 printOptions(options)
-                showMore = getYesNo("Search for more options? ")
+                showMore = isYes("Search for more options? ")
                 if not showMore:
                     break
 
@@ -376,6 +385,7 @@ def addDataSession(fileFormatter, indices, slacNum, container,
 
 # A surprisingly ugly way to pretty print a dictionary
 def printOptions(options):
+    # type: (Dict[int, str]) -> None
     print(("\n" + dumps(options, indent=4) + "\n")
           .replace('"', '').replace(',', ''))
 
@@ -388,7 +398,7 @@ def printOptions(options):
 ################################################################################
 def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
                 refValvePos=None):
-    # type: (dict, int, Cryomodule, int, float) -> (CalibDataSession, float)
+    # type: (Dict[int, Dict[str, int]], int, Cryomodule, int, float) -> (CalibDataSession, float)
 
     calibFile = "calibrations/calibrationsCM{CM_SLAC}.csv"
 
@@ -409,23 +419,21 @@ def addToCryMod(cryModIdxMap, slacNum, cryoModule, calibIdx=None,
 #                            depending on the choice of user input file
 def genQ0Session(addDataSessionFunc, dataSessionFuncParam, cavIdxMap, slacNum,
                  cavity, calibSession, cavIdxKeys, refValvePos=None):
-    # type: (callable, float, dict, int, Cavity, CalibDataSession, List[(str, str)], float) -> float
+    # type: (callable, float, Dict[int, Dict[str, int]], int, Cavity, CalibDataSession, List[(str, str)], float) -> float
 
     q0File = "q0Measurements/q0MeasurementsCM{CM_SLAC}.csv"
 
     if slacNum not in cavIdxMap:
         populateIdxMap(q0File, cavIdxMap, cavIdxKeys, slacNum)
 
-    sessionQ0, refValvePos = addDataSessionFunc(q0File, cavIdxMap[slacNum],
+    q0Session, refValvePos = addDataSessionFunc(q0File, cavIdxMap[slacNum],
                                                 slacNum, cavity,
                                                 dataSessionFuncParam,
                                                 calibSession, refValvePos)
 
-    print("\n---------- {CM} {CAV} ----------\n"
-          .format(CM=calibSession.container.name, CAV=cavity.name))
-    sessionQ0.printReport()
+    q0Session.printSessionReport()
 
-    updateCalibCurve(calibSession.heaterCalibAxis, sessionQ0, calibSession)
+    updateCalibCurve(calibSession.heaterCalibAxis, q0Session, calibSession)
 
     return refValvePos
 
@@ -451,7 +459,6 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
     if minCavHeatLoad < minCalibHeatLoad:
         yRange = linspace(minCavHeatLoad, minCalibHeatLoad)
         calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
-                                     # + calibSession.calibIntercept
                                      for i in yRange])
 
     maxCavHeatLoad = max(q0Session.adjustedRunHeatLoadsRF)
@@ -460,7 +467,6 @@ def updateCalibCurve(calibCurveAxis, q0Session, calibSession):
     if maxCavHeatLoad > maxCalibHeatLoad:
         yRange = linspace(maxCalibHeatLoad, maxCavHeatLoad)
         calibCurveAxis.plot(yRange, [calibSession.calibSlope * i
-                                     # + calibSession.calibIntercept
                                      for i in yRange])
 
 
