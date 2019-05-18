@@ -1691,6 +1691,10 @@ class Q0DataSession(DataSession):
         # gradient PVs so it's possible that they could go negative.
         return ((grad / 16) ** 2) * 9.6 if grad > 0 else 0
 
+    def updateOutput(self):
+        self.printSessionReport()
+        self.updateCalibCurve()
+
     def printSessionReport(self):
         # type: () -> None
 

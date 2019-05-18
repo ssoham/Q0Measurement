@@ -273,3 +273,29 @@ def printOptions(options):
     # type: (Dict[int, str]) -> None
     print(("\n" + dumps(options, indent=4) + "\n")
           .replace('"', '').replace(',', ''))
+
+
+def addOption(csvRow, lineNum, indices, options):
+    # type: (List[str], int, Dict[str, int], Dict[int, str]) -> None
+    startTime = makeTimeFromStr(csvRow, indices["startIdx"])
+    endTime = makeTimeFromStr(csvRow, indices["endIdx"])
+    rate = csvRow[indices["timeIntIdx"]]
+    options[lineNum] = ("{START} to {END} ({RATE}s sample interval)"
+                        .format(START=startTime, END=endTime,
+                                RATE=rate))
+
+
+def getSelection(duration, suffix, options):
+    # type: (float, str, Dict[int, str]) -> int
+    # Running a new Q0 measurement or heater calibration is always
+    # presented as the last option in the list
+    options[max(options) + 1] = ("Launch new {TYPE} ({DUR} hours)"
+                                 .format(TYPE=suffix, DUR=duration))
+    printOptions(options)
+    return getNumInputFromLst(("Please select a {TYPE} option: "
+                               .format(TYPE=suffix)), options.keys(), int)
+
+
+def drawAndShow():
+    plt.draw()
+    plt.show()
