@@ -1,230 +1,71 @@
----------- CM5 (Uncorrected) ---------- 
-R^2: 0.983502952346
-R^2: 0.982380582878
-R^2: 0.923831626296
-R^2: 0.94448532006
-R^2: 0.391708729544
-Delta = 0.0307836328257
 
----------- Cavity 1 ---------- 
-R^2: 0.994485426699
+-------------------------------------
+---------------- CM5 ----------------
+-------------------------------------
 
-Cavity 1 run 1 total heat load: 22.92 W
-            Electric heat load: 0.0 W
-                  RF heat load: 22.92 W
-                 Calculated Q0: 1.26e+10
+   ------- Run 1 (Heater) -------
 
----------- Cavity 2 ---------- 
-R^2: 0.987554142827
+     Electric heat load: 12.91 W
 
-Cavity 2 run 1 total heat load: 15.3 W
-            Electric heat load: 0.0 W
-                  RF heat load: 15.3 W
-                 Calculated Q0: 1.99e+10
+            Cutoff: 325
+          Duration: 33.7833
+               R^2: 0.9835
 
----------- Cavity 3 ---------- 
-R^2: 0.971504701013
+   ------- Run 2 (Heater) -------
 
-Cavity 3 run 1 total heat load: 10.1 W
-            Electric heat load: 0.0 W
-                  RF heat load: 10.1 W
-                 Calculated Q0: 3.21e+10
+     Electric heat load: 9.81 W
 
----------- Cavity 4 ---------- 
-R^2: 0.968713796113
+            Cutoff: 75
+          Duration: 39.55
+               R^2: 0.9824
 
-Cavity 4 run 1 total heat load: 8.84 W
-            Electric heat load: 0.0 W
-                  RF heat load: 8.84 W
-                 Calculated Q0: 3.76e+10
+   ------- Run 3 (Heater) -------
 
----------- Cavity 5 ---------- 
-R^2: 0.975078148911
+     Electric heat load: 4.12 W
 
-Cavity 5 run 1 total heat load: 9.87 W
-            Electric heat load: 0.0 W
-                  RF heat load: 9.87 W
-                 Calculated Q0: 2.86e+10
+            Cutoff: 150
+          Duration: 38.6333
+               R^2: 0.9238
 
----------- Cavity 6 ---------- 
-R^2: 0.730845767308
+   ------- Run 4 (Heater) -------
 
-Cavity 6 run 1 total heat load: 2.37 W
-            Electric heat load: 0.0 W
-                  RF heat load: 2.37 W
-                 Calculated Q0: 1.97e+10
+     Electric heat load: 6.89 W
 
----------- Cavity 7 ---------- 
-R^2: 0.985977730817
+            Cutoff: 75
+          Duration: 38.7333
+               R^2: 0.9445
 
-Cavity 7 run 1 total heat load: 12.53 W
-            Electric heat load: 0.0 W
-                  RF heat load: 12.53 W
-                 Calculated Q0: 2.50e+10
+   ------- Run 5 (Heater) -------
 
----------- Cavity 8 ---------- 
-R^2: 0.987861851445
+     Electric heat load: 1.13 W
 
-Cavity 8 run 1 total heat load: 13.27 W
-            Electric heat load: 0.0 W
-                  RF heat load: 13.27 W
-                 Calculated Q0: 2.03e+10
+            Cutoff: 150
+          Duration: 56.9333
+               R^2: 0.3917
 
----------- CM5 (Corrected) ---------- 
-R^2: 0.983502952346
-R^2: 0.982380582878
-R^2: 0.923831626296
-R^2: 0.94448532006
-R^2: 0.391708729544
-Delta = 0.0307836328257
+Calibration curve intercept adjust = 0.0256 W
 
----------- Cavity 1 ---------- 
-R^2: 0.994715779161
-R^2: 0.979783488613
 
-Cavity 1 run 1 total heat load: 24.44 W
-            Electric heat load: 0.0 W
-                  RF heat load: 24.44 W
-                 Calculated Q0: 1.20e+10
+--------------------------------------
+------------ CM5 Cavity 1 ------------
+--------------------------------------
 
-Cavity 1 run 2 total heat load: 9.81 W
-            Electric heat load: 9.81 W
-                  RF heat load: 0.0 W
+    --------- Run 1 (RF) ---------
 
----------- Cavity 2 ---------- 
-R^2: 0.991138127338
-R^2: 0.950204064657
+      Avg Pressure: 30.11 Torr
+       RF Gradient: 16.0 MV/m
+      RF heat load: 24.44 W
+     Calculated Q0: 1.20e+10
 
-Cavity 2 run 1 total heat load: 14.49 W
-            Electric heat load: 0.0 W
-                  RF heat load: 14.49 W
-                 Calculated Q0: 2.12e+10
+            Cutoff: 251
+          Duration: 29.6
+               R^2: 0.994
 
-Cavity 2 run 2 total heat load: 6.5 W
-            Electric heat load: 6.5 W
-                  RF heat load: 0.0 W
+   ------- Run 2 (Heater) -------
 
----------- Cavity 3 ---------- 
-R^2: 0.973567061499
-R^2: 0.959396834747
+     Electric heat load: 9.81 W
 
-Cavity 3 run 1 total heat load: 11.56 W
-            Electric heat load: 0.0 W
-                  RF heat load: 11.56 W
-                 Calculated Q0: 2.75e+10
-
-Cavity 3 run 2 total heat load: 7.85 W
-            Electric heat load: 7.85 W
-                  RF heat load: 0.0 W
-
----------- Cavity 4 ---------- 
-R^2: 0.975460949654
-R^2: 0.895101580577
-
-Cavity 4 run 1 total heat load: 10.82 W
-            Electric heat load: 0.0 W
-                  RF heat load: 10.82 W
-                 Calculated Q0: 2.96e+10
-
-Cavity 4 run 2 total heat load: 6.35 W
-            Electric heat load: 6.35 W
-                  RF heat load: 0.0 W
-
----------- Cavity 5 ---------- 
-R^2: 0.964936233155
-R^2: 0.905345014057
-
-Cavity 5 run 1 total heat load: 10.51 W
-            Electric heat load: 0.0 W
-                  RF heat load: 10.51 W
-                 Calculated Q0: 2.64e+10
-
-Cavity 5 run 2 total heat load: 6.49 W
-            Electric heat load: 6.49 W
-                  RF heat load: 0.0 W
-
----------- Cavity 7 ---------- 
-R^2: 0.978363700282
-R^2: 0.889474445399
-
-Cavity 7 run 1 total heat load: 12.15 W
-            Electric heat load: 0.0 W
-                  RF heat load: 12.15 W
-                 Calculated Q0: 2.59e+10
-
-Cavity 7 run 2 total heat load: 6.41 W
-            Electric heat load: 6.41 W
-                  RF heat load: 0.0 W
-
----------- CM12 (Uncorrected) ---------- 
-R^2: 0.912143653005
-R^2: 0.986936535344
-R^2: 0.992647764855
-R^2: 0.971966329306
-R^2: 0.975791173149
-Delta = 1.35212992734
-
----------- Cavity 1 ---------- 
-R^2: 0.958996018113
-
-Cavity 1 run 1 total heat load: 10.17 W
-            Electric heat load: 0.0 W
-                  RF heat load: 10.17 W
-                 Calculated Q0: 3.03e+10
-
----------- Cavity 2 ---------- 
-R^2: 0.966915017959
-
-Cavity 2 run 1 total heat load: 10.73 W
-            Electric heat load: 0.0 W
-                  RF heat load: 10.73 W
-                 Calculated Q0: 2.85e+10
-
----------- Cavity 3 ---------- 
-R^2: 0.980270950086
-
-Cavity 3 run 1 total heat load: 12.89 W
-            Electric heat load: 0.0 W
-                  RF heat load: 12.89 W
-                 Calculated Q0: 2.34e+10
-
----------- Cavity 4 ---------- 
-R^2: 0.983820827754
-
-Cavity 4 run 1 total heat load: 14.29 W
-            Electric heat load: 0.0 W
-                  RF heat load: 14.29 W
-                 Calculated Q0: 2.08e+10
-
----------- Cavity 5 ---------- 
-R^2: 0.953123626336
-
-Cavity 5 run 1 total heat load: 9.24 W
-            Electric heat load: 0.0 W
-                  RF heat load: 9.24 W
-                 Calculated Q0: 3.37e+10
-
----------- Cavity 6 ---------- 
-R^2: 0.969226259783
-
-Cavity 6 run 1 total heat load: 9.96 W
-            Electric heat load: 0.0 W
-                  RF heat load: 9.96 W
-                 Calculated Q0: 3.13e+10
-
----------- Cavity 7 ---------- 
-R^2: 0.963651447017
-
-Cavity 7 run 1 total heat load: 9.3 W
-            Electric heat load: 0.0 W
-                  RF heat load: 9.3 W
-                 Calculated Q0: 3.38e+10
-
----------- Cavity 8 ---------- 
-R^2: 0.968994207739
-
-Cavity 8 run 1 total heat load: 10.3 W
-            Electric heat load: 0.0 W
-                  RF heat load: 10.3 W
-                 Calculated Q0: 3.03e+10
+            Cutoff: 10
+          Duration: 37.8
+               R^2: 0.9798
 
