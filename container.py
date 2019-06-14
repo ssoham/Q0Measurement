@@ -18,7 +18,7 @@ from matplotlib import pyplot as plt
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from abc import abstractproperty, ABCMeta, abstractmethod
-from typing import List, Dict, Optional, Union
+#from typing import List, Dict, Optional, Union
 from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POSITION_TOLERANCE, HEATER_TOLERANCE, GRAD_TOLERANCE,
                    MIN_RUN_DURATION, isYes, get_float_lim, writeAndWait,
