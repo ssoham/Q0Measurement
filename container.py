@@ -114,7 +114,9 @@ class Container(object):
 
         csvReader = parseRawData(start, numPoints, signals)
 
+        # Ignore the header
         csvReader.next()
+
         valveVals = []
         llVals = []
 
@@ -129,7 +131,8 @@ class Container(object):
         m, b, _, _, _ = linregress(range(len(llVals)), llVals)
 
         # If the LL slope is small enough, return the average JT valve position
-        # over the requested time span
+        # over the requested time span. We define "small enough" to mean on the
+        # order of 10^(-5)
         if not checkForFlatness or (checkForFlatness and log10(abs(m)) < 5):
             desPos = round(mean(valveVals), 1)
             print("\nDesired JT Valve position is {POS}".format(POS=desPos))
@@ -146,7 +149,7 @@ class Container(object):
 
             start = datetime.now()
             while (datetime.now() - start).total_seconds() < 6300:
-                writeAndWait(".", 5)
+                writeAndWait(".", 10)
 
             return self.getRefValvePos(0.25, False)
 
@@ -377,11 +380,11 @@ class Cryomodule(Container):
         # Record this calibration dataSession's metadata
         with open(self.idxFile, 'a') as f:
             csvWriter = writer(f)
-            csvWriter.writerow(
-                [self.cryModNumJLAB, dataSession.refHeatLoad,
-                 refValvePos, startTime.strftime("%m/%d/%y %H:%M"),
-                 endTime.strftime("%m/%d/%y %H:%M"),
-                 MYSAMPLER_TIME_INTERVAL])
+            csvWriter.writerow([self.cryModNumJLAB, dataSession.refHeatLoad,
+                                refValvePos,
+                                startTime.strftime("%m/%d/%y %H:%M"),
+                                endTime.strftime("%m/%d/%y %H:%M"),
+                                MYSAMPLER_TIME_INTERVAL])
 
         return dataSession, refValvePos
 
