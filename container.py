@@ -114,9 +114,7 @@ class Container(object):
 
         csvReader = parseRawData(start, numPoints, signals)
 
-        # Ignore the header
         csvReader.next()
-
         valveVals = []
         llVals = []
 
@@ -131,8 +129,7 @@ class Container(object):
         m, b, _, _, _ = linregress(range(len(llVals)), llVals)
 
         # If the LL slope is small enough, return the average JT valve position
-        # over the requested time span. We define "small enough" to mean on the
-        # order of 10^(-5)
+        # over the requested time span
         if not checkForFlatness or (checkForFlatness and log10(abs(m)) < 5):
             desPos = round(mean(valveVals), 1)
             print("\nDesired JT Valve position is {POS}".format(POS=desPos))
@@ -149,7 +146,7 @@ class Container(object):
 
             start = datetime.now()
             while (datetime.now() - start).total_seconds() < 6300:
-                writeAndWait(".", 10)
+                writeAndWait(".", 5)
 
             return self.getRefValvePos(0.25, False)
 
@@ -257,7 +254,8 @@ class Cryomodule(Container):
         # down the line (iterating over the cavities in a cryomodule), we
         # print the results in order (basic dictionaries aren't guaranteed to
         # be ordered)
-        self.cavities = OrderedDict(sorted(cavities.items()))  # type: OrderedDict[int, Cavity]
+        self.cavities = OrderedDict(
+            sorted(cavities.items()))  # type: OrderedDict[int, Cavity]
 
     @property
     def name(self):
@@ -380,11 +378,11 @@ class Cryomodule(Container):
         # Record this calibration dataSession's metadata
         with open(self.idxFile, 'a') as f:
             csvWriter = writer(f)
-            csvWriter.writerow([self.cryModNumJLAB, dataSession.refHeatLoad,
-                                refValvePos,
-                                startTime.strftime("%m/%d/%y %H:%M"),
-                                endTime.strftime("%m/%d/%y %H:%M"),
-                                MYSAMPLER_TIME_INTERVAL])
+            csvWriter.writerow(
+                [self.cryModNumJLAB, dataSession.refHeatLoad,
+                 refValvePos, startTime.strftime("%m/%d/%y %H:%M"),
+                 endTime.strftime("%m/%d/%y %H:%M"),
+                 MYSAMPLER_TIME_INTERVAL])
 
         return dataSession, refValvePos
 
@@ -398,6 +396,7 @@ class Cavity(Container):
         self.parent = cryMod
 
         self.cavNum = cavNumber
+        self._fieldEmissionPVs = None
 
     @property
     def name(self):
@@ -424,6 +423,34 @@ class Cavity(Container):
     def gradPV(self):
         # type: () -> str
         return self.genAcclPV("GACT")
+
+    @property
+    def fieldEmissionPVs(self):
+        # type: () -> List[str]
+        if not self._fieldEmissionPVs:
+            lst = [self.gradPV]
+            for suffix in ["ADES", "FWD:PWRMEAN", "REV:PWRMEAN", "CAV:PWRMEAN",
+                           "DF"]:
+                lst.append(self.genAcclPV(suffix))
+
+            for suffix in ["PEAK", "AVG"]:
+                for i in range(1, 3):
+                    lst.append("HOM:PWR{IDX}:POWER_{SUFF}".format(IDX=i,
+                                                                  SUFF=suffix))
+
+            for i in range(1, 10):
+                lst.append("IDRFEL1RAD0{IDX}".format(IDX=i))
+                lst.append("IDRFEL2RAD0{IDX}".format(IDX=i))
+
+            for i in range(1, 3):
+                lst.append("IDRFEL{IDX}RAD10".format(IDX=i))
+                lst.append("IDRFEL{IDX}HVMON".format(IDX=i))
+
+            lst.append(self.dsPressurePV)
+
+            self._fieldEmissionPVs = lst
+
+        return self._fieldEmissionPVs
 
     # refGradVal and calibSession are required parameters but are nullable to
     # match the signature in Container
@@ -555,8 +582,7 @@ class Cavity(Container):
             else:
                 raise AssertionError(
                     "Old and new {PARAM} differ by more than 0.15"
-                    " - please inspect and push manually"
-                    .format(PARAM=param))
+                    " - please inspect and push manually".format(PARAM=param))
 
         pushAndWait("SSACALSTRT")
 
@@ -618,6 +644,7 @@ class Cavity(Container):
         if onTime != "70":
             print("Setting RF Pulse On Time to 70 ms")
             caputPV(onTimePV, "70")
+            self.pushGoButton()
 
     # Ramps the cavity's RF drive (only relevant in pulsed mode) up until the RF
     # gradient is high enough for phasing
@@ -749,21 +776,41 @@ class Cavity(Container):
     # Walks the cavity to a given gradient in CW mode with exponential back-off
     # in the step size (steps get smaller each time you cross over the desired
     # gradient until the error is very low)
-    def walkToGradient(self, desiredGradient):
-        # type: (float) -> None
-        amplitudePV = self.genAcclPV("ADES")
-        step = 0.5
+    def walkToGradient(self, desiredGradient, step=0.5, loopTime=2.5, pv="ADES",
+                       getFieldEmissionData=False):
+        # type: (float, float, float, str, bool) -> None
+
+        def checkForQuench(oldGradient):
+            # type: (float) -> float
+            newGradient = float(cagetPV(self.gradPV))
+            if newGradient < (oldGradient * 0.9):
+                formatStr = "Detected a quench at {GRAD} - aborting"
+                raise AssertionError(formatStr.format(GRAD=oldGradient))
+            return newGradient
+
+        amplitudePV = self.genAcclPV(pv)
         gradient = float(cagetPV(self.gradPV))
-        prevGradient = gradient
         diff = gradient - desiredGradient
         prevDiff = diff
-        print("Walking gradient...")
+        writeAndWait("\nWalking gradient...")
+
+        if getFieldEmissionData:
+            formatter = "/u/home/zacarias/Documents/FE/FE_CM{CM}_CAV{CAV}_{DATE}.csv"
+            filename = formatter.format(CM=self.cryModNumSLAC,
+                                        CAV=self.cavNum,
+                                        DATE=datetime.now())
+            filename = filename.replace(" ", "_")
+            filename = filename.replace(":", "-")
+
+            with open(filename, "w+") as f:
+                csvWriter = writer(f)
+                csvWriter.writerow(["time"] + self.fieldEmissionPVs)
 
         while abs(diff) > 0.05:
-            gradient = float(cagetPV(self.gradPV))
 
-            if gradient < (prevGradient * 0.9):
-                raise AssertionError("Detected a quench - aborting")
+            loopStartTime = datetime.now()
+
+            writeAndWait(".")
 
             currAmp = float(cagetPV(amplitudePV))
             diff = gradient - desiredGradient
@@ -772,18 +819,37 @@ class Cavity(Container):
             if (prevDiff >= 0 > diff) or (prevDiff <= 0 < diff):
                 step *= (0.5 if step > 0.01 else 1.5)
 
+            prevDiff = diff
+
             caputPV(amplitudePV, str(currAmp + mult * step))
 
-            prevDiff = diff
-            sleep(2.5)
+            if pv == "SEL_ASET":
+                self.pushGoButton()
 
-        print("Gradient at desired value")
+            gradient = checkForQuench(gradient)
+
+            if getFieldEmissionData:
+
+                with open(filename, "a") as f:
+                    csvWriter = writer(f)
+                    row = [datetime.now()]
+
+                    for fieldEmissionPV in self.fieldEmissionPVs:
+                        row.append(cagetPV(fieldEmissionPV))
+
+                    csvWriter.writerow(row)
+
+            while (datetime.now() - loopStartTime).total_seconds() < loopTime:
+
+                gradient = checkForQuench(gradient)
+
+        print("\nGradient at desired value")
 
     # When cavities are turned on in CW mode they slowly heat up, which causes
     # the gradient to drop over time. This function holds the gradient at the
     # requested value during the Q0 run.
-    def holdGradient(self, desiredGradient):
-        # type: (float) -> datetime
+    def holdGradient(self, desiredGradient, minutes=40, minLL=MIN_DS_LL):
+        # type: (float, float, float) -> datetime
 
         amplitudePV = self.genAcclPV("ADES")
 
@@ -794,13 +860,13 @@ class Cavity(Container):
 
         print("\nStart time: {START}".format(START=startTime))
 
-        writeAndWait("\nWaiting either 40 minutes or for the LL to drop below"
-                     " {NUM}...".format(NUM=MIN_DS_LL))
+        writeAndWait("\nWaiting either {LEN} minutes or for the LL to drop "
+                     "below {MIN}...".format(LEN=minutes, MIN=minLL))
 
         hitTarget = False
 
-        while ((datetime.now() - startTime).total_seconds() < 2400
-               and float(cagetPV(self.dsLevelPV)) > MIN_DS_LL):
+        while ((datetime.now() - startTime).total_seconds() < (minutes * 60)
+               and float(cagetPV(self.dsLevelPV)) > minLL):
 
             gradient = float(cagetPV(self.gradPV))
 
@@ -952,7 +1018,6 @@ class Cavity(Container):
 
 
 class DataSession(object):
-
     __metaclass__ = ABCMeta
 
     def __init__(self, container, startTime, endTime, timeInt, refValvePos,
@@ -1742,7 +1807,6 @@ class Q0DataSession(DataSession):
 
 
 class DataRun(object):
-
     __metaclass__ = ABCMeta
 
     def __init__(self, runStartIdx, runEndIdx, dataSession, num):
@@ -1983,7 +2047,7 @@ class RFDataRun(DataRun):
         avgPress = mean(self.dataSession.dsPressBuff[self.startIdx:self.endIdx])
 
         gradVals = self.dataSession.gradBuff[self.startIdx:self.endIdx]
-        rmsGrad = sqrt(sum(g**2 for g in gradVals)
+        rmsGrad = sqrt(sum(g ** 2 for g in gradVals)
                        / (self.endIdx - self.startIdx))
 
         # noinspection PyTypeChecker
