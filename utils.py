@@ -4,7 +4,7 @@ from _csv import reader as _reader
 from datetime import datetime
 from json import dumps
 
-from builtins import input
+#from builtins import input
 from time import sleep
 from sys import stdout, stderr
 from subprocess import check_output, CalledProcessError, check_call
@@ -13,12 +13,12 @@ from csv import reader
 from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
-from typing import List, Callable, Union, Dict, Tuple, Optional
+#from typing import List, Callable, Union, Dict, Tuple, Optional
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
 
-TEST_MODE = True
+TEST_MODE = False
 
 # The relationship between the LHE content of a cryomodule and the readback from
 # the liquid level sensors isn't linear over the full range of the sensors. We
@@ -33,10 +33,10 @@ UPSTREAM_LL_LOWER_LIMIT = 66
 VALVE_POSITION_TOLERANCE = 2
 
 # Used to reject data where the cavity heater wasn't at the correct value
-HEATER_TOLERANCE = 1
+HEATER_TOLERANCE = 1.5
 
 # The minimum acceptable run length is fifteen minutes  (900 seconds)
-MIN_RUN_DURATION = 900
+MIN_RUN_DURATION = 600
 
 # Used to reject data where the cavity gradient wasn't at the correct value
 GRAD_TOLERANCE = 0.7
@@ -53,8 +53,20 @@ ERROR_MESSAGE = "Please provide valid input"
 # This is used to suppress the output of the caput function.
 FNULL = open(devnull, "w")
 
+# TODO: Add an INITIAL_CAL_HEAT_LOAD or something like that
+# TODO: Change this constant to NUM_CAL_STEPS
 # The number of distinct heater settings we're using for cryomodule calibrations
-NUM_CAL_RUNS = 5
+NUM_CAL_RUNS = 10
+
+AVE_SLOPE = 1.5e-4
+
+NUM_LL_POINTS_TO_AVE = 25
+
+MIN_LL_DIFF = 2
+
+CAVITY_HEATER_RUN_LOAD = 16
+
+CAL_HEATER_DELTA = 0.2
 
 
 def isYes(prompt):
@@ -120,7 +132,7 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
 def get_input(prompt, desired_type):
     # type: (str, Callable) -> Union[int, float, str]
 
-    response = input(prompt)
+    response = raw_input(prompt)
 
     try:
         response = desired_type(response)
@@ -177,7 +189,7 @@ def caputPV(pv, val, attempt=1):
 
 def makeTimeFromStr(row, idx):
     # type: (List[str], int) -> datetime
-    return datetime.strptime(row[idx], "%m/%d/%y %H:%M")
+    return datetime.strptime(row[idx], "%m/%d/%y %H:%M:%S")
 
 
 def getTimeParams(row, indices):
@@ -223,9 +235,10 @@ def getArchiveData(startTime, numPoints, signals,
 
 
 def parseRawData(startTime, numPoints, signals,
-                 timeInt=MYSAMPLER_TIME_INTERVAL):
-    # type: (datetime, int, List[str], int) -> Optional[_reader]
-    print("\nGetting data from the archive...\n")
+                 timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
+    # type: (datetime, int, List[str], int, bool) -> Optional[_reader]
+    if verbose:
+        print("\nGetting data from the archive...\n")
     rawData = getArchiveData(startTime, numPoints, signals, timeInt)
 
     if not rawData:
@@ -289,7 +302,8 @@ def getSelection(duration, suffix, options):
     # type: (float, str, Dict[int, str]) -> int
     # Running a new Q0 measurement or heater calibration is always
     # presented as the last option in the list
-    options[max(options) + 1] = ("Launch new {TYPE} ({DUR} hours)"
+
+    options[max(options) + 1 if options else 1] = ("Launch new {TYPE} ({DUR} hours)"
                                  .format(TYPE=suffix, DUR=duration))
     printOptions(options)
     return getNumInputFromLst(("Please select a {TYPE} option: "

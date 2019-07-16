@@ -8,13 +8,14 @@ from __future__ import division, print_function
 
 from abc import ABCMeta, abstractproperty, abstractmethod
 from collections import OrderedDict
-from csv import reader
+from csv import reader, writer
 from matplotlib import pyplot as plt
 from container import (Cryomodule, Cavity,
                        Q0DataSession, CalibDataSession)
 from utils import (getNumInputFromLst, isYes, TEST_MODE, printOptions,
                    addOption, getSelection, drawAndShow)
-from typing import Optional, List, Tuple
+#from typing import Optional, List, Tuple
+from os.path import isfile
 
 
 class InputFileParser(object):
@@ -56,8 +57,9 @@ class InputFileParser(object):
         lastFigNum = len(plt.get_fignums()) + 1
         for i in range(self.figStartIdx, lastFigNum):
             plt.figure(i)
-            plt.savefig("figures/{CM}_{FIG}.png".format(CM=cryoModule.name,
-                                                        FIG=i))
+            plt.savefig("figures/cm{NUM}/{CM}_{FIG}.png".format(NUM=cryoModule.cryModNumSLAC,
+                                                                CM=cryoModule.name,
+                                                                FIG=i))
         self.figStartIdx = lastFigNum
 
 
@@ -177,17 +179,15 @@ class BasicInputFileParser(InputFileParser):
 
                 try:
                     gradDes = float(row[cavGradIdx])
-
-                    print("\n---- Cavity {CAV} @ {GRAD} MV/m ----"
-                          .format(CM=slacNum, CAV=cavity.cavNum,
-                                  GRAD=gradDes))
-
-                    self.genQ0Session(refGradVal=gradDes, slacNum=slacNum,
-                                      cavity=cavity, calibSession=calibSess)
-
-                # Don't do anything if this cell in the CSV is blank
                 except ValueError:
-                    pass
+                    continue
+
+                print("\n---- Cavity {CAV} @ {GRAD} MV/m ----"
+                      .format(CM=slacNum, CAV=cavity.cavNum,
+                              GRAD=gradDes))
+
+                self.genQ0Session(refGradVal=gradDes, slacNum=slacNum,
+                                  cavity=cavity, calibSession=calibSess)
 
             self.saveFigs(cryoModule)
 
@@ -211,12 +211,17 @@ class DataManager(object):
         # Used to populate cryModIdxMap and cavIdxMap. Each tuple in the list is
         # of the form: ([column name shorthand], [column title in the CSV])
         self.baseIdxKeys = [("startIdx", "Start"), ("endIdx", "End"),
-                            ("refHeatIdx", "Reference Heat Load"),
+                            ("refHeatIdx", "Reference Heat Load (Des)"),
+                            ("refHeatActIdx", "Reference Heat Load (Act)"),
                             ("jtIdx", "JT Valve Position"),
                             ("timeIntIdx", "MySampler Time Interval")]
 
         self._idxKeys = None
 
+    @abstractproperty
+    def header(self):
+        raise NotImplementedError
+    
     @abstractproperty
     def idxKeys(self):
         raise NotImplementedError
@@ -261,23 +266,33 @@ class DataManager(object):
 
         selectedRow = reader([row]).next()
         refHeatLoad = float(selectedRow[self.idxMap[slacNum]["refHeatIdx"]])
+        refHeatLoadAct = float(selectedRow[self.idxMap[slacNum]["refHeatActIdx"]])
 
-        return selectedRow, refHeatLoad
+        return selectedRow, refHeatLoad, refHeatLoadAct
 
     # Reads the header from a CSV and populates the idxMap dict passed in from
     # parseInputFile.
     def populateIdxMap(self, slacNum):
         # type: (int) -> None
+        def populate(fileObj, header=None):
+            if not header:
+                csvReader = reader(fileObj)
+                header = csvReader.next()
+            indices = {}
+            for key, column in self.idxKeys:
+                indices[key] = header.index(column)
+            self.idxMap[slacNum] = indices
 
         if slacNum not in self.idxMap:
             sessionCSV = self.fileFormatter.format(CM_SLAC=slacNum)
+            if not isfile(sessionCSV):
+                with open(sessionCSV, "w+") as f:
+                    headerWriter = writer(f)
+                    headerWriter.writerow(self.header)
+                    populate(f, self.header)
+                
             with open(sessionCSV) as csvFile:
-                csvReader = reader(csvFile)
-                header = csvReader.next()
-                indices = {}
-                for key, column in self.idxKeys:
-                    indices[key] = header.index(column)
-                self.idxMap[slacNum] = indices
+                populate(csvFile)
 
     def getRowsAndFileReader(self, slacNum):
         sessionCSV = self.fileFormatter.format(CM_SLAC=slacNum)
@@ -296,6 +311,12 @@ class CavityDataManager(DataManager):
         # type: (InputFileParser) -> None
 
         super(CavityDataManager, self).__init__(parent)
+        
+    @property
+    def header(self):
+        return ["Cavity","Gradient", "JT Valve Position","Start","End",
+                "Reference Heat Load (Des)", "Reference Heat Load (Act)",
+                "MySampler Time Interval"]
 
     @property
     def fileFormatter(self):
@@ -312,12 +333,12 @@ class CavityDataManager(DataManager):
                           calibSession=None, refValvePos=None):
         # type: (int, Cavity, int, CalibDataSession, float) -> Q0DataSession
 
-        row, refHeatLoad = self.getRowAndHeatLoad(slacNum=slacNum, idx=idx)
+        row, refHeatLoad, refHeatLoadAct = self.getRowAndHeatLoad(slacNum=slacNum, idx=idx)
 
         refGradVal = float(row[self.idxMap[slacNum]["gradIdx"]])
 
         return container.addDataSessionFromRow(row, self.idxMap[slacNum],
-                                               refHeatLoad, calibSession,
+                                               refHeatLoad, refHeatLoadAct, calibSession,
                                                refGradVal)
 
     # @param addDataSessionFunc: either addDataSession or addDataSessionAdv,
@@ -387,9 +408,10 @@ class CavityDataManager(DataManager):
         if selection != max(options):
             selectedRow = reader([rows[selection - 1]]).next()
             refHeatLoad = float(selectedRow[indices["refHeatIdx"]])
+            refHeatLoadAct = float(selectedRow[indices["refHeatActIdx"]])
             return container.addDataSessionFromRow(selectedRow, indices,
-                                                   refHeatLoad, calibSession,
-                                                   refGradVal)
+                                                   refHeatLoad, refHeatLoadAct,
+                                                   calibSession, refGradVal)
 
         else:
             (Q0Sess,
@@ -402,6 +424,12 @@ class CavityDataManager(DataManager):
 class CryModDataManager(DataManager):
 
     @property
+    def header(self):
+        return ["JLAB Number", "Reference Heat Load (Des)",
+                "Reference Heat Load (Act)", "JT Valve Position",
+                "Start", "End", "MySampler Time Interval"]
+
+    @property
     def fileFormatter(self):
         return "calibrations/calibrationsCM{CM_SLAC}.csv"
 
@@ -409,7 +437,7 @@ class CryModDataManager(DataManager):
                           calibSession=None, refValvePos=None):
         # type: (int, Optional[Cryomodule], int, CalibDataSession, float) -> CalibDataSession
 
-        row, refHeatLoad = self.getRowAndHeatLoad(slacNum=slacNum, idx=idx)
+        row, refHeatLoad, refHeatLoadAct = self.getRowAndHeatLoad(slacNum=slacNum, idx=idx)
 
         # There is no contingency for creating a lone Cavity object because they
         # are always created inside of a Cryomodule's init function
@@ -419,7 +447,8 @@ class CryModDataManager(DataManager):
                                    cryModNumJLAB=int(row[jlabIdx]))
 
         return container.addDataSessionFromRow(row, self.idxMap[slacNum],
-                                               refHeatLoad, calibSession)
+                                               refHeatLoad, refHeatLoadAct,
+                                               calibSession)
 
     def __init__(self, parent):
         # type: (InputFileParser) -> None
@@ -517,9 +546,10 @@ class CryModDataManager(DataManager):
                                        calibRow[indices["jlabNumIdx"]])
 
             refHeatLoad = float(calibRow[indices["refHeatIdx"]])
+            refHeatLoadAct = float(calibRow[indices["refHeatActIdx"]])
 
             return container.addDataSessionFromRow(calibRow, indices,
-                                                   refHeatLoad)
+                                                   refHeatLoad, refHeatLoadAct)
 
         else:
             if not container:
@@ -535,7 +565,10 @@ class CryModDataManager(DataManager):
 
 
 if __name__ == "__main__":
-    if TEST_MODE:
-        AdvInputFileParser("testFiles/inputAdv.csv").parse()
-    else:
-        BasicInputFileParser("input.csv").parse()
+    try:
+        if TEST_MODE:
+            AdvInputFileParser("testFiles/inputAdv.csv").parse()
+        else:
+            BasicInputFileParser("input.csv").parse()
+    except(KeyboardInterrupt):
+        print("\n\n:(\n")
