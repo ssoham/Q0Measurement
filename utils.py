@@ -4,7 +4,7 @@ from _csv import reader as _reader
 from datetime import datetime
 from json import dumps
 
-#from builtins import input
+# from builtins import input
 from time import sleep
 from sys import stdout, stderr
 from subprocess import check_output, CalledProcessError, check_call
@@ -13,7 +13,7 @@ from csv import reader
 from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
-#from typing import List, Callable, Union, Dict, Tuple, Optional
+from typing import List, Callable, Union, Dict, Tuple, Optional
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -132,6 +132,7 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
 def get_input(prompt, desired_type):
     # type: (str, Callable) -> Union[int, float, str]
 
+    # noinspection PyCompatibility
     response = raw_input(prompt)
 
     try:
@@ -303,8 +304,9 @@ def getSelection(duration, suffix, options):
     # Running a new Q0 measurement or heater calibration is always
     # presented as the last option in the list
 
-    options[max(options) + 1 if options else 1] = ("Launch new {TYPE} ({DUR} hours)"
-                                 .format(TYPE=suffix, DUR=duration))
+    options[max(options) + 1
+            if options else 1] = ("Launch new {TYPE} ({DUR} hours)"
+                                  .format(TYPE=suffix, DUR=duration))
     printOptions(options)
     return getNumInputFromLst(("Please select a {TYPE} option: "
                                .format(TYPE=suffix)), options.keys(), int)

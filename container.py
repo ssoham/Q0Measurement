@@ -6,24 +6,27 @@
 
 from __future__ import print_function, division
 from csv import writer, reader
-from copy import deepcopy
 from decimal import Decimal
 from os.path import isfile
 from subprocess import CalledProcessError
 from time import sleep
-from numpy import mean, exp, log10, sqrt, linspace, empty, polyfit, isnan, nanmean, nan
+from numpy import mean, exp, log10, sqrt, linspace, empty, polyfit, nanmean, nan
+from numpy.core.multiarray import ndarray
 from scipy.stats import linregress
 from matplotlib import pyplot as plt
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from abc import abstractproperty, ABCMeta, abstractmethod
-#from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POSITION_TOLERANCE, HEATER_TOLERANCE, GRAD_TOLERANCE,
                    MIN_RUN_DURATION, isYes, get_float_lim, writeAndWait,
                    MAX_DS_LL, cagetPV, caputPV, getTimeParams, MIN_DS_LL,
                    parseRawData, genAxis, NUM_CAL_RUNS, NUM_LL_POINTS_TO_AVE,
                    CAVITY_HEATER_RUN_LOAD, MIN_LL_DIFF, CAL_HEATER_DELTA)
+
+RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
+                   "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=MIN_LL_DIFF))
 
 
 class Container(object):
@@ -69,7 +72,7 @@ class Container(object):
     @abstractproperty
     def heaterActPVs(self):
         raise NotImplementedError
-        
+
     @abstractproperty
     def liquidLevelDS(self):
         raise NotImplementedError
@@ -166,8 +169,8 @@ class Container(object):
         # type: () -> None
         writeAndWait("\nWaiting for downstream liquid level to be {LL}%..."
                      .format(LL=MAX_DS_LL))
-        
-        while ((MAX_DS_LL - self.liquidLevelDS) > 0.5):
+
+        while (MAX_DS_LL - self.liquidLevelDS) > 0.5:
             writeAndWait(".", 5)
 
         print("\ndownstream liquid level at required value")
@@ -209,18 +212,17 @@ class Container(object):
     def addDataSession(self, startTime, endTime, timeInt, refValvePos,
                        refHeatLoad=None, refHeatLoadAct=None, refGradVal=None,
                        calibSession=None):
-        # type: (datetime, datetime, int, float, float, float, CalibDataSession) -> DataSession
+        # type: (datetime, datetime, int, float, float, float, float, CalibDataSession) -> DataSession
 
         # Determine the current electric heat load on the cryomodule (the sum
         # of all the heater act values). This will only ever be None when we're
         # taking new data
-        # TODO add act column
         if not refHeatLoad:
             refHeatLoad = 0
             refHeatLoadAct = 0
             for heaterDesPV in self.heaterDesPVs:
                 refHeatLoad += float(cagetPV(heaterDesPV))
-                
+
             for heaterActPV in self.heaterActPVs:
                 refHeatLoadAct += float(cagetPV(heaterActPV))
 
@@ -264,10 +266,10 @@ class Cryomodule(Container):
         # be ordered)
         self.cavities = OrderedDict(
             sorted(cavities.items()))  # type: OrderedDict[int, Cavity]
-            
+
         self._dsRollingBuff = empty(NUM_LL_POINTS_TO_AVE)
         self._dsRollingBuff[:] = nan
-        
+
         self._idxFile = ("calibrations/calibrationsCM{CM}.csv"
                          .format(CM=self.cryModNumSLAC))
 
@@ -279,7 +281,7 @@ class Cryomodule(Container):
     @property
     def idxFile(self):
         # type: () -> str
-        
+
         if not isfile(self._idxFile):
             with open(self._idxFile, "w+") as f:
                 csvWriter = writer(f)
@@ -287,7 +289,7 @@ class Cryomodule(Container):
                                     "Reference Heat Load (Act)",
                                     "JT Valve Position", "Start", "End",
                                     "MySampler Time Interval"])
-                                    
+
         return self._idxFile
 
     @property
@@ -299,24 +301,25 @@ class Cryomodule(Container):
     def heaterActPVs(self):
         # type: () -> List[str]
         return self._heaterActPVs
-        
+
     @property
     def liquidLevelDS(self):
         try:
             start = datetime.now() - timedelta(seconds=NUM_LL_POINTS_TO_AVE)
             dsValReader = parseRawData(start, NUM_LL_POINTS_TO_AVE,
-                                   [self.dsLevelPV], MYSAMPLER_TIME_INTERVAL, 
-                                   False)
-    
+                                       [self.dsLevelPV],
+                                       MYSAMPLER_TIME_INTERVAL,
+                                       False)
+
             # Getting rid of the header
             dsValReader.next()
-                                   
+
             for row in dsValReader:
                 idx = (dsValReader.line_num - 2) % NUM_LL_POINTS_TO_AVE
                 self._dsRollingBuff[idx] = float(row[1])
-            
+
             return nanmean(self._dsRollingBuff)
-        except(AttributeError):
+        except AttributeError:
             return float(cagetPV(self.dsLevelPV))
 
     def hash(self, startTime, endTime, timeInt, slacNum, jlabNum,
@@ -329,7 +332,7 @@ class Cryomodule(Container):
     # the signature for Container - could probably figure out a way around this)
     def addDataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
                               calibSession=None, refGradVal=None):
-        # type: (List[str], dict, float, CalibDataSession, float) -> CalibDataSession
+        # type: (List[str], dict, float, float, CalibDataSession, float) -> CalibDataSession
 
         startTime, endTime, timeInterval = getTimeParams(row, indices)
 
@@ -344,22 +347,18 @@ class Cryomodule(Container):
 
     # TODO rename to iterations
     def walkHeaters(self, perHeaterDelta):
-        # type: (int) -> None
+        # type: (float) -> None
 
-        # negative if we're decrementing heat
-        step = 1 if perHeaterDelta > 0 else -1
-
-        #for _ in range(abs(perHeaterDelta)):
         for heaterSetpointPV in self.heaterDesPVs:
             currVal = float(cagetPV(heaterSetpointPV))
-            #caputPV(heaterSetpointPV, str(currVal + step))
             caputPV(heaterSetpointPV, str(currVal + perHeaterDelta))
+
         writeAndWait("\nWaiting 5s for cryo to stabilize...\n", 5)
 
     def genDataSession(self, startTime, endTime, timeInt, refValvePos,
                        refHeatLoad, refHeatLoadAct, refGradVal=None,
                        calibSession=None):
-        # type: (datetime, datetime, int, float, float, float, CalibDataSession) -> CalibDataSession
+        # type: (datetime, datetime, int, float, float, float, float, CalibDataSession) -> CalibDataSession
         return CalibDataSession(self, startTime, endTime, timeInt, refValvePos,
                                 refHeatLoad, refHeatLoadAct)
 
@@ -367,20 +366,18 @@ class Cryomodule(Container):
         # type: (float) -> (CalibDataSession, float)
 
         def launchHeaterRun(delta=CAL_HEATER_DELTA):
-            # type: () -> None
+            # type: (float) -> None
             print("Ramping heaters to the next setting...")
 
             self.walkHeaters(delta)
-            runStartTime = datetime.now()
 
-            writeAndWait("\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=MIN_LL_DIFF))
+            writeAndWait(RUN_STATUS_MSSG)
 
             startingLevel = self.liquidLevelDS
             avgLevel = startingLevel
 
-            while ((startingLevel - avgLevel) < MIN_LL_DIFF and (avgLevel > MIN_DS_LL)):
-            #while ((datetime.now() - runStartTime).total_seconds() < 2400
-                   #and float(cagetPV(self.dsLevelPV)) > MIN_DS_LL):
+            while ((startingLevel - avgLevel) < MIN_LL_DIFF and (
+                    avgLevel > MIN_DS_LL)):
                 writeAndWait(".", 10)
                 avgLevel = self.liquidLevelDS
 
@@ -394,7 +391,7 @@ class Cryomodule(Container):
         self.waitForCryo(refValvePos)
 
         startTime = datetime.now()
-        
+
         launchHeaterRun(1)
         if (self.liquidLevelDS - MIN_DS_LL) < MIN_LL_DIFF:
             print("Please ask the cryo group to refill to {LL} on the"
@@ -424,8 +421,8 @@ class Cryomodule(Container):
         print("Duration in hours: {DUR}".format(DUR=duration))
 
         # Walking the heaters back to their starting settings
-        #self.walkHeaters(-NUM_CAL_RUNS)
-        
+        # self.walkHeaters(-NUM_CAL_RUNS)
+
         self.walkHeaters(-((NUM_CAL_RUNS * CAL_HEATER_DELTA) + 1))
 
         dataSession = self.addDataSession(startTime, endTime,
@@ -454,12 +451,12 @@ class Cavity(Container):
 
         self.cavNum = cavNumber
         self._fieldEmissionPVs = None
-        
+
         heaterDesStr = cryMod.addNumToStr("CHTR:CM0{CM}:1{{CAV}}55:HV:{SUFF}",
                                           "POWER_SETPT")
         heaterActStr = cryMod.addNumToStr("CHTR:CM0{CM}:1{{CAV}}55:HV:{SUFF}",
                                           "POWER")
-                                        
+
         self.heaterDesPV = heaterDesStr.format(CAV=cavNumber)
         self.heaterActPV = heaterActStr.format(CAV=cavNumber)
 
@@ -516,11 +513,11 @@ class Cavity(Container):
             self._fieldEmissionPVs = lst
 
         return self._fieldEmissionPVs
-        
+
     @property
     def liquidLevelDS(self):
         return self.parent.liquidLevelDS
-        
+
     def walkHeater(self, heatDelta):
         # type: (int) -> None
 
@@ -537,7 +534,7 @@ class Cavity(Container):
     def genDataSession(self, startTime, endTime, timeInt, refValvePos,
                        refHeatLoad, refHeatLoadAct, refGradVal=None,
                        calibSession=None):
-        # type: (datetime, datetime, int, float, float, float, CalibDataSession) -> Q0DataSession
+        # type: (datetime, datetime, int, float, float, float, float, CalibDataSession) -> Q0DataSession
         return Q0DataSession(self, startTime, endTime, timeInt, refValvePos,
                              refHeatLoad, refHeatLoadAct, refGradVal,
                              calibSession)
@@ -556,7 +553,7 @@ class Cavity(Container):
     # sessions, but they're nullable to match the signature in Container
     def addDataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
                               calibSession=None, refGradVal=None):
-        # type: (List[str], Dict[str, int], float, CalibDataSession, float) -> Q0DataSession
+        # type: (List[str], Dict[str, int], float, float, CalibDataSession, float) -> Q0DataSession
 
         startTime, endTime, timeInterval = getTimeParams(row, indices)
 
@@ -646,31 +643,32 @@ class Cavity(Container):
     ############################################################################
     def characterize(self):
         # type: () -> None
-        
+
         def askForVerification(prefix, desAction):
             mssg = "Please {ACTION} manually then press y/Y to continue or n/N to abort"
-            
+
             if not isYes(prefix + mssg.format(ACTION=desAction)):
-                    raise AssertionError("User unsatisfied with characterization - aborting")
+                raise AssertionError(
+                    "User unsatisfied with characterization - aborting")
 
         def pushAndWait(suffix):
             caputPV(self.genAcclPV(suffix + "STRT"), "1")
-            
+
             statusPV = self.genAcclPV(suffix + "STS")
-            
+
             # 2 is Running
-            while(cagetPV(statusPV) == "2"):
+            while cagetPV(statusPV) == "2":
                 sleep(1)
-            
+
             # 0 is Crash
-            if(cagetPV(statusPV) == "0"):
+            if cagetPV(statusPV) == "0":
                 askForVerification("{CONTROL} crashed. ".format(CONTROL=suffix),
                                    "rerun")
-            
-            #sleep(10)
+
+            # sleep(10)
 
         def checkAndPush(basePV, pushPV, param, tol, newPV=None):
-        
+
             oldVal = float(cagetPV(self.genAcclPV(basePV)))
 
             newVal = (float(cagetPV(self.genAcclPV(newPV)))
@@ -678,27 +676,28 @@ class Cavity(Container):
                       else float(cagetPV(self.genAcclPV(basePV + "_NEW"))))
 
             if abs(newVal - oldVal) < tol:
-                #pushAndWait(pushPV)
+                # pushAndWait(pushPV)
                 caputPV(self.genAcclPV(pushPV), "1")
 
             else:
-                askForVerification("Large difference in {PARAM} ".format(PARAM=param),
-                                   "inspect and push")
+                askForVerification(
+                    "Large difference in {PARAM} ".format(PARAM=param),
+                    "inspect and push")
 
         pushAndWait("SSACAL")
 
         checkAndPush("SSA:SLOPE", "PUSH_SSASLOPE.PROC", "slopes", 0.15)
-        #checkAndPush("SSA:SLOPE", "PUSH_SSASLOPE.PROC", "slopes")
+        # checkAndPush("SSA:SLOPE", "PUSH_SSASLOPE.PROC", "slopes")
 
         pushAndWait("PROBECAL")
 
         checkAndPush("QLOADED", "PUSH_QLOADED.PROC", "Loaded Qs", 0.15e7)
-        #checkAndPush("QLOADED", "PUSH_QLOADED.PROC", "Loaded Qs")
+        # checkAndPush("QLOADED", "PUSH_QLOADED.PROC", "Loaded Qs")
 
         checkAndPush("CAV:SCALER_SEL.B", "PUSH_CAV_SCALE.PROC", "Cavity Scales",
                      0.2, "CAV:CAL_SCALEB_NEW")
-        #checkAndPush("CAV:SCALER_SEL.B", "PUSH_CAV_SCALE.PROC", "Cavity Scales",
-         #            "CAV:CAL_SCALEB_NEW")
+        # checkAndPush("CAV:SCALER_SEL.B", "PUSH_CAV_SCALE.PROC", "Cavity Scales",
+        #            "CAV:CAL_SCALEB_NEW")
 
     # Switches the cavity to a given operational mode (pulsed, CW, etc.)
     def setModeRF(self, modeDesired):
@@ -902,7 +901,7 @@ class Cavity(Container):
             with open(filename, "w+") as f:
                 csvWriter = writer(f)
                 csvWriter.writerow(["time"] + self.fieldEmissionPVs)
-        
+
         while abs(diff) > gradTol:
 
             loopStartTime = datetime.now()
@@ -912,9 +911,9 @@ class Cavity(Container):
             currAmp = float(cagetPV(amplitudePV))
             diff = gradient - desiredGradient
             mult = 1 if (diff <= 0) else -1
-            
+
             overshot = (prevDiff >= 0 > diff) or (prevDiff <= 0 < diff)
-            
+
             # This only works if we're in SEL mode; in pulsed mode the scaling
             # is messed up because a 1% change in the drive doesn't correspond
             # to a 1 MV/m change in the gradient
@@ -933,7 +932,7 @@ class Cavity(Container):
             while (datetime.now() - loopStartTime).total_seconds() < loopTime:
 
                 gradient = self.checkForQuench(gradient)
-                
+
                 if getFieldEmissionData:
 
                     with open(filename, "a") as f:
@@ -950,12 +949,12 @@ class Cavity(Container):
     def checkForQuench(self, oldGradient):
         # type: (float) -> float
         newGradient = float(cagetPV(self.gradPV))
-        
+
         if newGradient < (oldGradient * 0.9):
             formatStr = "Detected a quench at {GRAD} - aborting"
-            
+
             bypassPV = self.genAcclPV("QUENCH_BYP")
-            
+
             # If the EPICs quench detection is disabled and we see a quench,
             # shut the cavity down
             if cagetPV(bypassPV) == "1":
@@ -964,16 +963,14 @@ class Cavity(Container):
             # message
             else:
                 print(formatStr.format(GRAD=oldGradient))
-                
+
         return newGradient
 
-    
     # When cavities are turned on in CW mode they slowly heat up, which causes
     # the gradient to drop over time. This function holds the gradient at the
     # requested value during the Q0 run.
-    def holdGradient(self, desiredGradient, minutes=40, minLL=MIN_DS_LL,
-                     gradTol=0.01):
-        # type: (float, float, float, float) -> datetime
+    def holdGradient(self, desiredGradient, minLL=MIN_DS_LL, gradTol=0.01):
+        # type: (float, float, float) -> datetime
 
         amplitudePV = self.genAcclPV("ADES")
 
@@ -984,23 +981,26 @@ class Cavity(Container):
 
         print("\nStart time: {START}".format(START=startTime))
 
-        writeAndWait("\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(MIN=minLL, DIFF=MIN_LL_DIFF))
-                     
+        writeAndWait(
+            "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
+                MIN=minLL, DIFF=MIN_LL_DIFF))
+
         gradient = float(cagetPV(self.gradPV))
-        
+
         startingLevel = self.liquidLevelDS
         avgLevel = startingLevel
 
-        while ((startingLevel - avgLevel) < 2 and (avgLevel > minLL)):
+        # TODO figure out how to squish this with FE measurements
+        while (startingLevel - avgLevel) < 2 and (avgLevel > minLL):
 
             currAmp = float(cagetPV(amplitudePV))
             gradient = self.checkForQuench(gradient)
             diff = gradient - desiredGradient
 
             mult = 1 if (diff <= 0) else -1
-            
+
             overshot = (prevDiff >= 0 > diff) or (prevDiff <= 0 < diff)
-            
+
             # This only works if we're in SEL mode; in pulsed mode the scaling
             # is messed up because a 1% change in the drive doesn't correspond
             # to a 1 MV/m change in the gradient
@@ -1046,9 +1046,9 @@ class Cavity(Container):
 
         print("**** REMINDER: refills aren't automated - please contact the"
               " cryo group ****")
-              
-        self.walkHeater(CAVITY_HEATER_RUN_LOAD) 
-        
+
+        self.walkHeater(CAVITY_HEATER_RUN_LOAD)
+
         if (self.liquidLevelDS - MIN_DS_LL) < MIN_LL_DIFF:
             print("Please ask the cryo group to refill to {LL} on the"
                   " downstream sensor".format(LL=MAX_DS_LL))
@@ -1059,13 +1059,14 @@ class Cavity(Container):
 
         print("\nStart time: {START}".format(START=startTime))
 
-        writeAndWait("\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=MIN_LL_DIFF))
+        writeAndWait(
+            "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
+                MIN=MIN_DS_LL, DIFF=MIN_LL_DIFF))
 
-        
         startingLevel = self.liquidLevelDS
         avgLevel = startingLevel
 
-        while ((startingLevel - avgLevel) < 2 and (avgLevel > MIN_DS_LL)):
+        while (startingLevel - avgLevel) < 2 and (avgLevel > MIN_DS_LL):
             writeAndWait(".", 15)
             avgLevel = self.liquidLevelDS
 
@@ -1130,28 +1131,30 @@ class Cavity(Container):
             if not isfile(self.idxFile):
                 with open(self.idxFile, "w+") as f:
                     csvWriter = writer(f)
-                    csvWriter.writerow(["Cavity","Gradient",
-                                        "JT Valve Position","Start","End",
+                    csvWriter.writerow(["Cavity", "Gradient",
+                                        "JT Valve Position", "Start", "End",
                                         "Reference Heat Load (Des)",
                                         "Reference Heat Load (Act)",
                                         "MySampler Time Interval"])
-                                        
-                    csvWriter.writerow([self.cavNum, desiredGradient, refValvePos,
-                                        startTime.strftime("%m/%d/%y %H:%M:%S"),
-                                        endTime.strftime("%m/%d/%y %H:%M:%S"),
-                                        session.refHeatLoad,
-                                        session.refHeatLoadAct,
-                                        MYSAMPLER_TIME_INTERVAL])
-            
+
+                    csvWriter.writerow(
+                        [self.cavNum, desiredGradient, refValvePos,
+                         startTime.strftime("%m/%d/%y %H:%M:%S"),
+                         endTime.strftime("%m/%d/%y %H:%M:%S"),
+                         session.refHeatLoad,
+                         session.refHeatLoadAct,
+                         MYSAMPLER_TIME_INTERVAL])
+
             else:
                 with open(self.idxFile, 'a') as f:
                     csvWriter = writer(f)
-                    csvWriter.writerow([self.cavNum, desiredGradient, refValvePos,
-                                        startTime.strftime("%m/%d/%y %H:%M:%S"),
-                                        endTime.strftime("%m/%d/%y %H:%M:%S"),
-                                        session.refHeatLoad,
-                                        session.refHeatLoadAct,
-                                        MYSAMPLER_TIME_INTERVAL])
+                    csvWriter.writerow(
+                        [self.cavNum, desiredGradient, refValvePos,
+                         startTime.strftime("%m/%d/%y %H:%M:%S"),
+                         endTime.strftime("%m/%d/%y %H:%M:%S"),
+                         session.refHeatLoad,
+                         session.refHeatLoadAct,
+                         MYSAMPLER_TIME_INTERVAL])
 
             print("\nStart Time: {START}".format(START=startTime))
             print("End Time: {END}".format(END=endTime))
@@ -1173,7 +1176,7 @@ class DataSession(object):
 
     def __init__(self, container, startTime, endTime, timeInt, refValvePos,
                  refHeatLoad, refHeatLoadAct):
-        # type: (Container, datetime, datetime, int, float, float) -> None
+        # type: (Container, datetime, datetime, int, float, float, float) -> None
 
         self.container = container
         self.dataRuns = []  # type: List[DataRun]
@@ -1336,11 +1339,9 @@ class DataSession(object):
 
         else:
 
-            # TODO test new file generation to see if deepcopy was necessary
             header = csvReader.next()
 
             heaterDesCols = []
-            # TODO not tested yet, so not deleting old code
             populateHeaterCols(self.container.heaterDesPVs, heaterDesCols)
 
             heaterActCols = []
@@ -1364,7 +1365,6 @@ class DataSession(object):
                 csvWriter.writerow(header)
 
                 for row in csvReader:
-                    # trimmedRow = deepcopy(row)
 
                     heatLoadSetpoint = 0
 
@@ -1492,9 +1492,8 @@ class DataSession(object):
             # heat load, which isn't really true). We already wait 30 s after
             # walking the heaters, so that's subtracted out
             # noinspection PyTypeChecker
-            #cutoff = int(totalHeatDelta * 25) - 30
-            #cutoff = cutoff if cutoff >= 0 else 0
-            cutoff = 0
+            cutoff = int(totalHeatDelta * 25) - 30
+            cutoff = cutoff if cutoff >= 0 else 0
 
             run.diagnostics["Cutoff"] = cutoff
 
@@ -1554,11 +1553,13 @@ class CalibDataSession(DataSession):
 
     def __init__(self, container, startTime, endTime, timeInt, refValvePos,
                  refHeatLoad, refHeatLoadAct):
-        # type: (Cryomodule, datetime, datetime, int, float, float) -> None
+        # type: (Cryomodule, datetime, datetime, int, float, float, float) -> None
 
         super(CalibDataSession, self).__init__(container, startTime, endTime,
                                                timeInt, refValvePos,
                                                refHeatLoad, refHeatLoadAct)
+
+        self.dataRuns = []  # type: List[HeaterDataRun]
 
         # Overloading these to give the IDE type hints
         self.container = container
@@ -1638,7 +1639,7 @@ class CalibDataSession(DataSession):
         for idx, elecHeatLoad in enumerate(self.elecHeatDesBuff):
             runStartIdx = self._checkAndFlushRun(
                 self._isEndOfCalibRun(idx, elecHeatLoad), idx, runStartIdx)
-                
+
     def _addRun(self, startIdx, endIdx):
         # type: (int, int) -> None
         runIdx = len(self.dataRuns)
@@ -1646,7 +1647,7 @@ class CalibDataSession(DataSession):
 
         self.dataRuns.append(HeaterDataRun(startIdx, endIdx, self, runNum))
         self.heaterRunIdxs.append(runIdx)
-        
+
     # noinspection PyTupleAssignmentBalance
     def processRuns(self):
         # type: () -> None
@@ -1738,7 +1739,7 @@ class Q0DataSession(DataSession):
 
     def __init__(self, container, startTime, endTime, timeInt, refValvePos,
                  refHeatLoad, refHeatLoadAct, refGradVal, calibSession):
-        # type: (Cavity, datetime, datetime, int, float, float, float, CalibDataSession) -> None
+        # type: (Cavity, datetime, datetime, int, float, float, float, float, CalibDataSession) -> None
 
         super(Q0DataSession, self).__init__(container, startTime, endTime,
                                             timeInt, refValvePos, refHeatLoad,
@@ -1803,13 +1804,13 @@ class Q0DataSession(DataSession):
     def adjustedRunSlopes(self):
         # type: () -> List[float]
         m = self.calibSession.calibSlope
-        return [(m * self.dataRuns[runIdx].adjustedTotalHeatLoad) for runIdx
+        return [(m * self.dataRuns[runIdx].rfHeatLoad) for runIdx
                 in self.rfRunIdxs]
 
     @property
     def adjustedRunHeatLoadsRF(self):
         # type: () -> List[float]
-        return [self.dataRuns[runIdx].adjustedTotalHeatLoad for runIdx
+        return [self.dataRuns[runIdx].rfHeatLoad for runIdx
                 in self.rfRunIdxs]
 
     @property
@@ -1829,7 +1830,7 @@ class Q0DataSession(DataSession):
                 CM=self.container.cryModNumSLAC)
 
         return self._dataFileName
-        
+
     def _addRun(self, startIdx, endIdx):
         # type: (int, int) -> None
         runIdx = len(self.dataRuns)
@@ -1995,10 +1996,8 @@ class DataRun(object):
         runElecHeatActBuff = self.dataSession.elecHeatActBuff[self.startIdx:
                                                               self.endIdx]
 
-        # Index 0 is the start of the *data session* (not this data run), so
-        # we're using that initial heater readback value as our reference
         self.heatActDelta = (mean(runElecHeatActBuff)
-                             - self.dataSession.refHeatLoad)
+                             - self.dataSession.refHeatLoadAct)
 
         # All data runs have liquid level information which gets fitted with a
         # line (giving us dLL/dt). The slope and intercept parametrize the line.
@@ -2025,6 +2024,7 @@ class DataRun(object):
     def printRunReport(self):
         raise NotImplementedError
 
+    # noinspection PyTypeChecker
     @property
     def elecHeatLoadAct(self):
         # type: () -> float
@@ -2117,12 +2117,13 @@ class HeaterDataRun(DataRun):
         reportStr = "     Electric heat load: {ELEC} W\n"
         report = reportStr.format(ELEC=round(self.elecHeatLoadAct, 2))
 
-        #print(report.format(Q0Val=None))
+        # print(report.format(Q0Val=None))
         print(report)
 
-        #if TEST_MODE:
+        # if TEST_MODE:
         #    self.printDiagnostics()
         self.printDiagnostics()
+
 
 class RFDataRun(DataRun):
 
@@ -2222,7 +2223,7 @@ class RFDataRun(DataRun):
                        / (self.endIdx - self.startIdx))
 
         heatAdjust = self.dataSession.avgHeatAdjustment
-        
+
         Q0 = '{:.2e}'.format(Decimal(self.q0))
 
         # noinspection PyTypeChecker
@@ -2234,7 +2235,7 @@ class RFDataRun(DataRun):
 
         print(report)
 
-        #if TEST_MODE:
+        # if TEST_MODE:
         #    self.printDiagnostics()
         self.printDiagnostics()
 
@@ -2272,4 +2273,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
