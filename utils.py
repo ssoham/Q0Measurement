@@ -17,7 +17,6 @@ from typing import List, Callable, Union, Dict, Tuple, Optional
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
-
 TEST_MODE = False
 
 # The relationship between the LHE content of a cryomodule and the readback from
@@ -58,8 +57,6 @@ FNULL = open(devnull, "w")
 # The number of distinct heater settings we're using for cryomodule calibrations
 NUM_CAL_RUNS = 10
 
-AVE_SLOPE = 1.5e-4
-
 NUM_LL_POINTS_TO_AVE = 25
 
 MIN_LL_DIFF = 2
@@ -67,6 +64,12 @@ MIN_LL_DIFF = 2
 CAVITY_HEATER_RUN_LOAD = 16
 
 CAL_HEATER_DELTA = 0.2
+
+JT_SEARCH_TIME_RANGE = 24
+
+JT_SEARCH_TIME_STEP = 0.5
+
+JT_SEARCH_AVERAGING_PERIOD = 2
 
 
 def isYes(prompt):
@@ -206,7 +209,7 @@ def getTimeParams(row, indices):
 
 
 ############################################################################
-# getArchiveData runs a shell command to get archive data. The syntax we're
+# getMySamplerData runs a shell command to get archive data. The syntax we're
 # using is:
 #
 #     mySampler -b "%Y-%m-%d %H:%M:%S" -s 1s -n[numPoints] [pv1] ... [pvn]
@@ -221,8 +224,8 @@ def getTimeParams(row, indices):
 # @param startTime: datetime object
 # @param signals: list of PV strings
 ############################################################################
-def getArchiveData(startTime, numPoints, signals,
-                   timeInt=MYSAMPLER_TIME_INTERVAL):
+def getMySamplerData(startTime, numPoints, signals,
+                     timeInt=MYSAMPLER_TIME_INTERVAL):
     # type: (datetime, int, List[str], int) -> Optional[str]
     cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
            + ['-s', str(timeInt) + 's', '-n' + str(numPoints)]
@@ -235,12 +238,12 @@ def getArchiveData(startTime, numPoints, signals,
         return None
 
 
-def parseRawData(startTime, numPoints, signals,
-                 timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
+def getAndParseRawData(startTime, numPoints, signals,
+                       timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
     # type: (datetime, int, List[str], int, bool) -> Optional[_reader]
     if verbose:
         print("\nGetting data from the archive...\n")
-    rawData = getArchiveData(startTime, numPoints, signals, timeInt)
+    rawData = getMySamplerData(startTime, numPoints, signals, timeInt)
 
     if not rawData:
         return None
@@ -315,3 +318,60 @@ def getSelection(duration, suffix, options):
 def drawAndShow():
     plt.draw()
     plt.show()
+
+
+def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
+                         allPVs, timeInt=MYSAMPLER_TIME_INTERVAL):
+
+    def populateHeaterCols(pvList, buff):
+        # type: (List[str], List[float]) -> None
+        for heaterPV in pvList:
+            buff.append(header.index(heaterPV))
+
+    csvReader = getAndParseRawData(startTime, numPoints, allPVs, timeInt)
+
+    if not csvReader:
+        return None
+
+    else:
+
+        header = csvReader.next()
+
+        heaterDesCols = []
+        populateHeaterCols(heaterDesPVs, heaterDesCols)
+
+        heaterActCols = []
+        populateHeaterCols(heaterActPVs, heaterActCols)
+
+        # So that we don't corrupt the indices while we're deleting them
+        colsToDelete = sorted(heaterDesCols + heaterActCols, reverse=True)
+
+        for index in colsToDelete:
+            del header[index]
+
+        header.append("Electric Heat Load Setpoint")
+        header.append("Electric Heat Load Readback")
+
+        return header, heaterActCols, heaterDesCols, colsToDelete, csvReader
+
+
+def collapseHeaterVals(row, heaterDesCols, heaterActCols):
+    heatLoadSetpoint = 0
+
+    for col in heaterDesCols:
+        try:
+            heatLoadSetpoint += float(row[col])
+        except ValueError:
+            heatLoadSetpoint = None
+            break
+
+    heatLoadAct = 0
+
+    for col in heaterActCols:
+        try:
+            heatLoadAct += float(row[col])
+        except ValueError:
+            heatLoadAct = None
+            break
+
+    return heatLoadSetpoint, heatLoadAct

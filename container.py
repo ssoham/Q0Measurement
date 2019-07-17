@@ -22,8 +22,12 @@ from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POSITION_TOLERANCE, HEATER_TOLERANCE, GRAD_TOLERANCE,
                    MIN_RUN_DURATION, isYes, get_float_lim, writeAndWait,
                    MAX_DS_LL, cagetPV, caputPV, getTimeParams, MIN_DS_LL,
-                   parseRawData, genAxis, NUM_CAL_RUNS, NUM_LL_POINTS_TO_AVE,
-                   CAVITY_HEATER_RUN_LOAD, MIN_LL_DIFF, CAL_HEATER_DELTA)
+                   getAndParseRawData, genAxis, NUM_CAL_RUNS, NUM_LL_POINTS_TO_AVE,
+                   CAVITY_HEATER_RUN_LOAD, MIN_LL_DIFF, CAL_HEATER_DELTA,
+                   JT_SEARCH_TIME_RANGE, JT_SEARCH_TIME_STEP,
+                   JT_SEARCH_AVERAGING_PERIOD, getDataAndHeaterCols,
+                   collapseHeaterVals)
+
 
 RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
                    "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=MIN_LL_DIFF))
@@ -67,10 +71,12 @@ class Container(object):
 
     @abstractproperty
     def heaterDesPVs(self):
+        # type: () -> List[str]
         raise NotImplementedError
 
     @abstractproperty
     def heaterActPVs(self):
+        # type: () -> List[str]
         raise NotImplementedError
 
     @abstractproperty
@@ -103,60 +109,101 @@ class Container(object):
         raise NotImplementedError
 
     # noinspection PyTupleAssignmentBalance,PyTypeChecker
-    def getRefValvePos(self, numHours, checkForFlatness=True):
-        # type: (float, bool) -> float
+    def 2(self, averagingPeriod=JT_SEARCH_AVERAGING_PERIOD,
+                       timeRange=JT_SEARCH_TIME_RANGE, initialWait=True):
+        # type: (float, float bool) -> float
 
-        getNewPos = isYes("Determine new JT Valve Position?"
-                          " (May take 2 hours) ")
-
-        if not getNewPos:
-            desPos = get_float_lim("Desired JT Valve Position: ", 0, 100)
-            print("\nDesired JT Valve position is {POS}".format(POS=desPos))
-            return desPos
+        # getNewPos = isYes("Determine new JT Valve Position?"
+        #                   " (May take 2 hours) ")
+        #
+        # if not getNewPos:
+        #     desPos = get_float_lim("Desired JT Valve Position: ", 0, 100)
+        #     print("\nDesired JT Valve position is {POS}".format(POS=desPos))
+        #     return desPos
 
         print("\nDetermining Required JT Valve Position...")
 
-        start = datetime.now() - timedelta(hours=numHours)
-        numPoints = int((60 / MYSAMPLER_TIME_INTERVAL) * (numHours * 60))
-        signals = [self.dsLevelPV, self.valvePV]
+        searchStart = datetime.now() - timedelta(hours=averagingPeriod)
 
-        csvReader = parseRawData(start, numPoints, signals)
+        while (datetime.now() - searchStart) <= timedelta(hours=timeRange):
 
-        csvReader.next()
-        valveVals = []
-        llVals = []
+            numPoints = int((60 / MYSAMPLER_TIME_INTERVAL)
+                            * (averagingPeriod * 60))
 
-        for row in csvReader:
-            try:
-                valveVals.append(float(row.pop()))
-                llVals.append(float(row.pop()))
-            except ValueError:
-                pass
+            csvReaderLL = getAndParseRawData(searchStart, numPoints,
+                                             [self.dsLevelPV])
 
-        # Fit a line to the liquid level over the last [numHours] hours
-        m, b, _, _, _ = linregress(range(len(llVals)), llVals)
+            csvReaderLL.next()
+            llVals = []
 
-        # If the LL slope is small enough, return the average JT valve position
-        # over the requested time span
-        if not checkForFlatness or (checkForFlatness and log10(abs(m)) < 5):
-            desPos = round(mean(valveVals), 1)
-            print("\nDesired JT Valve position is {POS}".format(POS=desPos))
-            return desPos
+            for row in csvReaderLL:
+                try:
+                    # valveVals.append(float(row.pop()))
+                    llVals.append(float(row.pop()))
+                except ValueError:
+                    pass
 
-        # If the LL slope isn't small enough, wait for it to stabilize and then
-        # repeat this process (and assume that it's flat enough at that point)
-        else:
-            print("Need to figure out new JT valve position")
+            # Fit a line to the liquid level over the last [numHours] hours
+            m, b, _, _, _ = linregress(range(len(llVals)), llVals)
 
-            self.waitForLL()
+            # If the LL slope is small enough, return the average JT valve
+            # position over the requested time span
+            if log10(abs(m) < -5):
 
-            writeAndWait("\nWaiting 1 hour 45 minutes for LL to stabilize...")
+                signals = (self.heaterDesPVs
+                           + self.heaterActPVs).append(self.valvePV)
 
-            start = datetime.now()
-            while (datetime.now() - start).total_seconds() < 6300:
-                writeAndWait(".", 5)
+                (header, heaterActCols, heaterDesCols, _,
+                 csvReader) = getDataAndHeaterCols(searchStart, numPoints,
+                                                   self.heaterDesPVs,
+                                                   self.heaterActPVs, signals)
 
-            return self.getRefValvePos(0.25, False)
+                valveVals = []
+                heaterDesVals = []
+                heaterActVals = []
+                valveIdx = header.index(self.valvePV)
+
+                for row in csvReader:
+                    valveVals.append(float(row[valveIdx]))
+                    (heatLoadSetpoint,
+                     heatLoadAct) = collapseHeaterVals(row, heaterDesCols,
+                                                       heaterActCols)
+                    heaterDesVals.append(heatLoadSetpoint)
+                    heaterActVals.append(heatLoadAct)
+
+                desValSet = set(heaterDesVals)
+
+                if len(desValSet) == 1:
+                    desPos = round(mean(valveVals), 1)
+                    heaterDes = desValSet.pop()
+                    heaterAct = mean(heaterActVals)
+
+                    formatter = "\nDesired {THING} is {VAL}"
+                    print(formatter.format(THING="JT Valve position",
+                                           VAL=desPos))
+                    print(formatter.format(THING="heat load", VAL=heaterDes))
+
+                    return desPos, heaterDes, heaterAct
+
+            searchStart -= timedelta(hours=JT_SEARCH_TIME_STEP)
+
+        # If we broke out of the while loop without returning anything, that
+        # means that the LL hasn't been stable enough recently. Wait a while for
+        # it to stabilize and then try again.
+
+        complaint = ("Cryo conditions were not stable enough over the last"
+                     " {NUM} hours - determining new JT valve position. Please"
+                     " do not adjust the heaters. Allow the PID loop to "
+                     "regulate the JT valve position.")
+        print(complaint.format(NUM=timeRange))
+
+        writeAndWait("\nWaiting 15 minutes for LL to stabilize...")
+
+        start = datetime.now()
+        while (datetime.now() - start).total_seconds() < 900:
+            writeAndWait(".", 5)
+
+        return self.getRefValvePos(averagingPeriod=1.5, timeRange=1.5)
 
     # We consider the cryo situation to be good when the liquid level is high
     # enough and the JT valve is locked in the correct position
@@ -306,10 +353,10 @@ class Cryomodule(Container):
     def liquidLevelDS(self):
         try:
             start = datetime.now() - timedelta(seconds=NUM_LL_POINTS_TO_AVE)
-            dsValReader = parseRawData(start, NUM_LL_POINTS_TO_AVE,
-                                       [self.dsLevelPV],
-                                       MYSAMPLER_TIME_INTERVAL,
-                                       False)
+            dsValReader = getAndParseRawData(start, NUM_LL_POINTS_TO_AVE,
+                                             [self.dsLevelPV],
+                                             MYSAMPLER_TIME_INTERVAL,
+                                             False)
 
             # Getting rid of the header
             dsValReader.next()
@@ -1323,38 +1370,50 @@ class DataSession(object):
     def generateCSV(self):
         # type: () -> Optional[str]
 
-        def populateHeaterCols(pvList, buff):
-            # type: (List[str], List[float]) -> None
-            for heaterPV in pvList:
-                buff.append(header.index(heaterPV))
+        # def populateHeaterCols(pvList, buff):
+        #     # type: (List[str], List[float]) -> None
+        #     for heaterPV in pvList:
+        #         buff.append(header.index(heaterPV))
 
         if isfile(self.fileName):
             return self.fileName
 
-        csvReader = parseRawData(self.startTime, self.numPoints,
-                                 self.container.getPVs(), self.timeInt)
+        # csvReader = getAndParseRawData(self.startTime, self.numPoints,
+        #                          self.container.getPVs(), self.timeInt)
+        #
+        # if not csvReader:
+        #     return None
+        #
+        # else:
+        #
+        #     header = csvReader.next()
+        #
+        #     heaterDesCols = []
+        #     populateHeaterCols(self.container.heaterDesPVs, heaterDesCols)
+        #
+        #     heaterActCols = []
+        #     populateHeaterCols(self.container.heaterActPVs, heaterActCols)
+        #
+        #     # So that we don't corrupt the indices while we're deleting them
+        #     colsToDelete = sorted(heaterDesCols + heaterActCols, reverse=True)
+        #
+        #     for index in colsToDelete:
+        #         del header[index]
+        #
+        #     header.append("Electric Heat Load Setpoint")
+        #     header.append("Electric Heat Load Readback")
+
+        (header, heaterActCols, heaterDesCols, colsToDelete,
+         csvReader) = getDataAndHeaterCols(self.startTime, self.numPoints,
+                                           self.container.heaterDesPVs,
+                                           self.container.heaterActPVs,
+                                           self.container.getPVs(),
+                                           self.timeInt)
 
         if not csvReader:
             return None
 
         else:
-
-            header = csvReader.next()
-
-            heaterDesCols = []
-            populateHeaterCols(self.container.heaterDesPVs, heaterDesCols)
-
-            heaterActCols = []
-            populateHeaterCols(self.container.heaterActPVs, heaterActCols)
-
-            # So that we don't corrupt the indices while we're deleting them
-            colsToDelete = sorted(heaterDesCols + heaterActCols, reverse=True)
-
-            for index in colsToDelete:
-                del header[index]
-
-            header.append("Electric Heat Load Setpoint")
-            header.append("Electric Heat Load Readback")
 
             # We're collapsing the readback for each cavity's desired and actual
             # electric heat load into two sum columns (instead of 16 individual
@@ -1365,24 +1424,27 @@ class DataSession(object):
                 csvWriter.writerow(header)
 
                 for row in csvReader:
+                    (heatLoadSetpoint,
+                     heatLoadAct) = collapseHeaterVals(row, heaterDesCols,
+                                                       heaterActCols)
 
-                    heatLoadSetpoint = 0
-
-                    for col in heaterDesCols:
-                        try:
-                            heatLoadSetpoint += float(row[col])
-                        except ValueError:
-                            heatLoadSetpoint = None
-                            break
-
-                    heatLoadAct = 0
-
-                    for col in heaterActCols:
-                        try:
-                            heatLoadAct += float(row[col])
-                        except ValueError:
-                            heatLoadAct = None
-                            break
+                    # heatLoadSetpoint = 0
+                    #
+                    # for col in heaterDesCols:
+                    #     try:
+                    #         heatLoadSetpoint += float(row[col])
+                    #     except ValueError:
+                    #         heatLoadSetpoint = None
+                    #         break
+                    #
+                    # heatLoadAct = 0
+                    #
+                    # for col in heaterActCols:
+                    #     try:
+                    #         heatLoadAct += float(row[col])
+                    #     except ValueError:
+                    #         heatLoadAct = None
+                    #         break
 
                     for index in colsToDelete:
                         del row[index]
