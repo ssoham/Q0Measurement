@@ -13,8 +13,8 @@ from matplotlib import pyplot as plt
 from container import (Cryomodule, Cavity,
                        Q0DataSession, CalibDataSession)
 from utils import (getNumInputFromLst, isYes, TEST_MODE, printOptions,
-                   addOption, getSelection, drawAndShow)
-#from typing import Optional, List, Tuple
+                   addOption, getSelection, drawAndShow, ValveParams)
+from typing import Optional, List, Tuple
 from os.path import isfile
 
 
@@ -45,9 +45,9 @@ class InputFileParser(object):
         self.cryoModules = {}
 
         # We store the JT Valve position from the first time that we run
-        # getRefValvePos (in Container) so that we don't have to rerun that
+        # getRefValveParams (in Container) so that we don't have to rerun that
         # function every time we get new data (each call takes 2 hours)
-        self.refValvePos = None
+        self.valveParams = None  # type: Optional[ValveParams]
 
     @abstractmethod
     def parse(self):
@@ -255,11 +255,11 @@ class DataManager(object):
         raise NotImplementedError
 
     @property
-    def refValvePos(self):
-        return self.parent.refValvePos
+    def valveParams(self):
+        return self.parent.valveParams
 
     def getRowAndHeatLoad(self, slacNum, idx):
-        # type: (int, int) -> Tuple[List[str], float]
+        # type: (int, int) -> Tuple[List[str], float, float]
 
         sessionCSV = self.fileFormatter.format(CM_SLAC=slacNum)
         row = open(sessionCSV).readlines()[idx - 1]
@@ -311,7 +311,7 @@ class CavityDataManager(DataManager):
         # type: (InputFileParser) -> None
 
         super(CavityDataManager, self).__init__(parent)
-        
+
     @property
     def header(self):
         return ["Cavity","Gradient", "JT Valve Position","Start","End",
@@ -415,9 +415,9 @@ class CavityDataManager(DataManager):
 
         else:
             (Q0Sess,
-             self.parent.refValvePos) = container.runQ0Meas(refGradVal,
+             self.parent.valveParams) = container.runQ0Meas(refGradVal,
                                                             calibSession,
-                                                            self.refValvePos)
+                                                            self.valveParams)
             return Q0Sess
 
 

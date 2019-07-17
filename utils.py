@@ -67,9 +67,23 @@ CAL_HEATER_DELTA = 0.2
 
 JT_SEARCH_TIME_RANGE = 24
 
-JT_SEARCH_TIME_STEP = 0.5
+JT_SEARCH_HOURS_PER_STEP = 0.5
 
-JT_SEARCH_AVERAGING_PERIOD = 2
+HOURS_NEEDED_FOR_FLATNESS = 1.5
+
+
+class ValveParams:
+    def __init__(self, refValvePos, refHeatLoadDes, refHeatLoadAct):
+        self.refValvePos = refValvePos
+        self.refHeatLoadDes = refHeatLoadDes
+        self.refHeatLoadAct = refHeatLoadAct
+
+
+class TimeParams:
+    def __init__(self, startTime, endTime, timeInterval):
+        self.startTime = startTime
+        self.endTime = endTime
+        self.timeInterval = timeInterval
 
 
 def isYes(prompt):
@@ -197,7 +211,7 @@ def makeTimeFromStr(row, idx):
 
 
 def getTimeParams(row, indices):
-    # type: (List[str], Dict[str, int]) -> Tuple[datetime, datetime, int]
+    # type: (List[str], Dict[str, int]) -> TimeParams
     startTime = makeTimeFromStr(row, indices["startIdx"])
     endTime = makeTimeFromStr(row, indices["endIdx"])
 
@@ -205,7 +219,9 @@ def getTimeParams(row, indices):
     timeInterval = (int(timeIntervalStr) if timeIntervalStr
                     else MYSAMPLER_TIME_INTERVAL)
 
-    return startTime, endTime, timeInterval
+    timeParams = TimeParams(startTime, endTime, timeInterval)
+
+    return timeParams
 
 
 ############################################################################
