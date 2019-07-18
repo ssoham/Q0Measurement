@@ -190,7 +190,7 @@ class Container(object):
                     heaterDes = desValSet.pop()
                     heaterAct = mean(heaterActVals)
 
-                    print("Stable period found!")
+                    print("Stable period found.")
                     formatter = "{THING} is {VAL}"
                     print(formatter.format(THING="Desired JT valve position",
                                            VAL=desPos))
@@ -410,7 +410,7 @@ class Cryomodule(Container):
         dirStr = "up" if perHeaterDelta > 0 else "down"
         formatter.format(NUM=self.cryModNumSLAC, DIR=dirStr,
                          VAL=abs(perHeaterDelta))
-        writeAndWait(formatter, 2)
+        print(formatter)
 
         for heaterSetpointPV in self.heaterDesPVs:
             currVal = float(cagetPV(heaterSetpointPV))

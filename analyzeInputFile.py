@@ -159,8 +159,10 @@ class BasicInputFileParser(InputFileParser):
                 options[idx] = "Use a different calibration"
                 printOptions(options)
 
-                selection = getNumInputFromLst("Please select a calibration"
-                                               " option: ", options.keys(), int)
+                prompt = ("Please select a calibration option"
+                          " (hit enter for option 1): ")
+                selection = getNumInputFromLst(prompt, options.keys(), int,
+                                               True)
 
                 reuseCalibration = (selection != max(options))
 

@@ -350,7 +350,7 @@ def getSelection(duration, suffix, options):
         i += 1
 
     printOptions(renumberedOptions)
-    formatter = "Please select a {TYPE} option (hit enter to use most recent): "
+    formatter = "Please select a {TYPE} option (hit enter for option 1): "
     selection = getNumInputFromLst(formatter.format(TYPE=suffix),
                                    renumberedOptions.keys(), int, True)
 
