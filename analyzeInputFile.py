@@ -128,6 +128,7 @@ class BasicInputFileParser(InputFileParser):
         super(BasicInputFileParser, self).__init__(inputFile)
 
     def genQ0Session(self, refGradVal, slacNum, cavity, calibSession):
+        # type: (float, int, Cavity, CalibDataSession) -> Q0DataSession
         return self.cavManager.genQ0Session(refGradVal=refGradVal,
                                             slacNum=slacNum, cavity=cavity,
                                             calibSession=calibSession)
@@ -145,7 +146,7 @@ class BasicInputFileParser(InputFileParser):
                 idx2session = {}
 
                 # Multiple rows in the input file may have the same SLAC
-                # cryomodule number. However, they might want to use
+                # cryomodule number. However, the user might want to use
                 # different calibrations. This is where we give the user the
                 # option to reuse a calibration we've already loaded up and
                 # processed.
@@ -381,7 +382,7 @@ class CavityDataManager(DataManager):
         q0Session.updateOutput()
 
     def genQ0Session(self, refGradVal, slacNum, cavity, calibSession):
-        # type: (float, int, Cavity, CalibDataSession) -> None
+        # type: (float, int, Cavity, CalibDataSession) -> Q0DataSession
 
         self.populateIdxMap(slacNum=slacNum)
 

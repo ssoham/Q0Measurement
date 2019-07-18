@@ -107,6 +107,11 @@ class Container(object):
              calibSession=None, refGradVal=None):
         raise NotImplementedError
 
+    # getRefValveParams searches over the last timeRange hours for a period
+    # when the liquid level was stable and then fetches an averaged JT valve
+    # position during that time as well as summed cavity heater DES and ACT
+    # values. All three numbers get packaged and returned in a ValveParams
+    # object.
     # noinspection PyTupleAssignmentBalance,PyTypeChecker
     def getRefValveParams(self, timeRange=JT_SEARCH_TIME_RANGE):
         # type: (float) -> ValveParams
@@ -119,7 +124,7 @@ class Container(object):
         #     print("\nDesired JT Valve position is {POS}".format(POS=desPos))
         #     return desPos
 
-        print("\nDetermining Required JT Valve Position...")
+        print("\nDetermining required JT Valve position...")
 
         loopStart = datetime.now()
         searchStart = loopStart - timedelta(hours=HOURS_NEEDED_FOR_FLATNESS)
@@ -128,17 +133,21 @@ class Container(object):
                         * (HOURS_NEEDED_FOR_FLATNESS * 60))
 
         while (loopStart - searchStart) <= timedelta(hours=timeRange):
-            print(searchStart)
+
+            formatter = "Checking {START} to {END} for liquid level stability."
+            searchEnd = searchStart + timedelta(hours=HOURS_NEEDED_FOR_FLATNESS)
+            startStr = searchStart.strftime("%m/%d/%y %H:%M:%S")
+            endStr = searchEnd.strftime("%m/%d/%y %H:%M:%S")
+            print(formatter.format(START=startStr, END=endStr))
 
             csvReaderLL = getAndParseRawData(searchStart, numPoints,
-                                             [self.dsLevelPV])
+                                             [self.dsLevelPV], verbose=False)
 
             csvReaderLL.next()
             llVals = []
 
             for row in csvReaderLL:
                 try:
-                    # valveVals.append(float(row.pop()))
                     llVals.append(float(row.pop()))
                 except ValueError:
                     pass
@@ -146,16 +155,18 @@ class Container(object):
             # Fit a line to the liquid level over the last [numHours] hours
             m, b, _, _, _ = linregress(range(len(llVals)), llVals)
 
-            # If the LL slope is small enough, return the average JT valve
-            # position over the requested time span
+            # If the LL slope is small enough, this may be a good period from
+            # which to get a reference valve position & heater params
             if log10(abs(m)) < -5:
 
-                signals = ([self.valvePV] + self.heaterDesPVs + self.heaterActPVs)
+                signals = ([self.valvePV] + self.heaterDesPVs
+                           + self.heaterActPVs)
 
                 (header, heaterActCols, heaterDesCols, _,
                  csvReader) = getDataAndHeaterCols(searchStart, numPoints,
                                                    self.heaterDesPVs,
-                                                   self.heaterActPVs, signals)
+                                                   self.heaterActPVs, signals,
+                                                   verbose=False)
 
                 valveVals = []
                 heaterDesVals = []
@@ -172,15 +183,19 @@ class Container(object):
 
                 desValSet = set(heaterDesVals)
 
+                # We only want to use time periods in which there were no
+                # changes made to the heater settings
                 if len(desValSet) == 1:
                     desPos = round(mean(valveVals), 1)
                     heaterDes = desValSet.pop()
                     heaterAct = mean(heaterActVals)
 
-                    formatter = "\nDesired {THING} is {VAL}"
-                    print(formatter.format(THING="JT Valve position",
+                    print("Stable period found!")
+                    formatter = "{THING} is {VAL}"
+                    print(formatter.format(THING="Desired JT valve position",
                                            VAL=desPos))
-                    print(formatter.format(THING="heat load", VAL=heaterDes))
+                    print(formatter.format(THING="Total heater DES setting",
+                                           VAL=heaterDes))
 
                     return ValveParams(desPos, heaterDes, heaterAct)
 
@@ -196,7 +211,8 @@ class Container(object):
                      "regulate the JT valve position.")
         print(complaint.format(NUM=timeRange))
 
-        writeAndWait("\nWaiting 15 minutes for LL to stabilize then retrying...")
+        writeAndWait("\nWaiting 15 minutes for LL to"
+                     " stabilize then retrying...")
 
         start = datetime.now()
         while (datetime.now() - start).total_seconds() < 900:
@@ -387,9 +403,14 @@ class Cryomodule(Container):
         return ([self.valvePV, self.dsLevelPV, self.usLevelPV]
                 + self.heaterDesPVs + self.heaterActPVs)
 
-    # TODO rename to iterations
     def walkHeaters(self, perHeaterDelta):
         # type: (float) -> None
+
+        formatter = "\nWalking CM{NUM} heaters {DIR} by {VAL}"
+        dirStr = "up" if perHeaterDelta > 0 else "down"
+        formatter.format(NUM=self.cryModNumSLAC, DIR=dirStr,
+                         VAL=abs(perHeaterDelta))
+        writeAndWait(formatter, 2)
 
         for heaterSetpointPV in self.heaterDesPVs:
             currVal = float(cagetPV(heaterSetpointPV))
@@ -588,10 +609,14 @@ class Cavity(Container):
         # negative if we're decrementing heat
         step = 1 if heatDelta > 0 else -1
 
+        formatter = "\nWalking cavity {NUM} heater to {{VAL}}"
+        formatter.format(NUM=self.cavNum)
+
         for _ in range(abs(heatDelta)):
             currVal = float(cagetPV(self.heaterDesPV))
-            caputPV(self.heaterDesPV, str(currVal + step))
-            writeAndWait("\nWaiting 2 seconds for cryo to stabilize...\n", 2)
+            newVal = currVal + step
+            caputPV(self.heaterDesPV, str(newVal))
+            writeAndWait(formatter.format(VAL=newVal), 2)
 
     # refGradVal and calibSession are required parameters but are nullable to
     # match the signature in Container

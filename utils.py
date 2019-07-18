@@ -13,6 +13,7 @@ from csv import reader
 from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
+from collections import OrderedDict
 #from typing import List, Callable, Union, Dict, Tuple, Optional
 
 # Set True to use a known data set for debugging and/or demoing
@@ -121,15 +122,19 @@ def get_float_lim(prompt, low_lim, high_lim):
     return getNumericalInput(prompt, low_lim, high_lim, float)
 
 
-def getNumInputFromLst(prompt, lst, inputType):
+def getNumInputFromLst(prompt, lst, inputType, allowNoResponse=False):
     # type: (str, List[Union[int, float]], Callable) -> Union[float, int]
-    response = get_input(prompt, inputType)
+    response = get_input(prompt, inputType, allowNoResponse)
     while response not in lst:
-        stderr.write(ERROR_MESSAGE + "\n")
-        # Need to pause briefly for some reason to make sure the error message
-        # shows up before the next prompt
-        sleep(0.01)
-        response = get_input(prompt, inputType)
+        # If the user just hits enter, return the first number in the list
+        if allowNoResponse and response == "":
+            return lst[0]
+        else:
+            stderr.write(ERROR_MESSAGE + "\n")
+            # Need to pause briefly for some reason to make sure the error message
+            # shows up before the next prompt
+            sleep(0.01)
+            response = get_input(prompt, inputType, allowNoResponse)
 
     return response
 
@@ -146,18 +151,24 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
     return response
 
 
-def get_input(prompt, desired_type):
+def get_input(prompt, desired_type, allowNoResponse=False):
     # type: (str, Callable) -> Union[int, float, str]
 
     # noinspection PyCompatibility
     response = raw_input(prompt)
+
+    # if allowNoResponse is True the user is permitted to just hit enter in
+    # response to the prompt, giving us an empty string regardless of the
+    # desired input type
+    if allowNoResponse and response == "":
+        return response
 
     try:
         response = desired_type(response)
     except ValueError:
         stderr.write(str(desired_type) + " required\n")
         sleep(0.01)
-        return get_input(prompt, desired_type)
+        return get_input(prompt, desired_type, allowNoResponse)
 
     return response
 
@@ -326,9 +337,24 @@ def getSelection(duration, suffix, options):
     options[max(options) + 1
             if options else 1] = ("Launch new {TYPE} ({DUR} hours)"
                                   .format(TYPE=suffix, DUR=duration))
-    printOptions(options)
-    return getNumInputFromLst(("Please select a {TYPE} option: "
-                               .format(TYPE=suffix)), options.keys(), int)
+
+    # The keys in options are line numbers in a CSV file. We want to present
+    # them to the user in a more friendly format, starting from 1 and counting
+    # up.
+    renumberedOptions = OrderedDict()
+    optionMap = {}
+    i = 1
+    for key in options:
+        renumberedOptions[i] = options[key]
+        optionMap[i] = key
+        i += 1
+
+    printOptions(renumberedOptions)
+    formatter = "Please select a {TYPE} option (hit enter to use most recent): "
+    selection = getNumInputFromLst(formatter.format(TYPE=suffix),
+                                   renumberedOptions.keys(), int, True)
+
+    return optionMap[selection]
 
 
 def drawAndShow():
@@ -337,14 +363,15 @@ def drawAndShow():
 
 
 def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
-                         allPVs, timeInt=MYSAMPLER_TIME_INTERVAL):
+                         allPVs, timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
 
     def populateHeaterCols(pvList, buff):
         # type: (List[str], List[float]) -> None
         for heaterPV in pvList:
             buff.append(header.index(heaterPV))
 
-    csvReader = getAndParseRawData(startTime, numPoints, allPVs, timeInt)
+    csvReader = getAndParseRawData(startTime, numPoints, allPVs, timeInt,
+                                   verbose)
 
     if not csvReader:
         return None
