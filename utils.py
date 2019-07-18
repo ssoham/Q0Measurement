@@ -13,7 +13,7 @@ from csv import reader
 from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
-from typing import List, Callable, Union, Dict, Tuple, Optional
+#from typing import List, Callable, Union, Dict, Tuple, Optional
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -59,7 +59,7 @@ NUM_CAL_RUNS = 10
 
 NUM_LL_POINTS_TO_AVE = 25
 
-MIN_LL_DIFF = 2
+MIN_LL_DIFF = 2.5
 
 CAVITY_HEATER_RUN_LOAD = 16
 

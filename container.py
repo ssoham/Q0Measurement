@@ -17,7 +17,7 @@ from matplotlib import pyplot as plt
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from abc import abstractproperty, ABCMeta, abstractmethod
-from typing import List, Dict, Optional, Union, Tuple
+#from typing import List, Dict, Optional, Union, Tuple
 from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POSITION_TOLERANCE, HEATER_TOLERANCE, GRAD_TOLERANCE,
                    MIN_RUN_DURATION, isYes, get_float_lim, writeAndWait,
@@ -128,6 +128,7 @@ class Container(object):
                         * (HOURS_NEEDED_FOR_FLATNESS * 60))
 
         while (loopStart - searchStart) <= timedelta(hours=timeRange):
+            print(searchStart)
 
             csvReaderLL = getAndParseRawData(searchStart, numPoints,
                                              [self.dsLevelPV])
@@ -147,10 +148,9 @@ class Container(object):
 
             # If the LL slope is small enough, return the average JT valve
             # position over the requested time span
-            if log10(abs(m) < -5):
+            if log10(abs(m)) < -5:
 
-                signals = (self.heaterDesPVs
-                           + self.heaterActPVs).append(self.valvePV)
+                signals = ([self.valvePV] + self.heaterDesPVs + self.heaterActPVs)
 
                 (header, heaterActCols, heaterDesCols, _,
                  csvReader) = getDataAndHeaterCols(searchStart, numPoints,
@@ -429,6 +429,18 @@ class Cryomodule(Container):
             valveParams = self.getRefValveParams()
 
         self.waitForCryo(valveParams.refValvePos)
+        
+        heatLoad = 0
+        for pv in self.heaterDesPVs:
+            heatLoad += float(cagetPV(pv))
+            
+        writeAndWait("\nWaiting for total heater setting to be {LOAD} W..."
+                     .format(LOAD=valveParams.refHeatLoadDes))
+        while heatLoad != valveParams.refHeatLoadDes:
+            writeAndWait(".", 5)
+            heatLoad = 0
+            for pv in self.heaterDesPVs:
+                heatLoad += float(cagetPV(pv))
 
         startTime = datetime.now()
 
@@ -1138,6 +1150,18 @@ class Cavity(Container):
                 valveParams = self.getRefValveParams()
 
             self.waitForCryo(valveParams.refValvePos)
+            
+            heatLoad = 0
+            for pv in self.heaterDesPVs:
+                heatLoad += float(cagetPV(pv))
+                
+            writeAndWait("\nWaiting for total heater setting to be {LOAD} W..."
+                         .format(LOAD=valveParams.refHeatLoadDes))
+            while heatLoad != valveParams.refHeatLoadDes:
+                writeAndWait(".", 5)
+                heatLoad = 0
+                for pv in self.heaterDesPVs:
+                    heatLoad += float(cagetPV(pv))
 
             self.checkAcqControl()
             self.setPowerStateSSA(True)
@@ -1546,6 +1570,7 @@ class DataSession(object):
             # noinspection PyTypeChecker
             cutoff = int(totalHeatDelta * 25) - 30
             cutoff = cutoff if cutoff >= 0 else 0
+            #cutoff = 0
 
             run.diagnostics["Cutoff"] = cutoff
 

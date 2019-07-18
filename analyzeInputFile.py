@@ -14,8 +14,10 @@ from container import (Cryomodule, Cavity,
                        Q0DataSession, CalibDataSession)
 from utils import (getNumInputFromLst, isYes, TEST_MODE, printOptions,
                    addOption, getSelection, drawAndShow, ValveParams)
-from typing import Optional, List, Tuple
+#from typing import Optional, List, Tuple
 from os.path import isfile
+from numpy import mean
+from decimal import Decimal
 
 
 class InputFileParser(object):
@@ -172,6 +174,18 @@ class BasicInputFileParser(InputFileParser):
             cryoModule = self.cryoModules[slacNum]
 
             calibSess.printSessionReport()
+            
+            calibCutoffs = [str(run.diagnostics["Cutoff"]) for run in calibSess.dataRuns]
+            
+            fname = "results/cm{CM}.csv".format(CM=slacNum)
+                
+            if not isfile(fname):
+                with open(fname, "w+") as f:
+                    csvWriter = writer(f, delimiter=',')
+                    csvWriter.writerow(["Cavity", "Gradient", "Q0",
+                                        "Calibration", "Q0 Measurement",
+                                        "Calibration Cutoffs",
+                                        "Q0 Cutoffs"])
 
             for _, cavity in cryoModule.cavities.items():
                 cavGradIdx = self.header.index("Cavity {NUM} Gradient"
@@ -186,8 +200,21 @@ class BasicInputFileParser(InputFileParser):
                       .format(CM=slacNum, CAV=cavity.cavNum,
                               GRAD=gradDes))
 
-                self.genQ0Session(refGradVal=gradDes, slacNum=slacNum,
-                                  cavity=cavity, calibSession=calibSess)
+                q0Sess = self.genQ0Session(refGradVal=gradDes, slacNum=slacNum,
+                                           cavity=cavity,
+                                           calibSession=calibSess)
+                                           
+                q0s = [q0Sess.dataRuns[runIdx].q0 for runIdx in q0Sess.rfRunIdxs]
+                q0Cutoffs = [str(run.diagnostics["Cutoff"]) for run in q0Sess.dataRuns]
+                
+                with open(fname, "a") as f:
+                    csvWriter = writer(f, delimiter=',')
+                    csvWriter.writerow([cavity.cavNum, gradDes,
+                                        '{:.2e}'.format(Decimal(mean(q0s))),
+                                        str(calibSess), str(q0Sess),
+                                        " | ".join(calibCutoffs),
+                                        " | ".join(q0Cutoffs)])
+                
 
             self.saveFigs(cryoModule)
 
@@ -363,6 +390,7 @@ class CavityDataManager(DataManager):
                                         calibSession=calibSession)
 
         q0Session.updateOutput()
+        return q0Session
 
     def addDataSession(self, slacNum, container, refGradVal=None,
                        calibSession=None):
