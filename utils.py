@@ -22,8 +22,8 @@ TEST_MODE = False
 
 # The relationship between the LHE content of a cryomodule and the readback from
 # the liquid level sensors isn't linear over the full range of the sensors. We
-# have chosen to gather all our data with the downstream sensor reading between
-# 90% and 95%.
+# have chosen to gather all our data with the downstream sensor above 90%. When
+# refilling the cryomodule we refill to at least 95%.
 MIN_DS_LL = 90
 MAX_DS_LL = 95
 
@@ -35,8 +35,13 @@ VALVE_POSITION_TOLERANCE = 2
 # Used to reject data where the cavity heater wasn't at the correct value
 HEATER_TOLERANCE = 1.5
 
-# The minimum acceptable run length is fifteen minutes  (900 seconds)
+# The minimum acceptable run length is ten minutes (600 seconds)
 MIN_RUN_DURATION = 600
+
+# TODO rename this to TARGET_LL_DIFF
+# We want the liquid level to drop by at least 2.5% during our runs. This isn't
+# actually enforced however, unlike the run duration.
+MIN_LL_DIFF = 2.5
 
 # Used to reject data where the cavity gradient wasn't at the correct value
 GRAD_TOLERANCE = 0.7
@@ -60,16 +65,12 @@ NUM_CAL_RUNS = 10
 
 NUM_LL_POINTS_TO_AVE = 25
 
-MIN_LL_DIFF = 2.5
-
 CAVITY_HEATER_RUN_LOAD = 16
 
 CAL_HEATER_DELTA = 0.2
 
 JT_SEARCH_TIME_RANGE = 24
-
 JT_SEARCH_HOURS_PER_STEP = 0.5
-
 HOURS_NEEDED_FOR_FLATNESS = 1.5
 
 
@@ -358,12 +359,17 @@ def getSelection(duration, suffix, options):
 
 
 def drawAndShow():
+    # type: () -> None
     plt.draw()
     plt.show()
 
 
+# Gets raw data from MySampler and does some of the prep work necessary for
+# collapsing all of the heater DES and ACT values down into summed values
+# (rewrites the CSV header, stores the indices for the heater DES and ACT PVs)
 def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
                          allPVs, timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
+    # type: (datetime, int, List[str], List[str], List[str], int, bool) -> Optional[List[str], List[int], List[int], List[int], _reader]
 
     def populateHeaterCols(pvList, buff):
         # type: (List[str], List[float]) -> None
@@ -399,6 +405,8 @@ def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
 
 
 def collapseHeaterVals(row, heaterDesCols, heaterActCols):
+    # type: (List[str], List[int], List[int]) -> Tuple[Optional[float], Optional[float]]
+
     heatLoadSetpoint = 0
 
     for col in heaterDesCols:

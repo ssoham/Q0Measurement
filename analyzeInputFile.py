@@ -217,8 +217,7 @@ class BasicInputFileParser(InputFileParser):
                                         str(calibSess), str(q0Sess),
                                         " | ".join(calibCutoffs),
                                         " | ".join(q0Cutoffs)])
-                
-
+            
             self.saveFigs(cryoModule)
 
         drawAndShow()
@@ -590,7 +589,7 @@ class CryModDataManager(DataManager):
                                                           int))
 
             (calibSession,
-             self.parent.refValvePos) = container.runCalibration(self.parent.refValvePos)
+             self.parent.valveParams) = container.runCalibration(self.parent.valveParams)
 
             return calibSession
 
