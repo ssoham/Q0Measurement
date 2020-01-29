@@ -14,7 +14,7 @@ from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from collections import OrderedDict
-#from typing import List, Callable, Union, Dict, Tuple, Optional
+from typing import List, Callable, Union, Dict, Tuple, Optional
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -38,10 +38,9 @@ HEATER_TOLERANCE = 1.5
 # The minimum acceptable run length is ten minutes (600 seconds)
 MIN_RUN_DURATION = 600
 
-# TODO rename this to TARGET_LL_DIFF
 # We want the liquid level to drop by at least 2.5% during our runs. This isn't
 # actually enforced however, unlike the run duration.
-MIN_LL_DIFF = 2.5
+TARGET_LL_DIFF = 2.5
 
 # Used to reject data where the cavity gradient wasn't at the correct value
 GRAD_TOLERANCE = 0.7
@@ -59,13 +58,12 @@ ERROR_MESSAGE = "Please provide valid input"
 FNULL = open(devnull, "w")
 
 # TODO: Add an INITIAL_CAL_HEAT_LOAD or something like that
-# TODO: Change this constant to NUM_CAL_STEPS
 # The number of distinct heater settings we're using for cryomodule calibrations
-NUM_CAL_RUNS = 10
+NUM_CAL_STEPS = 10
 
-NUM_LL_POINTS_TO_AVE = 25
+NUM_LL_POINTS_TO_AVG = 25
 
-CAVITY_HEATER_RUN_LOAD = 16
+CAV_HEATER_RUN_LOAD = 16
 
 CAL_HEATER_DELTA = 0.2
 
@@ -124,7 +122,7 @@ def get_float_lim(prompt, low_lim, high_lim):
 
 
 def getNumInputFromLst(prompt, lst, inputType, allowNoResponse=False):
-    # type: (str, List[Union[int, float]], Callable) -> Union[float, int]
+    # type: (str, List[Union[int, float]], Callable, bool) -> Union[float, int]
     response = get_input(prompt, inputType, allowNoResponse)
     while response not in lst:
         # If the user just hits enter, return the first number in the list
@@ -153,10 +151,10 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
 
 
 def get_input(prompt, desired_type, allowNoResponse=False):
-    # type: (str, Callable) -> Union[int, float, str]
+    # type: (str, Callable, bool) -> Union[int, float, str]
 
     # noinspection PyCompatibility
-    response = raw_input(prompt)
+    response = input(prompt)
 
     # if allowNoResponse is True the user is permitted to just hit enter in
     # response to the prompt, giving us an empty string regardless of the

@@ -23,15 +23,15 @@ from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POSITION_TOLERANCE, HEATER_TOLERANCE, GRAD_TOLERANCE,
                    MIN_RUN_DURATION, isYes, get_float_lim, writeAndWait,
                    MAX_DS_LL, cagetPV, caputPV, getTimeParams, MIN_DS_LL,
-                   getAndParseRawData, genAxis, NUM_CAL_RUNS, NUM_LL_POINTS_TO_AVE,
-                   CAVITY_HEATER_RUN_LOAD, MIN_LL_DIFF, CAL_HEATER_DELTA,
+                   getAndParseRawData, genAxis, NUM_CAL_STEPS, NUM_LL_POINTS_TO_AVG,
+                   CAV_HEATER_RUN_LOAD, TARGET_LL_DIFF, CAL_HEATER_DELTA,
                    JT_SEARCH_TIME_RANGE, JT_SEARCH_HOURS_PER_STEP,
                    HOURS_NEEDED_FOR_FLATNESS, getDataAndHeaterCols,
                    collapseHeaterVals, ValveParams, TimeParams)
 
 
 RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
-                   "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=MIN_LL_DIFF))
+                   "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
 
 
 class Container(object):
@@ -323,7 +323,7 @@ class Cryomodule(Container):
         self.cavities = OrderedDict(
             sorted(cavities.items()))  # type: OrderedDict[int, Cavity]
 
-        self._dsRollingBuff = empty(NUM_LL_POINTS_TO_AVE)
+        self._dsRollingBuff = empty(NUM_LL_POINTS_TO_AVG)
         self._dsRollingBuff[:] = nan
 
         self._idxFile = ("calibrations/calibrationsCM{CM}.csv"
@@ -362,8 +362,8 @@ class Cryomodule(Container):
     def liquidLevelDS(self):
         # type: () -> float
         try:
-            start = datetime.now() - timedelta(seconds=NUM_LL_POINTS_TO_AVE)
-            dsValReader = getAndParseRawData(start, NUM_LL_POINTS_TO_AVE,
+            start = datetime.now() - timedelta(seconds=NUM_LL_POINTS_TO_AVG)
+            dsValReader = getAndParseRawData(start, NUM_LL_POINTS_TO_AVG,
                                              [self.dsLevelPV],
                                              MYSAMPLER_TIME_INTERVAL,
                                              False)
@@ -372,7 +372,7 @@ class Cryomodule(Container):
             dsValReader.next()
 
             for row in dsValReader:
-                idx = (dsValReader.line_num - 2) % NUM_LL_POINTS_TO_AVE
+                idx = (dsValReader.line_num - 2) % NUM_LL_POINTS_TO_AVG
                 self._dsRollingBuff[idx] = float(row[1])
 
             return nanmean(self._dsRollingBuff)
@@ -451,7 +451,7 @@ class Cryomodule(Container):
             startingLevel = self.liquidLevelDS
             avgLevel = startingLevel
 
-            while ((startingLevel - avgLevel) < MIN_LL_DIFF and (
+            while ((startingLevel - avgLevel) < TARGET_LL_DIFF and (
                     avgLevel > MIN_DS_LL)):
                 writeAndWait(".", 10)
                 avgLevel = self.liquidLevelDS
@@ -469,16 +469,16 @@ class Cryomodule(Container):
         startTime = datetime.now().replace(microsecond=0)
 
         launchHeaterRun(1)
-        if (self.liquidLevelDS - MIN_DS_LL) < MIN_LL_DIFF:
+        if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
             print("Please ask the cryo group to refill to {LL} on the"
                   " downstream sensor".format(LL=MAX_DS_LL))
 
             self.waitForCryo(valveParams.refValvePos)
 
-        for _ in range(NUM_CAL_RUNS - 1):
+        for _ in range(NUM_CAL_STEPS - 1):
             launchHeaterRun()
 
-            if (self.liquidLevelDS - MIN_DS_LL) < MIN_LL_DIFF:
+            if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
                 print("Please ask the cryo group to refill to {LL} on the"
                       " downstream sensor".format(LL=MAX_DS_LL))
 
@@ -499,7 +499,7 @@ class Cryomodule(Container):
         # Walking the heaters back to their starting settings
         # self.walkHeaters(-NUM_CAL_RUNS)
 
-        self.walkHeaters(-((NUM_CAL_RUNS * CAL_HEATER_DELTA) + 1))
+        self.walkHeaters(-((NUM_CAL_STEPS * CAL_HEATER_DELTA) + 1))
 
         timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
 
@@ -1084,7 +1084,7 @@ class Cavity(Container):
 
         writeAndWait(
             "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
-                MIN=minLL, DIFF=MIN_LL_DIFF))
+                MIN=minLL, DIFF=TARGET_LL_DIFF))
 
         gradient = float(cagetPV(self.gradPV))
 
@@ -1092,7 +1092,8 @@ class Cavity(Container):
         avgLevel = startingLevel
 
         # TODO figure out how to squish this with FE measurements
-        while (startingLevel - avgLevel) < 2 and (avgLevel > minLL):
+        while ((startingLevel - avgLevel) < TARGET_LL_DIFF
+               and (avgLevel > minLL)):
 
             currAmp = float(cagetPV(amplitudePV))
             gradient = self.checkForQuench(gradient)
@@ -1148,9 +1149,9 @@ class Cavity(Container):
         print("**** REMINDER: refills aren't automated - please contact the"
               " cryo group ****")
 
-        self.walkHeater(CAVITY_HEATER_RUN_LOAD)
+        self.walkHeater(CAV_HEATER_RUN_LOAD)
 
-        if (self.liquidLevelDS - MIN_DS_LL) < MIN_LL_DIFF:
+        if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
             print("Please ask the cryo group to refill to {LL} on the"
                   " downstream sensor".format(LL=MAX_DS_LL))
 
@@ -1162,12 +1163,13 @@ class Cavity(Container):
 
         writeAndWait(
             "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
-                MIN=MIN_DS_LL, DIFF=MIN_LL_DIFF))
+                MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
 
         startingLevel = self.liquidLevelDS
         avgLevel = startingLevel
 
-        while (startingLevel - avgLevel) < 2 and (avgLevel > MIN_DS_LL):
+        while ((startingLevel - avgLevel) < TARGET_LL_DIFF
+               and (avgLevel > MIN_DS_LL)):
             writeAndWait(".", 15)
             avgLevel = self.liquidLevelDS
 
@@ -1177,7 +1179,7 @@ class Cavity(Container):
         duration = (endTime - startTime).total_seconds() / 3600
         print("Duration in hours: {DUR}".format(DUR=duration))
 
-        self.walkHeater(-CAVITY_HEATER_RUN_LOAD)
+        self.walkHeater(-CAV_HEATER_RUN_LOAD)
 
         return endTime
 
@@ -1452,7 +1454,7 @@ class DataSession(object):
         # type: () -> None
 
         self.parseDataFromCSV()
-        self.dsLevelBuff = medfilt(self.dsLevelBuff, NUM_LL_POINTS_TO_AVE)
+        self.dsLevelBuff = medfilt(self.dsLevelBuff, NUM_LL_POINTS_TO_AVG)
         self.populateRuns()
 
         if not self.dataRuns:
