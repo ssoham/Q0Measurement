@@ -4,17 +4,18 @@
 # Authors: Lisa Zacarias, Ben Ripman
 ################################################################################
 
-from __future__ import division, print_function
+from __future__ import print_function, division
 
-from abc import ABCMeta, abstractproperty, abstractmethod
+from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
 from csv import reader, writer
 from matplotlib import pyplot as plt
 from container import (Cryomodule, Cavity,
                        Q0DataSession, CalibDataSession)
 from utils import (getNumInputFromLst, isYes, TEST_MODE, printOptions,
-                   addOption, getSelection, drawAndShow, ValveParams)
-#from typing import Optional, List, Tuple
+                   addOption, getSelection, drawAndShow, ValveParams,
+                   compatibleNext, compatibleMkdirs)
+from typing import Optional, List, Tuple
 from os.path import isfile
 from numpy import mean
 from decimal import Decimal
@@ -30,7 +31,7 @@ class InputFileParser(object):
         self.inputFile = inputFile
 
         self.csvReader = reader(open(inputFile))
-        self.header = self.csvReader.next()
+        self.header = compatibleNext(self.csvReader)
         self.slacNumIdx = self.header.index("SLAC Cryomodule Number")
 
         self.cryModManager = CryModDataManager(self)
@@ -183,6 +184,7 @@ class BasicInputFileParser(InputFileParser):
             fname = "results/cm{CM}.csv".format(CM=slacNum)
                 
             if not isfile(fname):
+                compatibleMkdirs(fname)
                 with open(fname, "w+") as f:
                     csvWriter = writer(f, delimiter=',')
                     csvWriter.writerow(["Cavity", "Gradient", "Q0",
@@ -247,15 +249,18 @@ class DataManager(object):
 
         self._idxKeys = None
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def header(self):
         raise NotImplementedError
     
-    @abstractproperty
+    @property
+    @abstractmethod
     def idxKeys(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def fileFormatter(self):
         raise NotImplementedError
 
@@ -293,7 +298,7 @@ class DataManager(object):
         sessionCSV = self.fileFormatter.format(CM_SLAC=slacNum)
         row = open(sessionCSV).readlines()[idx - 1]
 
-        selectedRow = reader([row]).next()
+        selectedRow = compatibleNext(reader([row]))
         refHeatLoad = float(selectedRow[self.idxMap[slacNum]["refHeatIdx"]])
         refHeatLoadAct = float(selectedRow[self.idxMap[slacNum]["refHeatActIdx"]])
 
@@ -306,7 +311,7 @@ class DataManager(object):
         def populate(fileObj, header=None):
             if not header:
                 csvReader = reader(fileObj)
-                header = csvReader.next()
+                header = compatibleNext(csvReader)
             indices = {}
             for key, column in self.idxKeys:
                 indices[key] = header.index(column)
@@ -315,6 +320,7 @@ class DataManager(object):
         if slacNum not in self.idxMap:
             sessionCSV = self.fileFormatter.format(CM_SLAC=slacNum)
             if not isfile(sessionCSV):
+                compatibleMkdirs(sessionCSV)
                 with open(sessionCSV, "w+") as f:
                     headerWriter = writer(f)
                     headerWriter.writerow(self.header)
@@ -329,7 +335,7 @@ class DataManager(object):
         # Reversing to get in chronological order (the program appends the most
         # recent sessions to the end of the file)
         rows.reverse()
-        reader([rows.pop()]).next()
+        compatibleNext(reader([rows.pop()]))
         fileReader = reader(rows)
         return fileReader, rows
 
@@ -343,7 +349,7 @@ class CavityDataManager(DataManager):
 
     @property
     def header(self):
-        return ["Cavity","Gradient", "JT Valve Position","Start","End",
+        return ["Cavity", "Gradient", "JT Valve Position", "Start", "End",
                 "Reference Heat Load (Des)", "Reference Heat Load (Act)",
                 "MySampler Time Interval"]
 
@@ -436,7 +442,7 @@ class CavityDataManager(DataManager):
 
         # If using an existing data session
         if selection != max(options):
-            selectedRow = reader([rows[selection - 1]]).next()
+            selectedRow = compatibleNext(reader([rows[selection - 1]]))
             refHeatLoad = float(selectedRow[indices["refHeatIdx"]])
             refHeatLoadAct = float(selectedRow[indices["refHeatActIdx"]])
             return container.addDataSessionFromRow(selectedRow, indices,
@@ -569,7 +575,7 @@ class CryModDataManager(DataManager):
 
         if selection != max(options):
 
-            calibRow = reader([rows[selection - 1]]).next()
+            calibRow = compatibleNext(reader([rows[selection - 1]]))
 
             if not container:
                 container = Cryomodule(slacNum,
@@ -600,5 +606,5 @@ if __name__ == "__main__":
             AdvInputFileParser("testFiles/inputAdv.csv").parse()
         else:
             BasicInputFileParser("input.csv").parse()
-    except(KeyboardInterrupt):
+    except KeyboardInterrupt:
         print("\n\n:(\n")

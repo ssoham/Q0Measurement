@@ -6,15 +6,16 @@ from json import dumps
 
 # from builtins import input
 from time import sleep
-from sys import stdout, stderr
+from sys import stdout, stderr, version_info
 from subprocess import check_output, CalledProcessError, check_call
-from os import devnull
+from os import devnull, path, makedirs
 from csv import reader
 from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from collections import OrderedDict
 from typing import List, Callable, Union, Dict, Tuple, Optional
+from errno import EEXIST
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -153,7 +154,6 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
 def get_input(prompt, desired_type, allowNoResponse=False):
     # type: (str, Callable, bool) -> Union[int, float, str]
 
-    # noinspection PyCompatibility
     response = input(prompt)
 
     # if allowNoResponse is True the user is permitted to just hit enter in
@@ -424,3 +424,25 @@ def collapseHeaterVals(row, heaterDesCols, heaterActCols):
             break
 
     return heatLoadSetpoint, heatLoadAct
+
+
+def compatibleNext(csvReader):
+    # type: (_reader) -> List
+    if version_info[0] < 3:
+        return csvReader.next()
+    else:
+        return next(csvReader)
+
+
+def compatibleMkdirs(filename):
+    # type: (str) -> None
+    if version_info[0] < 3:
+        if not path.exists(path.dirname(filename)):
+            try:
+                makedirs(path.dirname(filename))
+            # Guard against race condition
+            except OSError as exc:
+                if exc.errno != EEXIST:
+                    raise
+    else:
+        makedirs(path.dirname(filename), exist_ok=True)

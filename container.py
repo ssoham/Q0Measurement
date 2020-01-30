@@ -11,23 +11,23 @@ from os.path import isfile
 from subprocess import CalledProcessError
 from time import sleep
 from numpy import mean, exp, log10, sqrt, linspace, empty, polyfit, nanmean, nan
-from numpy.core.multiarray import ndarray
 from scipy.stats import linregress
 from scipy.signal import medfilt
 from matplotlib import pyplot as plt
 from collections import OrderedDict
 from datetime import datetime, timedelta
-from abc import abstractproperty, ABCMeta, abstractmethod
-#from typing import List, Dict, Optional, Union, Tuple
+from abc import ABCMeta, abstractmethod
+from typing import List, Dict, Optional, Union
 from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POSITION_TOLERANCE, HEATER_TOLERANCE, GRAD_TOLERANCE,
-                   MIN_RUN_DURATION, isYes, get_float_lim, writeAndWait,
-                   MAX_DS_LL, cagetPV, caputPV, getTimeParams, MIN_DS_LL,
-                   getAndParseRawData, genAxis, NUM_CAL_STEPS, NUM_LL_POINTS_TO_AVG,
+                   MIN_RUN_DURATION, isYes, writeAndWait, MAX_DS_LL, cagetPV,
+                   caputPV, getTimeParams, MIN_DS_LL, getAndParseRawData,
+                   genAxis, NUM_CAL_STEPS, NUM_LL_POINTS_TO_AVG,
                    CAV_HEATER_RUN_LOAD, TARGET_LL_DIFF, CAL_HEATER_DELTA,
                    JT_SEARCH_TIME_RANGE, JT_SEARCH_HOURS_PER_STEP,
                    HOURS_NEEDED_FOR_FLATNESS, getDataAndHeaterCols,
-                   collapseHeaterVals, ValveParams, TimeParams)
+                   collapseHeaterVals, ValveParams, TimeParams, compatibleNext,
+                   compatibleMkdirs)
 
 
 RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
@@ -62,34 +62,41 @@ class Container(object):
 
         self.dataSessions = {}
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def name(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def idxFile(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def heaterDesPVs(self):
         # type: () -> List[str]
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def heaterActPVs(self):
         # type: () -> List[str]
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def liquidLevelDS(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def totalHeatDes(self):
         raise NotImplementedError
 
     @abstractmethod
-    def waitForTotalHeatDes(self):
+    def waitForTotalHeatDes(self, valveParams):
+        # type: (ValveParams) -> None
         raise NotImplementedError
 
     @abstractmethod
@@ -151,7 +158,7 @@ class Container(object):
             csvReaderLL = getAndParseRawData(searchStart, numPoints,
                                              [self.dsLevelPV], verbose=False)
 
-            csvReaderLL.next()
+            compatibleNext(csvReaderLL)
             llVals = []
 
             for row in csvReaderLL:
@@ -320,8 +327,7 @@ class Cryomodule(Container):
         # down the line (iterating over the cavities in a cryomodule), we
         # print the results in order (basic dictionaries aren't guaranteed to
         # be ordered)
-        self.cavities = OrderedDict(
-            sorted(cavities.items()))  # type: OrderedDict[int, Cavity]
+        self.cavities = OrderedDict(sorted(cavities.items()))  # type: OrderedDict[int, Cavity]
 
         self._dsRollingBuff = empty(NUM_LL_POINTS_TO_AVG)
         self._dsRollingBuff[:] = nan
@@ -339,6 +345,7 @@ class Cryomodule(Container):
         # type: () -> str
 
         if not isfile(self._idxFile):
+            compatibleMkdirs(self._idxFile)
             with open(self._idxFile, "w+") as f:
                 csvWriter = writer(f)
                 csvWriter.writerow(["JLAB Number", "Reference Heat Load (Des)",
@@ -369,7 +376,7 @@ class Cryomodule(Container):
                                              False)
 
             # Getting rid of the header
-            dsValReader.next()
+            compatibleNext(dsValReader)
 
             for row in dsValReader:
                 idx = (dsValReader.line_num - 2) % NUM_LL_POINTS_TO_AVG
@@ -390,7 +397,7 @@ class Cryomodule(Container):
     def waitForTotalHeatDes(self, valveParams):
         # type: (ValveParams) -> None
         writeAndWait("\nWaiting for total heater setting to be {LOAD} W..."
-             .format(LOAD=valveParams.refHeatLoadDes))
+                     .format(LOAD=valveParams.refHeatLoadDes))
         while self.totalHeatDes != valveParams.refHeatLoadDes:
             writeAndWait(".", 5)
 
@@ -549,6 +556,7 @@ class Cavity(Container):
     def idxFile(self):
         # type: () -> str
         if not isfile(self._idxFile):
+            compatibleMkdirs(self._idxFile)
             with open(self._idxFile, "w+") as f:
                 csvWriter = writer(f)
                 csvWriter.writerow(["Cavity", "Gradient",
@@ -999,6 +1007,7 @@ class Cavity(Container):
             filename = filename.replace(" ", "_")
             filename = filename.replace(":", "-")
 
+            compatibleMkdirs(filename)
             with open(filename, "w+") as f:
                 csvWriter = writer(f)
                 csvWriter.writerow(["time"] + self.fieldEmissionPVs)
@@ -1276,13 +1285,6 @@ class DataSession(object):
         self.timeParams = timeParams
         self.valveParams = valveParams
 
-        # self.refValvePos = valveParams.refValvePos
-        # self.refHeatLoad = valveParams.refHeatLoadDes
-        # self.refHeatLoadAct = valveParams.refHeatLoadAct
-        # self.timeInt = timeParams.timeInterval
-        # self.startTime = timeParams.startTime
-        # self.endTime = timeParams.endTime
-
         self.unixTimeBuff = []
         self.timeBuff = []
         self.valvePosBuff = []
@@ -1305,23 +1307,28 @@ class DataSession(object):
                         END=self.timeParams.endTime,
                         RATE=self.timeParams.timeInterval))
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def calibSlope(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def heatAdjustment(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def fileName(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def fileNameFormatter(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def adjustedRunSlopes(self):
         raise NotImplementedError
 
@@ -1431,7 +1438,7 @@ class DataSession(object):
             # We're collapsing the readback for each cavity's desired and actual
             # electric heat load into two sum columns (instead of 16 individual
             # columns)
-            # noinspection PyTypeChecker
+            compatibleMkdirs(self.fileName)
             with open(self.fileName, 'w+') as f:
                 csvWriter = writer(f, delimiter=',')
                 csvWriter.writerow(header)
@@ -1482,7 +1489,7 @@ class DataSession(object):
         with open(self.fileName) as csvFile:
 
             csvReader = reader(csvFile)
-            header = csvReader.next()
+            header = compatibleNext(csvReader)
 
             # Figures out the CSV column that has that PV's data and maps it
             for pv, dataBuffer in self.pvBuffMap.items():
@@ -1552,7 +1559,6 @@ class DataSession(object):
             # noinspection PyTypeChecker
             cutoff = int(totalHeatDelta * 25) - 30
             cutoff = cutoff if cutoff >= 0 else 0
-            #cutoff = 0
 
             run.diagnostics["Cutoff"] = cutoff
 
@@ -2065,15 +2071,18 @@ class DataRun(object):
         # if we're in test mode
         self.diagnostics = {}
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def name(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def adjustedTotalHeatLoad(self):
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def label(self):
         raise NotImplementedError
 
@@ -2225,8 +2234,10 @@ class RFDataRun(DataRun):
         if not self._calculatedQ0:
             q0s = []
             numInvalidGrads = 0
-            calcFile = "calculations/cm{NUM}/cav{CAV}.csv".format(NUM=self.dataSession.container.cryModNumSLAC, CAV=self.dataSession.container.cavNum)
-            
+            calcFile = "calculations/cm{NUM}/cav{CAV}.csv".format(NUM=self.dataSession.container.cryModNumSLAC,
+                                                                  CAV=self.dataSession.container.cavNum)
+
+            compatibleMkdirs(calcFile)
             with open(calcFile, "w+") as f:
                 csvWriter = writer(f, delimiter=',')
                 csvWriter.writerow(["Gradient", "RF Heat Load", "Pressure",
