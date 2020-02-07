@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from abc import ABCMeta, abstractmethod
 from typing import List, Dict, Optional, Union
 from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
-                   VALVE_POSITION_TOLERANCE, HEATER_TOLERANCE, GRAD_TOLERANCE,
+                   VALVE_POS_TOL, HEATER_TOL, GRAD_TOL,
                    MIN_RUN_DURATION, isYes, writeAndWait, MAX_DS_LL, cagetPV,
                    caputPV, getTimeParams, MIN_DS_LL, getAndParseRawData,
                    genAxis, NUM_CAL_STEPS, NUM_LL_POINTS_TO_AVG,
@@ -774,7 +774,6 @@ class Cavity(Container):
                 askForVerification("{CONTROL} crashed. ".format(CONTROL=suffix),
                                    "rerun")
 
-            # sleep(10)
 
         def checkAndPush(basePV, pushPV, param, tol, newPV=None):
 
@@ -796,17 +795,17 @@ class Cavity(Container):
         pushAndWait("SSACAL")
 
         checkAndPush("SSA:SLOPE", "PUSH_SSASLOPE.PROC", "slopes", 0.15)
-        # checkAndPush("SSA:SLOPE", "PUSH_SSASLOPE.PROC", "slopes")
+
+        # TODO confirm with Janice what should actually be here
+        caputPV(self.genAcclPV("INTLK_RESET_ALL"), "1")
+        sleep(2)
 
         pushAndWait("PROBECAL")
 
         checkAndPush("QLOADED", "PUSH_QLOADED.PROC", "Loaded Qs", 0.15e7)
-        # checkAndPush("QLOADED", "PUSH_QLOADED.PROC", "Loaded Qs")
 
         checkAndPush("CAV:SCALER_SEL.B", "PUSH_CAV_SCALE.PROC", "Cavity Scales",
                      0.2, "CAV:CAL_SCALEB_NEW")
-        # checkAndPush("CAV:SCALER_SEL.B", "PUSH_CAV_SCALE.PROC", "Cavity Scales",
-        #            "CAV:CAL_SCALEB_NEW")
 
     # Switches the cavity to a given operational mode (pulsed, CW, etc.)
     def setModeRF(self, modeDesired):
@@ -1582,11 +1581,11 @@ class DataSession(object):
         liqLevelTooLow = (self.dsLevelBuff[idx] < MIN_DS_LL)
         valveOutsideTol = (abs(self.valvePosBuff[idx]
                                - self.valveParams.refValvePos)
-                           > VALVE_POSITION_TOLERANCE)
+                           > VALVE_POS_TOL)
         isLastElement = (idx == len(self.elecHeatDesBuff) - 1)
 
         heatersOutsideTol = (abs(elecHeatLoadDes - self.elecHeatActBuff[idx])
-                             >= HEATER_TOLERANCE)
+                             >= HEATER_TOL)
 
         # A "break" condition defining the end of a run if the desired heater
         # value changed, or if the upstream liquid level dipped below the
@@ -1917,7 +1916,7 @@ class Q0DataSession(DataSession):
 
             try:
                 gradChanged = (abs(self.gradBuff[idx] - self.gradBuff[idx - 1])
-                               > GRAD_TOLERANCE) if idx != 0 else False
+                               > GRAD_TOL) if idx != 0 else False
             except TypeError:
                 gradChanged = False
 

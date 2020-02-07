@@ -59,11 +59,11 @@ found in step 1.
 3) Increases the heat load on the cryomodule by 8 W using the heaters 
 (distributed evenly across them)
 
-4) Waits for the liquid level to drop by 2% (The amount we've empirically determined
+4) Waits for the liquid level to drop by 2.5% (The amount we've empirically determined
 is necessary for a good linear fit).
 
 5) Prompts the user to ask cryo to refill to 95% if the current liquid level is below
-92%.
+92.5%.
 
 6) Repeats steps 2 through 5 10 more times, except with a heat load increment of 1.6 W
 instead of 8.
@@ -73,7 +73,7 @@ Run the other handy dandy script! But as to what the script does per cavity:
 1) Determines a new JT Valve position if necessary (using the same method as in
 Calibration step 1)
 
-2) Checks that the downstream liquid level is above 92% and that the valve is
+2) Checks that the downstream liquid level is above 92.5% and that the valve is
 locked to the correct value
 
 1) Makes sure that all the waveform acquisition controls are enabled/at the
@@ -95,7 +95,7 @@ to 0 as possible
 8) Goes to CW mode
 
 9) Walks the gradient up to the requested value (usually 16 MV/m) and holds it
-there until the liquid level drops 2% (with some quench detection built in that
+there until the liquid level drops 2.5% (with some quench detection built in that
 triggers an abort)
 
 10) Powers down the RF
@@ -103,7 +103,7 @@ triggers an abort)
 11) Launches a heater run to be used for error correction during analysis (in
 order to find an offset for the RF heat load)
     1) Increases each heater by 2 W
-    2) Holds until the downstream liquid level drops by 2%
+    2) Holds until the downstream liquid level drops by 2.5%
     3) Decreases each heater by 2 W
     
 ### Analysis ###

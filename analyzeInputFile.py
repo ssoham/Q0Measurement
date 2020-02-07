@@ -60,9 +60,11 @@ class InputFileParser(object):
         lastFigNum = len(plt.get_fignums()) + 1
         for i in range(self.figStartIdx, lastFigNum):
             plt.figure(i)
-            plt.savefig("figures/cm{NUM}/{CM}_{FIG}.png".format(NUM=cryoModule.cryModNumSLAC,
-                                                                CM=cryoModule.name,
-                                                                FIG=i))
+            figFile = ("figures/cm{NUM}/{CM}_{FIG}.png"
+                       .format(NUM=cryoModule.cryModNumSLAC, CM=cryoModule.name,
+                               FIG=i))
+            compatibleMkdirs(figFile)
+            plt.savefig(figFile)
         self.figStartIdx = lastFigNum
 
 

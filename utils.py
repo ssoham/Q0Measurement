@@ -16,6 +16,7 @@ from matplotlib.axes import Axes
 from collections import OrderedDict
 from typing import List, Callable, Union, Dict, Tuple, Optional
 from errno import EEXIST
+from six import moves
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -28,13 +29,13 @@ TEST_MODE = False
 MIN_DS_LL = 90
 MAX_DS_LL = 95
 
-UPSTREAM_LL_LOWER_LIMIT = 66
+MIN_US_LL = 66
 
 # Used to reject data where the JT valve wasn't at the correct position
-VALVE_POSITION_TOLERANCE = 2
+VALVE_POS_TOL = 2
 
 # Used to reject data where the cavity heater wasn't at the correct value
-HEATER_TOLERANCE = 1.5
+HEATER_TOL = 1.5
 
 # The minimum acceptable run length is ten minutes (600 seconds)
 MIN_RUN_DURATION = 600
@@ -44,7 +45,7 @@ MIN_RUN_DURATION = 600
 TARGET_LL_DIFF = 2.5
 
 # Used to reject data where the cavity gradient wasn't at the correct value
-GRAD_TOLERANCE = 0.7
+GRAD_TOL = 0.7
 
 # We fetch data from the JLab archiver with a program called MySampler, which
 # samples the chosen PVs at a user-specified time interval. Increase to improve
@@ -128,7 +129,9 @@ def getNumInputFromLst(prompt, lst, inputType, allowNoResponse=False):
     while response not in lst:
         # If the user just hits enter, return the first number in the list
         if allowNoResponse and response == "":
-            return lst[0]
+            # return lst[0]
+            # @pre First option should always be 1
+            return 1
         else:
             stderr.write(ERROR_MESSAGE + "\n")
             # Need to pause briefly for some reason to make sure the error message
@@ -154,7 +157,7 @@ def getNumericalInput(prompt, lowLim, highLim, inputType):
 def get_input(prompt, desired_type, allowNoResponse=False):
     # type: (str, Callable, bool) -> Union[int, float, str]
 
-    response = input(prompt)
+    response = moves.input(prompt)
 
     # if allowNoResponse is True the user is permitted to just hit enter in
     # response to the prompt, giving us an empty string regardless of the
@@ -195,7 +198,7 @@ def cagetPV(pv, startIdx=1, attempt=1):
             return cagetPV(pv, startIdx, attempt + 1)
 
     else:
-        raise CalledProcessError("caget failed too many timeStamps")
+        raise CalledProcessError("caget failed too many times")
 
 
 # noinspection PyArgumentList
@@ -440,7 +443,7 @@ def compatibleMkdirs(filename):
         if not path.exists(path.dirname(filename)):
             try:
                 makedirs(path.dirname(filename))
-            # Guard against race condition
+            # Guard against race condition per Stack Overflow
             except OSError as exc:
                 if exc.errno != EEXIST:
                     raise
