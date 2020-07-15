@@ -14,7 +14,7 @@ from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from collections import OrderedDict
-from typing import List, Callable, Union, Dict, Tuple, Optional
+from typing import List, Callable, Union, Dict, Tuple, Optional, KeysView
 from errno import EEXIST
 from six import moves
 
@@ -27,7 +27,7 @@ TEST_MODE = False
 # have chosen to gather all our data with the downstream sensor above 90%. When
 # refilling the cryomodule we refill to at least 95%.
 MIN_DS_LL = 90
-MAX_DS_LL = 95
+MAX_DS_LL = 94
 
 MIN_US_LL = 66
 
@@ -38,11 +38,11 @@ VALVE_POS_TOL = 2
 HEATER_TOL = 1.5
 
 # The minimum acceptable run length is ten minutes (600 seconds)
-MIN_RUN_DURATION = 600
+MIN_RUN_DURATION = 240
 
 # We want the liquid level to drop by at least 2.5% during our runs. This isn't
 # actually enforced however, unlike the run duration.
-TARGET_LL_DIFF = 2.5
+TARGET_LL_DIFF = 4
 
 # Used to reject data where the cavity gradient wasn't at the correct value
 GRAD_TOL = 0.7
@@ -61,17 +61,17 @@ FNULL = open(devnull, "w")
 
 # TODO: Add an INITIAL_CAL_HEAT_LOAD or something like that
 # The number of distinct heater settings we're using for cryomodule calibrations
-NUM_CAL_STEPS = 10
+NUM_CAL_STEPS = 12
 
 NUM_LL_POINTS_TO_AVG = 25
 
 CAV_HEATER_RUN_LOAD = 16
 
-CAL_HEATER_DELTA = 0.2
+CAL_HEATER_DELTA = 1
 
 JT_SEARCH_TIME_RANGE = 24
 JT_SEARCH_HOURS_PER_STEP = 0.5
-HOURS_NEEDED_FOR_FLATNESS = 1.5
+HOURS_NEEDED_FOR_FLATNESS = 2
 
 
 class ValveParams:
@@ -124,7 +124,7 @@ def get_float_lim(prompt, low_lim, high_lim):
 
 
 def getNumInputFromLst(prompt, lst, inputType, allowNoResponse=False):
-    # type: (str, List[Union[int, float]], Callable, bool) -> Union[float, int]
+    # type: (str, KeysView, Callable, bool) -> Union[float, int]
     response = get_input(prompt, inputType, allowNoResponse)
     while response not in lst:
         # If the user just hits enter, return the first number in the list
@@ -438,7 +438,7 @@ def compatibleNext(csvReader):
 
 
 def compatibleMkdirs(filename):
-    # type: (str) -> None
+    # type: (str) -> str
     if version_info[0] < 3:
         if not path.exists(path.dirname(filename)):
             try:
@@ -449,3 +449,5 @@ def compatibleMkdirs(filename):
                     raise
     else:
         makedirs(path.dirname(filename), exist_ok=True)
+
+    return filename
