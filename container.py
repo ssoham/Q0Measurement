@@ -503,29 +503,17 @@ class Cryomodule(Container):
                                      VAL=abs(perHeaterDelta))
         print(formatter)
 
-        if perHeaterDelta < 0:
-            steps = int(perHeaterDelta * 4)
-            stepDelta = perHeaterDelta / steps
+        # This whole thing is so that we only do 8W/min
+        steps = abs(int(perHeaterDelta))
+        stepDelta = perHeaterDelta / steps
 
-            for i in range(steps):
+        for i in range(steps):
 
-                for heaterSetpointPV in self.heaterDesPVs:
-                    currVal = float(cagetPV(heaterSetpointPV))
-                    caputPV(heaterSetpointPV, str(currVal + stepDelta))
+            for heaterSetpointPV in self.heaterDesPVs:
+                currVal = float(cagetPV(heaterSetpointPV))
+                caputPV(heaterSetpointPV, str(currVal + stepDelta))
 
-                sleep(60)
-
-        else:
-            steps = int(perHeaterDelta)
-            stepDelta = perHeaterDelta / steps
-
-            for i in range(steps):
-
-                for heaterSetpointPV in self.heaterDesPVs:
-                    currVal = float(cagetPV(heaterSetpointPV))
-                    caputPV(heaterSetpointPV, str(currVal + stepDelta))
-
-                sleep(60)
+            sleep(60)
 
         writeAndWait("\nWaiting 5s for cryo to stabilize...\n", 5)
 
