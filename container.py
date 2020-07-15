@@ -300,6 +300,10 @@ class Container(object):
             while float(cagetPV(self.cvMaxPV)) != refValvePos:
                 writeAndWait(".", 5)
 
+        # Wait for the valve position to be within tolerance before continuing
+        while abs(float(cagetPV(self.valvePV)) - refValvePos) > VALVE_POS_TOL:
+            writeAndWait(".", 5)
+
         writeAndWait(" JT Valve locked.")
 
     def addNumToStr(self, formatStr, suffix=None):
