@@ -59,7 +59,9 @@ ERROR_MESSAGE = "Please provide valid input"
 # This is used to suppress the output of the caput function.
 FNULL = open(devnull, "w")
 
-# TODO: Add an INITIAL_CAL_HEAT_LOAD or something like that
+# The starting point for our calibration
+INITIAL_CAL_HEAT_LOAD = 64
+
 # The number of distinct heater settings we're using for cryomodule calibrations
 NUM_CAL_STEPS = 12
 

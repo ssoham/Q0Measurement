@@ -27,7 +27,7 @@ from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    JT_SEARCH_TIME_RANGE, JT_SEARCH_HOURS_PER_STEP,
                    HOURS_NEEDED_FOR_FLATNESS, getDataAndHeaterCols,
                    collapseHeaterVals, ValveParams, TimeParams, compatibleNext,
-                   compatibleMkdirs)
+                   compatibleMkdirs, INITIAL_CAL_HEAT_LOAD)
 
 RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
                    "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
@@ -563,12 +563,14 @@ class Cryomodule(Container):
         if not valveParams:
             valveParams = self.getRefValveParams()
 
-        self.waitForTotalHeatDes(valveParams)
+        deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
 
         startTime = datetime.now().replace(microsecond=0)
 
-        self.launchHeaterRun(8)
+        self.walkHeaters((INITIAL_CAL_HEAT_LOAD + deltaTot) / 8)
         self.waitForCryo(valveParams.refValvePos)
+
+        self.launchHeaterRun(0)
         if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
             print("Please ask the cryo group to refill to {LL} on the"
                   " downstream sensor".format(LL=MAX_DS_LL))
@@ -686,13 +688,15 @@ class Cryomodule(Container):
             if not valveParams:
                 valveParams = self.getRefValveParams()
 
-            self.waitForCryo(valveParams.refValvePos)
-            self.waitForTotalHeatDes(valveParams)
+            deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
+            self.walkHeaters(deltaTot / 8)
 
             for cavity in self.cavities.values():
 
                 if cavity.cavNum not in desiredGradients:
                     continue
+
+                print("\nRunning up Cavity {CAV}...".format(CAV=cavity.cavNum))
 
                 cavity.checkAcqControl()
                 cavity.setPowerStateSSA(True)
@@ -722,6 +726,8 @@ class Cryomodule(Container):
 
                 cavity.walkToGradient(desiredGradients[cavity.cavNum])
 
+            self.waitForCryo(valveParams.refValvePos)
+
             startTime = self.holdGradient(desiredGradients).replace(microsecond=0)
 
             for cavity in self.cavities.values():
@@ -729,6 +735,7 @@ class Cryomodule(Container):
                 if cavity.cavNum not in desiredGradients:
                     continue
 
+                cavity.walkToGradient(5)
                 cavity.powerDown()
 
             self.waitForCryo(valveParams.refValvePos)
