@@ -63,6 +63,8 @@ class Container(object):
         self.q0DataSessions = {}
         self.calibDataSessions = {}
 
+        self.cavNum = None
+
     @property
     @abstractmethod
     def name(self):
@@ -494,8 +496,8 @@ class Cryomodule(Container):
         return ([self.valvePV, self.dsLevelPV, self.usLevelPV]
                 + self.heaterDesPVs + self.heaterActPVs)
 
-    def walkHeaters(self, perHeaterDelta):
-        # type: (float) -> None
+    def walkHeaters(self, perHeaterDelta, initial=None):
+        # type: (float, float) -> None
 
         formatter = "\nWalking CM{NUM} heaters {DIR} by {VAL}"
         dirStr = "up" if perHeaterDelta > 0 else "down"
@@ -600,7 +602,7 @@ class Cryomodule(Container):
         dataSession = self.addDataSession(timeParams, valveParams)
 
         # Record this calibration dataSession's metadata
-        with open(self.idxFile, 'a') as f:
+        with open(self.calibIdxFile, 'a') as f:
             csvWriter = writer(f)
             csvWriter.writerow([self.cryModNumJLAB, valveParams.refHeatLoadDes,
                                 valveParams.refHeatLoadAct,
@@ -666,7 +668,7 @@ class Cryomodule(Container):
 
                 prevDiffs[cavity.cavNum] = diff
 
-            writeAndWait(".", 5)
+            writeAndWait(".")
             avgLevel = self.liquidLevelDS
 
         print("\nEnd Time: {END}".format(END=datetime.now()))
@@ -730,8 +732,11 @@ class Cryomodule(Container):
                 cavity.walkToGradient(5)
                 cavity.powerDown()
 
-            self.waitForCryo(valveParams.refValvePos)
-            self.launchHeaterRun(16)
+            # self.waitForCryo(valveParams.refValvePos)
+            self.waitForLL()
+            self.walkHeaters(10, valveParams.refHeatLoadDes/8)
+            self.waitForJT(valveParams.refValvePos)
+            self.launchHeaterRun(0)
             endTime = datetime.now().replace(microsecond=0)
 
             timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
@@ -2066,10 +2071,17 @@ class Q0DataSession(DataSession):
         # Overloading these to give the IDE type hints
         self.container = container
 
-        self._pvBuffMap = {self.container.parent.valvePV: self.valvePosBuff,
-                           self.container.parent.dsLevelPV: self.dsLevelBuff,
-                           self.container.gradPV: self.gradBuff,
-                           self.container.parent.dsPressurePV: self.dsPressBuff}
+        if isinstance(container, Cavity):
+            self._pvBuffMap = {self.container.parent.valvePV: self.valvePosBuff,
+                               self.container.parent.dsLevelPV: self.dsLevelBuff,
+                               self.container.gradPV: self.gradBuff,
+                               self.container.parent.dsPressurePV: self.dsPressBuff}
+
+        else:
+            self._pvBuffMap = {self.container.valvePV: self.valvePosBuff,
+                               self.container.dsLevelPV: self.dsLevelBuff,
+                               self.container.gradPV: self.gradBuff,
+                               self.container.dsPressurePV: self.dsPressBuff}
 
         self.refGradVal = refGradVal
         self.calibSession = calibSession
