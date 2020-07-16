@@ -371,8 +371,9 @@ def drawAndShow():
 # collapsing all of the heater DES and ACT values down into summed values
 # (rewrites the CSV header, stores the indices for the heater DES and ACT PVs)
 def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
-                         allPVs, timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
-    # type: (datetime, int, List[str], List[str], List[str], int, bool) -> Optional[List[str], List[int], List[int], List[int], _reader]
+                         allPVs, timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True,
+                         gradPVs=None):
+    # type: (datetime, int, List[str], List[str], List[str], int, bool, List) -> Optional[List[str], List[int], List[int], List[int], _reader, List]
 
     def populateHeaterCols(pvList, buff):
         # type: (List[str], List[float]) -> None
@@ -395,16 +396,37 @@ def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
         heaterActCols = []
         populateHeaterCols(heaterActPVs, heaterActCols)
 
+        gradCols = []
+        if gradPVs:
+            populateHeaterCols(gradPVs, gradCols)
+
         # So that we don't corrupt the indices while we're deleting them
-        colsToDelete = sorted(heaterDesCols + heaterActCols, reverse=True)
+        colsToDelete = sorted(heaterDesCols + heaterActCols + gradCols, reverse=True)
 
         for index in colsToDelete:
             del header[index]
 
         header.append("Electric Heat Load Setpoint")
         header.append("Electric Heat Load Readback")
+        if gradPVs:
+            header.append("Effective Gradient")
 
-        return header, heaterActCols, heaterDesCols, colsToDelete, csvReader
+        return header, heaterActCols, heaterDesCols, colsToDelete, csvReader, gradCols
+
+
+def collapseGradVals(row, gradCols):
+    # type: (List[str], List[int]) -> Optional[float]
+
+    grad = 0
+
+    for col in gradCols:
+        try:
+            grad += float(row[col])**2
+        except ValueError:
+            grad = None
+            break
+
+    return grad
 
 
 def collapseHeaterVals(row, heaterDesCols, heaterActCols):

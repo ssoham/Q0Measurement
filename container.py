@@ -27,7 +27,7 @@ from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
                    JT_SEARCH_TIME_RANGE, JT_SEARCH_HOURS_PER_STEP,
                    HOURS_NEEDED_FOR_FLATNESS, getDataAndHeaterCols,
                    collapseHeaterVals, ValveParams, TimeParams, compatibleNext,
-                   compatibleMkdirs, INITIAL_CAL_HEAT_LOAD)
+                   compatibleMkdirs, INITIAL_CAL_HEAT_LOAD, collapseGradVals)
 
 RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
                    "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
@@ -64,6 +64,11 @@ class Container(object):
         self.calibDataSessions = {}
 
         self.cavNum = None
+
+    @property
+    @abstractmethod
+    def gradPVs(self):
+        raise NotImplementedError
 
     @property
     @abstractmethod
@@ -741,7 +746,7 @@ class Cryomodule(Container):
 
             # self.waitForCryo(valveParams.refValvePos)
             self.waitForLL()
-            self.walkHeaters(10, valveParams.refHeatLoadDes/8)
+            self.walkHeaters(10, valveParams.refHeatLoadDes / 8)
             self.waitForJT(valveParams.refValvePos)
             self.launchHeaterRun(0)
             endTime = datetime.now().replace(microsecond=0)
@@ -762,7 +767,7 @@ class Cryomodule(Container):
             for i in range(8):
                 if (i + 1) in desiredGradients:
                     desGrads.append(desiredGradients[i + 1])
-                    totGrad += desiredGradients[i + 1]**2
+                    totGrad += desiredGradients[i + 1] ** 2
                 else:
                     desGrads.append(0)
 
@@ -772,8 +777,8 @@ class Cryomodule(Container):
                     [self.cryModNumJLAB, valveParams.refHeatLoadDes,
                      valveParams.refHeatLoadAct, valveParams.refValvePos]
                     + desGrads + [sqrt(totGrad), startTime.strftime("%m/%d/%y %H:%M:%S"),
-                     endTime.strftime("%m/%d/%y %H:%M:%S"),
-                     MYSAMPLER_TIME_INTERVAL])
+                                  endTime.strftime("%m/%d/%y %H:%M:%S"),
+                                  MYSAMPLER_TIME_INTERVAL])
 
             print("\nStart Time: {START}".format(START=startTime))
             print("End Time: {END}".format(END=endTime))
@@ -850,6 +855,11 @@ class Cavity(Container):
     def gradPV(self):
         # type: () -> str
         return self.genAcclPV("GACT")
+
+    @property
+    def gradPVs(self):
+        # type: () -> List
+        return [self.genAcclPV("GACT")]
 
     @property
     def fieldEmissionPVs(self):
@@ -1690,12 +1700,13 @@ class DataSession(object):
             return self.fileName
 
         (header, heaterActCols, heaterDesCols, colsToDelete,
-         csvReader) = getDataAndHeaterCols(self.timeParams.startTime,
-                                           self.numPoints,
-                                           self.container.heaterDesPVs,
-                                           self.container.heaterActPVs,
-                                           self.container.getPVs(),
-                                           self.timeParams.timeInterval)
+         csvReader, gradCols) = getDataAndHeaterCols(self.timeParams.startTime,
+                                                     self.numPoints,
+                                                     self.container.heaterDesPVs,
+                                                     self.container.heaterActPVs,
+                                                     self.container.getPVs(),
+                                                     self.timeParams.timeInterval,
+                                                     gradPVs=self.container.gradPVs)
 
         if not csvReader:
             return None
@@ -1715,11 +1726,16 @@ class DataSession(object):
                      heatLoadAct) = collapseHeaterVals(row, heaterDesCols,
                                                        heaterActCols)
 
+                    if gradCols:
+                        grad = collapseGradVals(row, gradCols)
+
                     for index in colsToDelete:
                         del row[index]
 
                     row.append(str(heatLoadSetpoint))
                     row.append(str(heatLoadAct))
+                    if gradCols:
+                        row.append(str(grad))
                     csvWriter.writerow(row)
 
             return self.fileName
@@ -1767,6 +1783,8 @@ class DataSession(object):
 
             linkBuffToColumn("Electric Heat Load Readback",
                              self.elecHeatActBuff, header)
+
+            linkBuffToColumn("Effective Gradient", self.gradBuff, header)
 
             try:
                 # Data fetched from the JLab archiver has the timestamp column
