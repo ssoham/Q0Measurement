@@ -525,7 +525,7 @@ class Cryomodule(Container):
 
     def getPVs(self):
         # type: () -> List[str]
-        return ([self.valvePV, self.dsLevelPV, self.usLevelPV] + self.gradPVs
+        return ([self.valvePV, self.dsLevelPV, self.usLevelPV, self.dsPressurePV] + self.gradPVs
                 + self.heaterDesPVs + self.heaterActPVs)
 
     def walkHeaters(self, perHeaterDelta, initial=None):
@@ -771,6 +771,9 @@ class Cryomodule(Container):
             self.waitForJT(valveParams.refValvePos)
             self.launchHeaterRun(0)
             endTime = datetime.now().replace(microsecond=0)
+
+            print("\nEnd time: {END}".format(END=endTime))
+            self.walkHeaters(-10)
 
             timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
 
