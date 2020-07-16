@@ -491,9 +491,16 @@ class Cryomodule(Container):
 
         return self.addQ0DataSession(timeParams, valveParams, refGradVal=refGradVal, calibSession=calibSession)
 
+    @property
+    def gradPVs(self):
+        lst = []
+        for cav in self.cavities.values():
+            lst.append(cav.gradPV)
+        return lst
+
     def getPVs(self):
         # type: () -> List[str]
-        return ([self.valvePV, self.dsLevelPV, self.usLevelPV]
+        return ([self.valvePV, self.dsLevelPV, self.usLevelPV] + self.gradPVs
                 + self.heaterDesPVs + self.heaterActPVs)
 
     def walkHeaters(self, perHeaterDelta, initial=None):
@@ -2080,7 +2087,7 @@ class Q0DataSession(DataSession):
         else:
             self._pvBuffMap = {self.container.valvePV: self.valvePosBuff,
                                self.container.dsLevelPV: self.dsLevelBuff,
-                               self.container.gradPV: self.gradBuff,
+                               # self.container.gradPV: self.gradBuff,
                                self.container.dsPressurePV: self.dsPressBuff}
 
         self.refGradVal = refGradVal

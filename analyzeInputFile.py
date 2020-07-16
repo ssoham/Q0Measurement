@@ -754,7 +754,7 @@ class CryModDataManager(DataManager):
 
         desiredGradient = 0
 
-        for grad in desiredGradients.keys():
+        for grad in desiredGradients.values():
             desiredGradient += grad ** 2
 
         for row in fileReader:
@@ -773,7 +773,7 @@ class CryModDataManager(DataManager):
             # cavities in the file. We check to make sure that we're only
             # presenting the options for the requested cavity at the requested
             # gradient (by just skipping the irrelevant ones)
-            if float(row[indices["totGradIdx"]])**2 != desiredGradient:
+            if float(row[indices["totGradIdx"]]) != desiredGradient:
                 continue
 
             addOption(csvRow=row, lineNum=fileReader.line_num, indices=indices,
