@@ -72,6 +72,11 @@ class Container(object):
 
     @property
     @abstractmethod
+    def gradTol(self):
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
     def name(self):
         raise NotImplementedError
 
@@ -384,11 +389,26 @@ class Cryomodule(Container):
                               .format(CM=self.cryModNumSLAC))
         self._q0IdxFile = ("q0Measurements/cm{CM}/q0MeasurementsCM{CM}.csv"
                            .format(CM=self.cryModNumSLAC))
+        self._desiredGrads = {} # type: Dict[int, float]
+        self._gradTol = None
 
     @property
     def name(self):
         # type: () -> str
         return "CM{CM}".format(CM=self.cryModNumSLAC)
+
+    @property
+    def gradTol(self):
+        if not self._gradTol:
+            effectiveGradDes = 0
+            sumGradDes = 0
+            for grad in self._desiredGrads.values():
+                sumGradDes += sumGradDes
+                effectiveGradDes += grad**2
+            lowerBound = effectiveGradDes - (2*GRAD_TOL*sumGradDes) + (8*(GRAD_TOL**2))
+            upperBound = effectiveGradDes - (2*GRAD_TOL*sumGradDes) + (8*(GRAD_TOL**2))
+            self._gradTol = max(effectiveGradDes - lowerBound, upperBound - effectiveGradDes)
+        return self._gradTol
 
     @property
     def calibIdxFile(self):
@@ -691,6 +711,7 @@ class Cryomodule(Container):
     def runQ0Meas(self, desiredGradients, calibSession=None, valveParams=None):
         # type: (Cavity, Dict[int, float], CalibDataSession, ValveParams) -> (Q0DataSession, ValveParams)
         try:
+            self._desiredGrads = desiredGradients
             if not valveParams:
                 valveParams = self.getRefValveParams()
 
@@ -820,6 +841,10 @@ class Cavity(Container):
 
         self._idxFile = ("q0Measurements/cm{CM}/cav{CAV}/q0MeasurementsCM{CM}CAV{CAV}.csv"
                          .format(CM=self.parent.cryModNumSLAC, CAV=cavNumber))
+
+    @property
+    def gradTol(self):
+        return GRAD_TOL
 
     @property
     def name(self):
@@ -2210,7 +2235,7 @@ class Q0DataSession(DataSession):
 
             try:
                 gradChanged = (abs(self.gradBuff[idx] - self.gradBuff[idx - 1])
-                               > GRAD_TOL) if idx != 0 else False
+                               > self.container.gradTol) if idx != 0 else False
             except TypeError:
                 gradChanged = False
 
@@ -2293,8 +2318,9 @@ class Q0DataSession(DataSession):
         # type: () -> None
 
         print("\n--------------------------------------")
+        name = self.container.name if isinstance(self.container, Cryomodule) else self.container.parent.name
         print("------------ {CM} {CAV} ------------"
-              .format(CM=self.container.parent.name, CAV=self.container.name))
+              .format(CM=name, CAV=self.container.name))
         print("--------------------------------------\n")
 
         for run in self.dataRuns:
