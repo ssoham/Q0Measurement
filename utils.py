@@ -35,17 +35,17 @@ MIN_US_LL = 66
 VALVE_POS_TOL = 2
 
 # Used to reject data where the cavity heater wasn't at the correct value
-HEATER_TOL = 1.5
+HEATER_TOL = 0.5
 
 # The minimum acceptable run length is ten minutes (600 seconds)
-MIN_RUN_DURATION = 240
+MIN_RUN_DURATION = 200
 
 # We want the liquid level to drop by at least 2.5% during our runs. This isn't
 # actually enforced however, unlike the run duration.
 TARGET_LL_DIFF = 4
 
 # Used to reject data where the cavity gradient wasn't at the correct value
-GRAD_TOL = 0.7
+GRAD_TOL = 0.3
 
 # We fetch data from the JLab archiver with a program called MySampler, which
 # samples the chosen PVs at a user-specified time interval. Increase to improve

@@ -211,7 +211,7 @@ class Container(object):
                            + self.heaterActPVs)
 
                 (header, heaterActCols, heaterDesCols, _,
-                 csvReader) = getDataAndHeaterCols(searchStart, numPoints,
+                 csvReader, _) = getDataAndHeaterCols(searchStart, numPoints,
                                                    self.heaterDesPVs,
                                                    self.heaterActPVs, signals,
                                                    verbose=False)
@@ -402,11 +402,13 @@ class Cryomodule(Container):
         if not self._gradTol:
             effectiveGradDes = 0
             sumGradDes = 0
+            if not self._desiredGrads:
+                return None
             for grad in self._desiredGrads.values():
-                sumGradDes += sumGradDes
+                sumGradDes += grad
                 effectiveGradDes += grad**2
             lowerBound = effectiveGradDes - (2*GRAD_TOL*sumGradDes) + (8*(GRAD_TOL**2))
-            upperBound = effectiveGradDes - (2*GRAD_TOL*sumGradDes) + (8*(GRAD_TOL**2))
+            upperBound = effectiveGradDes + (2*GRAD_TOL*sumGradDes) + (8*(GRAD_TOL**2))
             self._gradTol = max(effectiveGradDes - lowerBound, upperBound - effectiveGradDes)
         return self._gradTol
 
@@ -530,6 +532,9 @@ class Cryomodule(Container):
 
     def walkHeaters(self, perHeaterDelta, initial=None):
         # type: (float, float) -> None
+
+        if perHeaterDelta == 0:
+            return
 
         formatter = "\nWalking CM{NUM} heaters {DIR} by {VAL}"
         dirStr = "up" if perHeaterDelta > 0 else "down"
@@ -1037,14 +1042,24 @@ class Cavity(Container):
                 caputPV(genPV(stateMap["pv"]), "1")
 
                 if cagetPV(ssaStatusPV) != stateMap["desired"]:
-                    raise AssertionError("Could not set SSA Power")
+                    mssg = ("Please set SSA power for cavity {CAV} manually "
+                            "then press y/Y to continue or n/N to abort"
+                            .format(CAV=self.cavNum))
+
+                    if not isYes(mssg):
+                        raise AssertionError("Could not set SSA Power")
 
             else:
                 print("\nResetting SSA...")
                 caputPV(genPV("FaultReset"), "1")
 
                 if cagetPV(ssaStatusPV) not in ["2", "3"]:
-                    raise AssertionError("Could not reset SSA")
+                    mssg = ("Please reset SSA for cavity {CAV} manually "
+                            "then press y/Y to continue or n/N to abort"
+                            .format(CAV=self.cavNum))
+
+                    if not isYes(mssg):
+                        raise AssertionError("Could not reset SSA")
 
                 self.setPowerStateSSA(turnOn)
 
@@ -2131,6 +2146,7 @@ class Q0DataSession(DataSession):
                                self.container.parent.dsPressurePV: self.dsPressBuff}
 
         else:
+            self.container._desiredGrads = refGradVal
             self._pvBuffMap = {self.container.valvePV: self.valvePosBuff,
                                self.container.dsLevelPV: self.dsLevelBuff,
                                # self.container.gradPV: self.gradBuff,
@@ -2566,7 +2582,10 @@ class RFDataRun(DataRun):
                                     "Q0"])
 
                 for idx in range(self.startIdx, self.endIdx):
-                    archiveGrad = self.dataSession.gradBuff[idx]
+                    if isinstance(self.dataSession.container, Cavity):
+                        archiveGrad = self.dataSession.gradBuff[idx]
+                    else:
+                        archiveGrad = sqrt(self.dataSession.gradBuff[idx])
 
                     if archiveGrad:
                         q0s.append(self.calcQ0(archiveGrad, self.rfHeatLoad,
