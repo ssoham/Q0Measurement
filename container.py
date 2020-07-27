@@ -869,6 +869,9 @@ class Cavity(Container):
         self._idxFile = ("q0Measurements/cm{CM}/cav{CAV}/q0MeasurementsCM{CM}CAV{CAV}.csv"
                          .format(CM=self.parent.cryModNumSLAC, CAV=cavNumber))
 
+        self._calibIdxFile = ("calibrations/cm{CM}/cav{CAV}/calibrationsCM{CM}CAV{CAV}.csv"
+                         .format(CM=self.parent.cryModNumSLAC, CAV=cavNumber))
+
     @property
     def gradTol(self):
         return GRAD_TOL
@@ -892,6 +895,21 @@ class Cavity(Container):
                                     "MySampler Time Interval"])
 
         return self._idxFile
+
+    @property
+    def calibIdxFile(self):
+        # type: () -> str
+
+        if not isfile(self._calibIdxFile):
+            compatibleMkdirs(self._calibIdxFile)
+            with open(self._calibIdxFile, "w+") as f:
+                csvWriter = writer(f)
+                csvWriter.writerow(["JLAB Number", "Reference Heat Load (Des)",
+                                    "Reference Heat Load (Act)",
+                                    "JT Valve Position", "Start", "End",
+                                    "MySampler Time Interval"])
+
+        return self._calibIdxFile
 
     @property
     def heaterDesPVs(self):
@@ -958,6 +976,9 @@ class Cavity(Container):
     def walkHeater(self, heatDelta):
         # type: (int) -> None
 
+        if not heatDelta:
+            return
+
         # negative if we're decrementing heat
         step = 1 if heatDelta > 0 else -1
 
@@ -968,7 +989,71 @@ class Cavity(Container):
             currVal = float(cagetPV(self.heaterDesPV))
             newVal = currVal + step
             caputPV(self.heaterDesPV, str(newVal))
-            writeAndWait(formatter.format(VAL=newVal), 2)
+            writeAndWait(formatter.format(VAL=newVal), 7.5)
+
+    def runCalibration(self, valveParams=None):
+        # type: (ValveParams) -> (CalibDataSession, ValveParams)
+
+        # Check whether or not we've already found a good JT position during
+        # this program execution
+        if not valveParams:
+            valveParams = self.getRefValveParams()
+
+        deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
+
+        startTime = datetime.now().replace(microsecond=0)
+
+        self.walkHeater(INITIAL_CAL_HEAT_LOAD + deltaTot)
+        self.waitForCryo(valveParams.refValvePos)
+
+        self.launchHeaterRun(valveParams.refValvePos, 0)
+        if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
+            print("Please ask the cryo group to refill to {LL} on the"
+                  " downstream sensor".format(LL=MAX_DS_LL))
+
+            self.waitForCryo(valveParams.refValvePos)
+
+        for _ in range(NUM_CAL_STEPS - 1):
+            self.launchHeaterRun(valveParams.refValvePos, 8)
+
+            if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
+                print("Please ask the cryo group to refill to {LL} on the"
+                      " downstream sensor".format(LL=MAX_DS_LL))
+
+                self.waitForCryo(valveParams.refValvePos)
+
+        # Kinda jank way to avoid waiting for cryo conditions after the final
+        # run
+        self.launchHeaterRun(valveParams.refValvePos, 8)
+
+        endTime = datetime.now().replace(microsecond=0)
+
+        print("\nStart Time: {START}".format(START=startTime))
+        print("End Time: {END}".format(END=datetime.now()))
+
+        duration = (datetime.now() - startTime).total_seconds() / 3600
+        print("Duration in hours: {DUR}".format(DUR=duration))
+
+        # Walking the heaters back to their starting settings
+        # self.walkHeaters(-NUM_CAL_RUNS)
+
+        self.walkHeater(-(NUM_CAL_STEPS * 8))
+
+        timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
+
+        dataSession = self.addCalibDataSession(timeParams, valveParams)
+
+        # Record this calibration dataSession's metadata
+        with open(self.calibIdxFile, 'a') as f:
+            csvWriter = writer(f)
+            csvWriter.writerow([self.cryModNumJLAB, valveParams.refHeatLoadDes,
+                                valveParams.refHeatLoadAct,
+                                valveParams.refValvePos,
+                                startTime.strftime("%m/%d/%y %H:%M:%S"),
+                                endTime.strftime("%m/%d/%y %H:%M:%S"),
+                                MYSAMPLER_TIME_INTERVAL])
+
+        return dataSession, valveParams
 
     # refGradVal and calibSession are required parameters but are nullable to
     # match the signature in Container
@@ -1497,13 +1582,13 @@ class Cavity(Container):
     # error in our calculated RF heat load due to the JT valve not being at
     # exactly the correct position to keep the liquid level steady over time,
     # which would show up as an extra term in the heat load.
-    def launchHeaterRun(self, desPos):
-        # type: (Cavity, float) -> datetime
+    def launchHeaterRun(self, desPos, delta=CAV_HEATER_RUN_LOAD):
+        # type: (Cavity, int) -> datetime
 
         print("**** REMINDER: refills aren't automated - please contact the"
               " cryo group ****")
 
-        self.walkHeater(CAV_HEATER_RUN_LOAD)
+        self.walkHeater(delta)
 
         if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
             print("Please ask the cryo group to refill to {LL} on the"
@@ -1533,7 +1618,7 @@ class Cavity(Container):
         duration = (endTime - startTime).total_seconds() / 3600
         print("Duration in hours: {DUR}".format(DUR=duration))
 
-        self.walkHeater(-CAV_HEATER_RUN_LOAD)
+        self.walkHeater(-delta)
 
         return endTime
 

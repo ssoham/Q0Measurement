@@ -701,11 +701,16 @@ class CavityDataManager(DataManager):
                                                    kind=kind)
 
         else:
-            (Q0Sess,
-             self.parent.valveParams) = container.runQ0Meas(refGradVal,
-                                                            calibSession,
-                                                            self.valveParams)
-            return Q0Sess
+            if kind == "q0":
+                (Q0Sess,
+                 self.parent.valveParams) = container.runQ0Meas(refGradVal,
+                                                                calibSession,
+                                                                self.valveParams)
+                return Q0Sess
+            else:
+                (calibSess,
+                 self.parent.valveParams) = container.runCalibration(self.valveParams)
+                return calibSess
 
 
 class CryModDataManager(DataManager):
