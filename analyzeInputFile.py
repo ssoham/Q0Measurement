@@ -549,8 +549,7 @@ class CavityDataManager(DataManager):
     @property
     def idxKeys(self):
         if not self._idxKeys:
-            self._idxKeys = self.baseIdxKeys + [("cavNumIdx", "Cavity"),
-                                                ("gradIdx", "Gradient")]
+            self._idxKeys = self.baseIdxKeys + [("cavNumIdx", "Cavity")]
         return self._idxKeys
 
     @property
@@ -565,7 +564,7 @@ class CavityDataManager(DataManager):
 
         self.populateIdxMap(slacNum=slacNum, kind="calib", cavNum=cavity.cavNum)
 
-        calibSession = self.addDataSession(slacNum=slacNum, container=cavity)
+        calibSession = self.addDataSession(slacNum=slacNum, container=cavity, kind="calib")
 
         self.parent.cryoModules[slacNum] = calibSession.container
 
