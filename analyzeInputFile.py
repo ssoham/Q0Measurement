@@ -166,6 +166,8 @@ class BasicInputFileParser(InputFileParser):
 
                 if selectedType == 2:
                     for cavNum, gradDes in desiredGradients.items():
+                        if not gradDes:
+                            continue
 
                         fname = ("results/cm{CM}/cav{CAV}/resultsCM{CM}CAV{CAV}.csv"
                                  .format(CM=slacNum, CAV=cavNum))
