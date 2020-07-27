@@ -59,7 +59,6 @@ class Container(object):
         self.cvMinPV = self.addNumToStr(valveLockFormatter, "MIN")
         self.valvePV = self.addNumToStr(valveLockFormatter, "VALUE")
 
-        self.dataSessions = {}
         self.q0DataSessions = {}
         self.calibDataSessions = {}
 
@@ -121,10 +120,29 @@ class Container(object):
     def walkHeaters(self, perHeaterDelta):
         raise NotImplementedError
 
-    @abstractmethod
+    # @abstractmethod
+    # def addDataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
+    #                           calibSession=None, refGradVal=None):
+    #     raise NotImplementedError
+
+    # calibSession and refGradVal are required parameters for Cavity data
+    # sessions, but they're nullable to match the signature in Container
     def addDataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
-                              calibSession=None, refGradVal=None):
-        raise NotImplementedError
+                              calibSession=None, refGradVal=None, kind=None):
+        # type: (List[str], Dict[str, int], float, float, CalibDataSession, float, str) -> DataSession
+
+        timeParams = getTimeParams(row, indices)
+        valveParams = ValveParams(float(row[indices["jtIdx"]]), refHeatLoad,
+                                  refHeatLoadAct)
+
+        if kind == "calib":
+            return self.addCalibDataSession(timeParams, valveParams, refGradVal,
+                                            calibSession)
+        elif kind == "q0":
+            return self.addQ0DataSession(timeParams, valveParams, refGradVal,
+                                         calibSession)
+        else:
+            print("we shouldn't be here... (Container.addDataSessionFromRow)")
 
     @abstractmethod
     def genDataSession(self, timeParams, valveParams, refGradVal=None,
@@ -212,9 +230,9 @@ class Container(object):
 
                 (header, heaterActCols, heaterDesCols, _,
                  csvReader, _) = getDataAndHeaterCols(searchStart, numPoints,
-                                                   self.heaterDesPVs,
-                                                   self.heaterActPVs, signals,
-                                                   verbose=False)
+                                                      self.heaterDesPVs,
+                                                      self.heaterActPVs, signals,
+                                                      verbose=False)
 
                 valveVals = []
                 heaterDesVals = []
@@ -325,8 +343,8 @@ class Container(object):
         else:
             return formatStr.format(CM=self.cryModNumJLAB)
 
-    def addDataSession(self, timeParams, valveParams, refGradVal=None,
-                       calibSession=None):
+    def addCalibDataSession(self, timeParams, valveParams, refGradVal=None,
+                            calibSession=None):
         # type: (TimeParams, ValveParams, float, CalibDataSession) -> DataSession
 
         sessionHash = self.hash(timeParams, self.cryModNumSLAC,
@@ -334,12 +352,12 @@ class Container(object):
 
         # Only create a new calibration data session if one doesn't already
         # exist with those exact parameters
-        if sessionHash not in self.dataSessions:
+        if sessionHash not in self.calibDataSessions:
             session = self.genDataSession(timeParams, valveParams, refGradVal,
                                           calibSession)
-            self.dataSessions[sessionHash] = session
+            self.calibDataSessions[sessionHash] = session
 
-        return self.dataSessions[sessionHash]
+        return self.calibDataSessions[sessionHash]
 
     def addQ0DataSession(self, timeParams, valveParams, refGradVal=None,
                          calibSession=None):
@@ -350,12 +368,12 @@ class Container(object):
 
         # Only create a new calibration data session if one doesn't already
         # exist with those exact parameters
-        if sessionHash not in self.dataSessions:
+        if sessionHash not in self.q0DataSessions:
             session = self.genQ0DataSession(timeParams, valveParams, refGradVal,
                                             calibSession)
-            self.dataSessions[sessionHash] = session
+            self.q0DataSessions[sessionHash] = session
 
-        return self.dataSessions[sessionHash]
+        return self.q0DataSessions[sessionHash]
 
 
 class Cryomodule(Container):
@@ -389,7 +407,7 @@ class Cryomodule(Container):
                               .format(CM=self.cryModNumSLAC))
         self._q0IdxFile = ("q0Measurements/cm{CM}/q0MeasurementsCM{CM}.csv"
                            .format(CM=self.cryModNumSLAC))
-        self._desiredGrads = {} # type: Dict[int, float]
+        self._desiredGrads = {}  # type: Dict[int, float]
         self._gradTol = None
 
     @property
@@ -406,9 +424,9 @@ class Cryomodule(Container):
                 return None
             for grad in self._desiredGrads.values():
                 sumGradDes += grad
-                effectiveGradDes += grad**2
-            lowerBound = effectiveGradDes - (2*GRAD_TOL*sumGradDes) + (8*(GRAD_TOL**2))
-            upperBound = effectiveGradDes + (2*GRAD_TOL*sumGradDes) + (8*(GRAD_TOL**2))
+                effectiveGradDes += grad ** 2
+            lowerBound = effectiveGradDes - (2 * GRAD_TOL * sumGradDes) + (8 * (GRAD_TOL ** 2))
+            upperBound = effectiveGradDes + (2 * GRAD_TOL * sumGradDes) + (8 * (GRAD_TOL ** 2))
             self._gradTol = max(effectiveGradDes - lowerBound, upperBound - effectiveGradDes)
         return self._gradTol
 
@@ -498,25 +516,25 @@ class Cryomodule(Container):
     # calibSession and refGradVal are unused here, they're just there to match
     # the signature of the overloading method in Cavity (which is why they're in
     # the signature for Container - could probably figure out a way around this)
-    def addDataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
-                              calibSession=None, refGradVal=None):
-        # type: (List[str], dict, float, float, CalibDataSession, float) -> CalibDataSession
+    # def addDataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
+    #                           calibSession=None, refGradVal=None):
+    #     # type: (List[str], dict, float, float, CalibDataSession, float) -> CalibDataSession
+    #
+    #     timeParams = getTimeParams(row, indices)
+    #     valveParams = ValveParams(float(row[indices["jtIdx"]]),
+    #                               refHeatLoad, refHeatLoadAct)
+    #
+    #     return self.addCalibDataSession(timeParams, valveParams)
 
-        timeParams = getTimeParams(row, indices)
-        valveParams = ValveParams(float(row[indices["jtIdx"]]),
-                                  refHeatLoad, refHeatLoadAct)
-
-        return self.addDataSession(timeParams, valveParams)
-
-    def addQ0DataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
-                                calibSession=None, refGradVal=None):
-        # type: (List[str], dict, float, float, CalibDataSession, Dict[int]) -> Q0DataSession
-
-        timeParams = getTimeParams(row, indices)
-        valveParams = ValveParams(float(row[indices["jtIdx"]]),
-                                  refHeatLoad, refHeatLoadAct)
-
-        return self.addQ0DataSession(timeParams, valveParams, refGradVal=refGradVal, calibSession=calibSession)
+    # def addQ0DataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
+    #                             calibSession=None, refGradVal=None):
+    #     # type: (List[str], dict, float, float, CalibDataSession, Dict[int]) -> Q0DataSession
+    #
+    #     timeParams = getTimeParams(row, indices)
+    #     valveParams = ValveParams(float(row[indices["jtIdx"]]),
+    #                               refHeatLoad, refHeatLoadAct)
+    #
+    #     return self.addQ0DataSession(timeParams, valveParams, refGradVal=refGradVal, calibSession=calibSession)
 
     @property
     def gradPVs(self):
@@ -636,7 +654,7 @@ class Cryomodule(Container):
 
         timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
 
-        dataSession = self.addDataSession(timeParams, valveParams)
+        dataSession = self.addCalibDataSession(timeParams, valveParams)
 
         # Record this calibration dataSession's metadata
         with open(self.calibIdxFile, 'a') as f:
@@ -828,7 +846,8 @@ class Cryomodule(Container):
 class Cavity(Container):
 
     def genQ0DataSession(self, timeParams, valveParams, refGradVal=None, calibSession=None):
-        pass
+        return Q0DataSession(self, timeParams, valveParams, refGradVal,
+                             calibSession)
 
     def __init__(self, cryMod, cavNumber):
         # type: (Cryomodule, int) -> None
@@ -971,16 +990,22 @@ class Cavity(Container):
 
     # calibSession and refGradVal are required parameters for Cavity data
     # sessions, but they're nullable to match the signature in Container
-    def addDataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
-                              calibSession=None, refGradVal=None):
-        # type: (List[str], Dict[str, int], float, float, CalibDataSession, float) -> Q0DataSession
-
-        timeParams = getTimeParams(row, indices)
-        valveParams = ValveParams(float(row[indices["jtIdx"]]), refHeatLoad,
-                                  refHeatLoadAct)
-
-        return self.addDataSession(timeParams, valveParams, refGradVal,
-                                   calibSession)
+    # def addDataSessionFromRow(self, row, indices, refHeatLoad, refHeatLoadAct,
+    #                           calibSession=None, refGradVal=None, kind=None):
+    #     # type: (List[str], Dict[str, int], float, float, CalibDataSession, float, str) -> Q0DataSession
+    #
+    #     timeParams = getTimeParams(row, indices)
+    #     valveParams = ValveParams(float(row[indices["jtIdx"]]), refHeatLoad,
+    #                               refHeatLoadAct)
+    #
+    #     if kind == "calib":
+    #         return self.addCalibDataSession(timeParams, valveParams, refGradVal,
+    #                                         calibSession)
+    #     elif kind == "q0":
+    #         return self.addQ0DataSession(timeParams, valveParams, refGradVal,
+    #                                      calibSession)
+    #     else:
+    #         print("we shouldn't be here...")
 
     def genPV(self, formatStr, suffix):
         # type: (str, str) -> str
@@ -1557,9 +1582,9 @@ class Cavity(Container):
 
             timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
 
-            session = self.addDataSession(timeParams, valveParams,
-                                          refGradVal=desiredGradient,
-                                          calibSession=calibSession)
+            session = self.addQ0DataSession(timeParams, valveParams,
+                                            refGradVal=desiredGradient,
+                                            calibSession=calibSession)
 
             with open(self.idxFile, 'a') as f:
                 csvWriter = writer(f)
@@ -2146,7 +2171,7 @@ class Q0DataSession(DataSession):
                                self.container.parent.dsPressurePV: self.dsPressBuff}
 
         else:
-            self.container._desiredGrads = refGradVal
+            # self.container._desiredGrads = refGradVal
             self._pvBuffMap = {self.container.valvePV: self.valvePosBuff,
                                self.container.dsLevelPV: self.dsLevelBuff,
                                # self.container.gradPV: self.gradBuff,
@@ -2444,11 +2469,18 @@ class DataRun(object):
         # type: () -> List[float]
         return self.dataSession.unixTimeBuff[self.startIdx:self.endIdx]
 
+    @property
+    def timeEnvelope(self):
+        start = datetime.fromtimestamp(self.timeStamps[0]).strftime('%m/%d/%Y %H:%M')
+        end = datetime.fromtimestamp(self.timeStamps[-1]).strftime('%H:%M')
+        return "{START} to {END}".format(START=start, END=end)
+
     def genElecLabel(self):
         # type: () -> str
-        labelStr = "{slope} %/s @ {heatLoad} W Electric Load"
+        labelStr = "{slope} %/s @ {heatLoad} W Electric Load [{TIME}]"
         return labelStr.format(slope='%.2E' % Decimal(self.slope),
-                               heatLoad=round(self.elecHeatLoadAct, 2))
+                               heatLoad=round(self.elecHeatLoadAct, 2),
+                               TIME=self.timeEnvelope)
 
     def process(self):
         # type: () -> None

@@ -35,7 +35,7 @@ MIN_US_LL = 66
 VALVE_POS_TOL = 2
 
 # Used to reject data where the cavity heater wasn't at the correct value
-HEATER_TOL = 0.5
+HEATER_TOL = 1.2
 
 # The minimum acceptable run length is ten minutes (600 seconds)
 MIN_RUN_DURATION = 200
@@ -60,10 +60,10 @@ ERROR_MESSAGE = "Please provide valid input"
 FNULL = open(devnull, "w")
 
 # The starting point for our calibration
-INITIAL_CAL_HEAT_LOAD = 64
+INITIAL_CAL_HEAT_LOAD = 8
 
 # The number of distinct heater settings we're using for cryomodule calibrations
-NUM_CAL_STEPS = 12
+NUM_CAL_STEPS = 5
 
 NUM_LL_POINTS_TO_AVG = 25
 
@@ -126,7 +126,7 @@ def get_float_lim(prompt, low_lim, high_lim):
 
 
 def getNumInputFromLst(prompt, lst, inputType, allowNoResponse=False):
-    # type: (str, KeysView, Callable, bool) -> Union[float, int]
+    # type: (str, Union[KeysView, List], Callable, bool) -> Union[float, int]
     response = get_input(prompt, inputType, allowNoResponse)
     while response not in lst:
         # If the user just hits enter, return the first number in the list

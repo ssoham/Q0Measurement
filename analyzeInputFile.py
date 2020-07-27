@@ -11,7 +11,7 @@ from collections import OrderedDict
 from csv import reader, writer
 from matplotlib import pyplot as plt
 from container import (Cryomodule, Cavity,
-                       Q0DataSession, CalibDataSession)
+                       Q0DataSession, CalibDataSession, DataSession)
 from utils import (getNumInputFromLst, isYes, TEST_MODE, printOptions,
                    addOption, getSelection, drawAndShow, ValveParams,
                    compatibleNext, compatibleMkdirs)
@@ -44,7 +44,7 @@ class InputFileParser(object):
         self.dataSessions = {}
 
         # A dict of the form {[SLAC cryomodule number]: [Cryomodule Object]}
-        self.cryoModules = {}
+        self.cryoModules = {} #type: Dict[int, Cryomodule]
 
         # We store the JT Valve position from the first time that we run
         # getRefValveParams (in Container) so that we don't have to rerun that
@@ -56,6 +56,7 @@ class InputFileParser(object):
         raise NotImplementedError
 
     def saveFigs(self, cryoModule):
+        # plt.tight_layout()
         lastFigNum = len(plt.get_fignums()) + 1
         for i in range(self.figStartIdx, lastFigNum):
             plt.figure(i)
@@ -63,7 +64,7 @@ class InputFileParser(object):
                        .format(NUM=cryoModule.cryModNumSLAC, CM=cryoModule.name,
                                FIG=i))
             compatibleMkdirs(figFile)
-            plt.savefig(figFile)
+            plt.savefig(figFile, bbox_inches='tight', dpi=300)
         self.figStartIdx = lastFigNum
 
 
@@ -145,8 +146,121 @@ class BasicInputFileParser(InputFileParser):
         for row in self.csvReader:
             slacNum = int(row[self.slacNumIdx])
 
-            if slacNum not in self.cryoModules:
-                calibSess = self.cryModManager.addNewCryMod(slacNum=slacNum)
+            calibSess, desiredGradients = self.getCalibAndDesGrads(row, slacNum)
+
+            cryoModule = self.cryoModules[slacNum]
+
+            calibSess.printSessionReport()
+
+            calibCutoffs = [str(run.diagnostics["Cutoff"]) for run in calibSess.dataRuns]
+
+            if desiredGradients:
+
+                options = {1: "multi-cavity Q0 measurement",
+                           2: "single-cavity Q0 measurements"}
+
+                prompt = "Please select a type of measurement for row: {ROW}".format(ROW=row)
+                printOptions(options)
+
+                selectedType = getNumInputFromLst(prompt, options.keys(), int, True)
+
+                if selectedType == 2:
+                    for cavNum, gradDes in desiredGradients.items():
+
+                        fname = ("results/cm{CM}/cav{CAV}/resultsCM{CM}CAV{CAV}.csv"
+                                 .format(CM=slacNum, CAV=cavNum))
+
+                        if not isfile(fname):
+                            compatibleMkdirs(fname)
+                            with open(fname, "w+") as f:
+                                csvWriter = writer(f, delimiter=',')
+                                csvWriter.writerow(["Cavity", "Gradient", "Q0",
+                                                    "Calibration", "Q0 Measurement",
+                                                    "Calibration Cutoffs",
+                                                    "Q0 Cutoffs"])
+
+                        print("\n---- Cavity {CAV} @ {GRAD} MV/m ----"
+                              .format(CM=slacNum, CAV=cavNum, GRAD=gradDes))
+
+                        cavity = self.cryoModules[slacNum].cavities[cavNum]
+
+                        q0Sess = self.genQ0Session(desiredGradient=gradDes, slacNum=slacNum,
+                                                   cavity=cavity,
+                                                   calibSession=calibSess)
+
+                        q0s = [q0Sess.dataRuns[runIdx].q0 for runIdx in q0Sess.rfRunIdxs]
+                        q0Cutoffs = [str(run.diagnostics["Cutoff"]) for run in q0Sess.dataRuns]
+
+                        with open(fname, "a") as f:
+                            csvWriter = writer(f, delimiter=',')
+                            csvWriter.writerow([cavity.cavNum, gradDes,
+                                                '{:.2e}'.format(Decimal(mean(q0s))),
+                                                str(calibSess), str(q0Sess),
+                                                " | ".join(calibCutoffs),
+                                                " | ".join(q0Cutoffs)])
+                else:
+                    # desiredGradients = {}
+                    # for _, cavity in cryoModule.cavities.items():
+                    #     cavGradIdx = self.header.index("Cavity {NUM} Gradient"
+                    #                                    .format(NUM=cavity.cavNum))
+                    #     try:
+                    #         gradDes = float(row[cavGradIdx])
+                    #     except ValueError:
+                    #         continue
+                    #
+                    #     desiredGradients[cavity.cavNum] = gradDes
+
+                    fname = "results/cm{CM}/resultsCM{CM}.csv".format(CM=slacNum)
+
+                    if not isfile(fname):
+                        compatibleMkdirs(fname)
+                        with open(fname, "w+") as f:
+                            csvWriter = writer(f, delimiter=',')
+                            csvWriter.writerow(["Cavity 1 Gradient",
+                                                "Cavity 2 Gradient",
+                                                "Cavity 3 Gradient",
+                                                "Cavity 4 Gradient",
+                                                "Cavity 5 Gradient",
+                                                "Cavity 6 Gradient",
+                                                "Cavity 7 Gradient",
+                                                "Cavity 8 Gradient",
+                                                "Cumulative Gradient", "Q0",
+                                                "Calibration", "Q0 Measurement",
+                                                "Calibration Cutoffs",
+                                                "Q0 Cutoffs"])
+
+                    q0Sess = self.genMultiQ0Session(desiredGradients=desiredGradients,
+                                                    slacNum=slacNum,
+                                                    cryomodule=cryoModule,
+                                                    calibSession=calibSess)
+
+                    q0s = [q0Sess.dataRuns[runIdx].q0 for runIdx in q0Sess.rfRunIdxs]
+                    q0Cutoffs = [str(run.diagnostics["Cutoff"]) for run in q0Sess.dataRuns]
+
+                    with open(fname, "a") as f:
+                        csvWriter = writer(f, delimiter=',')
+
+                        # TODO fix this...
+                        csvWriter.writerow([slacNum, desiredGradients,
+                                            '{:.2e}'.format(Decimal(mean(q0s))),
+                                            str(calibSess), str(q0Sess),
+                                            " | ".join(calibCutoffs),
+                                            " | ".join(q0Cutoffs)])
+            self.saveFigs(cryoModule)
+
+        drawAndShow()
+
+    def getCalibAndDesGrads(self, row, slacNum):
+        desiredGradients = {}
+        options = {1: "Full module calibration",
+                   2: "Single cavity calibration (per cavity in row)"}
+        printOptions(options)
+        prompt = "Please select a calibration option (hit enter for option 1): "
+        selection = getNumInputFromLst(prompt, options.keys(), int, True)
+        if selection == 1:
+            if ((slacNum not in self.cryoModules)
+                    or (not self.cryoModules[slacNum].calibDataSessions)):
+                calibSess = self.cryModManager.addNewCalibration(slacNum=slacNum)
 
             else:
                 options = {}
@@ -158,10 +272,10 @@ class BasicInputFileParser(InputFileParser):
                 # different calibrations. This is where we give the user the
                 # option to reuse a calibration we've already loaded up and
                 # processed.
-                dataSessions = self.cryoModules[slacNum].dataSessions
-                for _, dataSession in dataSessions.items():
-                    options[idx] = str(dataSession)
-                    idx2session[idx] = dataSession
+                calibDataSessions = self.cryoModules[slacNum].calibDataSessions
+                for _, calibDataSession in calibDataSessions.items():
+                    options[idx] = str(calibDataSession)
+                    idx2session[idx] = calibDataSession
                     idx += 1
 
                 options[idx] = "Use a different calibration"
@@ -182,109 +296,63 @@ class BasicInputFileParser(InputFileParser):
                 else:
                     calibSess = idx2session[selection]
 
-            cryoModule = self.cryoModules[slacNum]
+        else:
+            if slacNum not in self.cryoModules:
+                cryoModule = Cryomodule(slacNum,
+                                        getNumInputFromLst("JLab cryomodule number: ",
+                                                           [2, 3], int))
+                self.cryoModules[slacNum] = cryoModule
 
-            calibSess.printSessionReport()
+        for _, cavity in self.cryoModules[slacNum].cavities.items():
+            cavGradIdx = self.header.index("Cavity {NUM} Gradient"
+                                           .format(NUM=cavity.cavNum))
+            try:
+                gradDes = float(row[cavGradIdx])
+            except ValueError:
+                continue
 
-            calibCutoffs = [str(run.diagnostics["Cutoff"]) for run in calibSess.dataRuns]
+            desiredGradients[cavity.cavNum] = gradDes
+        if selection == 2:
+            for cavNum in desiredGradients.keys():
+                cavity = self.cryoModules[slacNum].cavities[cavNum]
+                if not cavity.calibDataSessions:
+                    calibSess = self.cavManager.addNewCalibration(slacNum=slacNum,
+                                                                  cavity=cavity)
 
-            options = {1: "multi-cavity Q0 measurement",
-                       2: "single-cavity Q0 measurements"}
+                else:
+                    options = {}
+                    idx = 1
+                    idx2session = {}
 
-            prompt = "Please select a type of measurement for row: {ROW}".format(ROW=row)
-            printOptions(options)
+                    # Multiple rows in the input file may have the same SLAC
+                    # cryomodule number. However, the user might want to use
+                    # different calibrations. This is where we give the user the
+                    # option to reuse a calibration we've already loaded up and
+                    # processed.
+                    calibDataSessions = cavity.calibDataSessions
+                    for _, calibDataSession in calibDataSessions.items():
+                        options[idx] = str(calibDataSession)
+                        idx2session[idx] = calibDataSession
+                        idx += 1
 
-            selectedType = getNumInputFromLst(prompt, options.keys(), int, True)
+                    options[idx] = "Use a different calibration"
+                    printOptions(options)
 
-            if selectedType == 2:
-                for _, cavity in cryoModule.cavities.items():
-                    cavGradIdx = self.header.index("Cavity {NUM} Gradient"
-                                                   .format(NUM=cavity.cavNum))
+                    prompt = ("Please select a calibration option"
+                              " (hit enter for option 1): ")
+                    selection = getNumInputFromLst(prompt, options.keys(), int,
+                                                   True)
 
-                    try:
-                        gradDes = float(row[cavGradIdx])
-                    except ValueError:
-                        continue
+                    reuseCalibration = (selection != max(options))
 
-                    fname = ("results/cm{CM}/cav{CAV}/resultsCM{CM}CAV{CAV}.csv"
-                             .format(CM=slacNum, CAV=cavity.cavNum))
+                    if not reuseCalibration:
+                        calibSess = self.cavManager.addDataSession(slacNum=slacNum,
+                                                                   container=cavity,
+                                                                   kind="calib")
 
-                    if not isfile(fname):
-                        compatibleMkdirs(fname)
-                        with open(fname, "w+") as f:
-                            csvWriter = writer(f, delimiter=',')
-                            csvWriter.writerow(["Cavity", "Gradient", "Q0",
-                                                "Calibration", "Q0 Measurement",
-                                                "Calibration Cutoffs",
-                                                "Q0 Cutoffs"])
-
-                    print("\n---- Cavity {CAV} @ {GRAD} MV/m ----"
-                          .format(CM=slacNum, CAV=cavity.cavNum,
-                                  GRAD=gradDes))
-
-                    q0Sess = self.genQ0Session(desiredGradient=gradDes, slacNum=slacNum,
-                                               cavity=cavity,
-                                               calibSession=calibSess)
-
-                    q0s = [q0Sess.dataRuns[runIdx].q0 for runIdx in q0Sess.rfRunIdxs]
-                    q0Cutoffs = [str(run.diagnostics["Cutoff"]) for run in q0Sess.dataRuns]
-
-                    with open(fname, "a") as f:
-                        csvWriter = writer(f, delimiter=',')
-                        csvWriter.writerow([cavity.cavNum, gradDes,
-                                            '{:.2e}'.format(Decimal(mean(q0s))),
-                                            str(calibSess), str(q0Sess),
-                                            " | ".join(calibCutoffs),
-                                            " | ".join(q0Cutoffs)])
-            else:
-                desiredGradients = {}
-                for _, cavity in cryoModule.cavities.items():
-                    cavGradIdx = self.header.index("Cavity {NUM} Gradient"
-                                                   .format(NUM=cavity.cavNum))
-                    try:
-                        gradDes = float(row[cavGradIdx])
-                    except ValueError:
-                        continue
-
-                    desiredGradients[cavity.cavNum] = gradDes
-
-                fname = "results/cm{CM}/resultsCM{CM}.csv".format(CM=slacNum)
-
-                if not isfile(fname):
-                    compatibleMkdirs(fname)
-                    with open(fname, "w+") as f:
-                        csvWriter = writer(f, delimiter=',')
-                        csvWriter.writerow(["Cavity 1 Gradient",
-                                            "Cavity 2 Gradient",
-                                            "Cavity 3 Gradient",
-                                            "Cavity 4 Gradient",
-                                            "Cavity 5 Gradient",
-                                            "Cavity 6 Gradient",
-                                            "Cavity 7 Gradient",
-                                            "Cavity 8 Gradient",
-                                            "Cumulative Gradient", "Q0",
-                                            "Calibration", "Q0 Measurement",
-                                            "Calibration Cutoffs",
-                                            "Q0 Cutoffs"])
-
-                q0Sess = self.genMultiQ0Session(desiredGradients=desiredGradients,
-                                                slacNum=slacNum,
-                                                cryomodule=cryoModule,
-                                                calibSession=calibSess)
-
-                q0s = [q0Sess.dataRuns[runIdx].q0 for runIdx in q0Sess.rfRunIdxs]
-                q0Cutoffs = [str(run.diagnostics["Cutoff"]) for run in q0Sess.dataRuns]
-
-                with open(fname, "a") as f:
-                    csvWriter = writer(f, delimiter=',')
-                    csvWriter.writerow([cavity.cavNum, gradDes,
-                                        '{:.2e}'.format(Decimal(mean(q0s))),
-                                        str(calibSess), str(q0Sess),
-                                        " | ".join(calibCutoffs),
-                                        " | ".join(q0Cutoffs)])
-            self.saveFigs(cryoModule)
-
-        drawAndShow()
+                    else:
+                        calibSess = idx2session[selection]
+        return calibSess, desiredGradients
 
 
 class DataManager(object):
@@ -311,7 +379,6 @@ class DataManager(object):
 
         self._idxKeys = None
         self._q0IdxKeys = None
-
 
     @property
     @abstractmethod
@@ -493,6 +560,17 @@ class CavityDataManager(DataManager):
                                                 ("gradIdx", "Gradient")]
         return self._idxKeys
 
+    def addNewCalibration(self, slacNum, cavity):
+        # type: (int, Cavity) -> CalibDataSession
+
+        self.populateIdxMap(slacNum=slacNum, kind="calib", cavNum=cavity.cavNum)
+
+        calibSession = self.addDataSession(slacNum=slacNum, container=cavity)
+
+        self.parent.cryoModules[slacNum] = calibSession.container
+
+        return calibSession
+
     def addDataSessionAdv(self, slacNum, container, idx,
                           calibSession=None, refValvePos=None):
         # type: (int, Cavity, int, CalibDataSession, float) -> Q0DataSession
@@ -566,12 +644,14 @@ class CavityDataManager(DataManager):
         self.idxMap[slacNum] = {cavNum: indices}
 
     def addDataSession(self, slacNum, container, refGradVal=None,
-                       calibSession=None):
-        # type: (int, Cavity, float, CalibDataSession) -> Q0DataSession
+                       calibSession=None, kind="q0"):
+        # type: (int, Cavity, float, CalibDataSession, str) -> DataSession
 
         indices = self.idxMap[slacNum][container.cavNum]
 
-        fileReader, rows = self.getRowsAndFileReader(slacNum, cavNum=container.cavNum)
+        fileReader, rows = self.getRowsAndFileReader(slacNum,
+                                                     cavNum=container.cavNum,
+                                                     kind=kind)
 
         # Unclear if this is actually necessary, but the idea is to have the
         # output of json.dumps be ordered by index number
@@ -589,21 +669,26 @@ class CavityDataManager(DataManager):
                 if not showMore:
                     break
 
-            grad = float(row[indices["gradIdx"]])
+            grad = float(row[indices["gradIdx"]]) if kind == "q0" else None
+
             cavNum = int(row[indices["cavNumIdx"]])
 
             # The files are per cryomodule, so there's a lot of different
             # cavities in the file. We check to make sure that we're only
             # presenting the options for the requested cavity at the requested
             # gradient (by just skipping the irrelevant ones)
-            if (grad != refGradVal) or (cavNum != container.cavNum):
+            if (grad and (grad != refGradVal)) or (cavNum != container.cavNum):
                 continue
 
             addOption(csvRow=row, lineNum=fileReader.line_num, indices=indices,
                       options=options)
 
-        selection = getSelection(duration=2, suffix="Q0 Measurement",
-                                 options=options)
+        if kind == "q0":
+            selection = getSelection(duration=2, suffix="Q0 Measurement",
+                                    options=options)
+        else:
+            selection = getSelection(duration=5, suffix="Calibration",
+                                     options=options)
 
         # If using an existing data session
         if selection != max(options):
@@ -612,7 +697,8 @@ class CavityDataManager(DataManager):
             refHeatLoadAct = float(selectedRow[indices["refHeatActIdx"]])
             return container.addDataSessionFromRow(selectedRow, indices,
                                                    refHeatLoad, refHeatLoadAct,
-                                                   calibSession, refGradVal)
+                                                   calibSession, refGradVal,
+                                                   kind=kind)
 
         else:
             (Q0Sess,
@@ -623,6 +709,10 @@ class CavityDataManager(DataManager):
 
 
 class CryModDataManager(DataManager):
+
+    def __init__(self, parent):
+        # type: (InputFileParser) -> None
+        super(CryModDataManager, self).__init__(parent)
 
     @property
     def q0Header(self):
@@ -664,10 +754,6 @@ class CryModDataManager(DataManager):
                                                refHeatLoad, refHeatLoadAct,
                                                calibSession)
 
-    def __init__(self, parent):
-        # type: (InputFileParser) -> None
-        super(CryModDataManager, self).__init__(parent)
-
     @property
     def idxKeys(self):
         if not self._idxKeys:
@@ -678,15 +764,15 @@ class CryModDataManager(DataManager):
     def q0IdxKeys(self):
         if not self._q0IdxKeys:
             self._q0IdxKeys = self.baseIdxKeys + [("jlabNumIdx", "JLAB Number"),
-                                                ("cav1GradIdx", "Cavity 1 Gradient"),
-                                                ("cav2GradIdx", "Cavity 2 Gradient"),
-                                                ("cav3GradIdx", "Cavity 3 Gradient"),
-                                                ("cav4GradIdx", "Cavity 4 Gradient"),
-                                                ("cav5GradIdx", "Cavity 5 Gradient"),
-                                                ("cav6GradIdx", "Cavity 6 Gradient"),
-                                                ("cav7GradIdx", "Cavity 7 Gradient"),
-                                                ("cav8GradIdx", "Cavity 8 Gradient"),
-                                                ("totGradIdx", "Cumulative Gradient")]
+                                                  ("cav1GradIdx", "Cavity 1 Gradient"),
+                                                  ("cav2GradIdx", "Cavity 2 Gradient"),
+                                                  ("cav3GradIdx", "Cavity 3 Gradient"),
+                                                  ("cav4GradIdx", "Cavity 4 Gradient"),
+                                                  ("cav5GradIdx", "Cavity 5 Gradient"),
+                                                  ("cav6GradIdx", "Cavity 6 Gradient"),
+                                                  ("cav7GradIdx", "Cavity 7 Gradient"),
+                                                  ("cav8GradIdx", "Cavity 8 Gradient"),
+                                                  ("totGradIdx", "Cumulative Gradient")]
         return self._q0IdxKeys
 
     ############################################################################
@@ -696,10 +782,10 @@ class CryModDataManager(DataManager):
     #                  using basic user input.
     # noinspection PyTypeChecker
     ############################################################################
-    def addNewCryMod(self, slacNum):
-        # type: (int) -> CalibDataSession
+    def addNewCalibration(self, slacNum, cavNum=None):
+        # type: (int, int) -> CalibDataSession
 
-        self.populateIdxMap(slacNum=slacNum, kind="calib")
+        self.populateIdxMap(slacNum=slacNum, kind="calib", cavNum=cavNum)
 
         calibSession = self.addDataSession(slacNum=slacNum, container=None)
 
@@ -787,9 +873,10 @@ class CryModDataManager(DataManager):
             selectedRow = compatibleNext(reader([rows[selection - 1]]))
             refHeatLoad = float(selectedRow[indices["refHeatIdx"]])
             refHeatLoadAct = float(selectedRow[indices["refHeatActIdx"]])
-            return container.addQ0DataSessionFromRow(selectedRow, indices,
+            return container.addDataSessionFromRow(selectedRow, indices,
                                                    refHeatLoad, refHeatLoadAct,
-                                                   calibSession, desiredGradients)
+                                                   calibSession,
+                                                   desiredGradients, kind="q0")
 
         else:
             (Q0Sess,
@@ -824,11 +911,11 @@ class CryModDataManager(DataManager):
 
         for row in fileReader:
 
-            if (len(options) + 1) % 10 == 0:
-                printOptions(options)
-                showMore = isYes("Search for more options? ")
-                if not showMore:
-                    break
+            # if (len(options) + 1) % 10 == 0:
+            #     printOptions(options)
+            #     showMore = isYes("Search for more options? ")
+            #     if not showMore:
+            #         break
 
             addOption(csvRow=row, lineNum=fileReader.line_num, indices=indices,
                       options=options)
@@ -848,7 +935,8 @@ class CryModDataManager(DataManager):
             refHeatLoadAct = float(calibRow[indices["refHeatActIdx"]])
 
             return container.addDataSessionFromRow(calibRow, indices,
-                                                   refHeatLoad, refHeatLoadAct)
+                                                   refHeatLoad, refHeatLoadAct,
+                                                   kind="calib")
 
         else:
             if not container:
