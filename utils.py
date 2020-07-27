@@ -333,8 +333,8 @@ def addOption(csvRow, lineNum, indices, options):
                                 RATE=rate))
 
 
-def getSelection(duration, suffix, options):
-    # type: (float, str, Dict[int, str]) -> int
+def getSelection(duration, suffix, options, name=None):
+    # type: (float, str, Dict[int, str], str) -> int
     # Running a new Q0 measurement or heater calibration is always
     # presented as the last option in the list
 
@@ -354,8 +354,8 @@ def getSelection(duration, suffix, options):
         i += 1
 
     printOptions(renumberedOptions)
-    formatter = "Please select a {TYPE} option (hit enter for option 1): "
-    selection = getNumInputFromLst(formatter.format(TYPE=suffix),
+    formatter = "Please select a {TYPE} option for {NAME} (hit enter for option 1): "
+    selection = getNumInputFromLst(formatter.format(TYPE=suffix, NAME=name),
                                    renumberedOptions.keys(), int, True)
 
     return optionMap[selection]

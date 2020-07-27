@@ -191,7 +191,7 @@ class Container(object):
 
         print("\nDetermining required JT Valve position...")
 
-        loopStart = datetime.now() - timedelta(hours=3)
+        loopStart = datetime.now()
         searchStart = loopStart - timedelta(hours=HOURS_NEEDED_FOR_FLATNESS)
         searchStart = halfHourRoundDown(searchStart)
 

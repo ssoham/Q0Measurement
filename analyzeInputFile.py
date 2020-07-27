@@ -298,9 +298,9 @@ class BasicInputFileParser(InputFileParser):
 
         else:
             if slacNum not in self.cryoModules:
+                prompt = "LERF cryomodule number for CM{CM}: ".format(CM=slacNum)
                 cryoModule = Cryomodule(slacNum,
-                                        getNumInputFromLst("JLab cryomodule number: ",
-                                                           [2, 3], int))
+                                        getNumInputFromLst(prompt, [2, 3], int))
                 self.cryoModules[slacNum] = cryoModule
 
         for _, cavity in self.cryoModules[slacNum].cavities.items():
@@ -312,6 +312,7 @@ class BasicInputFileParser(InputFileParser):
                 continue
 
             desiredGradients[cavity.cavNum] = gradDes
+
         if selection == 2:
             for cavNum in desiredGradients.keys():
                 cavity = self.cryoModules[slacNum].cavities[cavNum]
@@ -687,7 +688,7 @@ class CavityDataManager(DataManager):
                                     options=options)
         else:
             selection = getSelection(duration=5, suffix="Calibration",
-                                     options=options)
+                                     options=options, name=container.name)
 
         # If using an existing data session
         if selection != max(options):
