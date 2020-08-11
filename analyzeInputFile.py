@@ -44,7 +44,7 @@ class InputFileParser(object):
         self.dataSessions = {}
 
         # A dict of the form {[SLAC cryomodule number]: [Cryomodule Object]}
-        self.cryoModules = {} #type: Dict[int, Cryomodule]
+        self.cryoModules = {}  # type: Dict[int, Cryomodule]
 
         # We store the JT Valve position from the first time that we run
         # getRefValveParams (in Container) so that we don't have to rerun that
@@ -528,6 +528,7 @@ class CavityDataManager(DataManager):
         #       {[cavity number]:
         #           {[column name shorthand]: [index in the relevant CSV header]}}
         self.idxMap = {}
+        self.q0IdxMap = {}
 
     @property
     def q0Header(self):
@@ -557,10 +558,10 @@ class CavityDataManager(DataManager):
 
     @property
     def q0IdxKeys(self):
-        if not self._idxKeys:
-            self._idxKeys = self.baseIdxKeys + [("cavNumIdx", "Cavity"),
-                                                ("gradIdx", "Gradient")]
-        return self._idxKeys
+        if not self._q0IdxKeys:
+            self._q0IdxKeys = self.baseIdxKeys + [("cavNumIdx", "Cavity"),
+                                                  ("gradIdx", "Gradient")]
+        return self._q0IdxKeys
 
     def addNewCalibration(self, slacNum, cavity):
         # type: (int, Cavity) -> CalibDataSession
@@ -569,7 +570,7 @@ class CavityDataManager(DataManager):
 
         calibSession = self.addDataSession(slacNum=slacNum, container=cavity, kind="calib")
 
-        self.parent.cryoModules[slacNum] = calibSession.container
+        # self.parent.cryoModules[slacNum] = calibSession.container
 
         return calibSession
 
@@ -622,7 +623,12 @@ class CavityDataManager(DataManager):
     def populateIdxMap(self, slacNum, kind=None, cavNum=None):
         # type: (int, str, int) -> None
 
-        if slacNum not in self.idxMap or cavNum not in self.idxMap[slacNum]:
+        if kind == "q0":
+            missing = slacNum not in self.q0IdxMap or cavNum not in self.q0IdxMap[slacNum]
+        else:
+            missing = slacNum not in self.idxMap or cavNum not in self.idxMap[slacNum]
+
+        if missing:
             sessionCSV = self.genSessionFile(slacNum, kind, cavNum)
             if not isfile(sessionCSV):
                 compatibleMkdirs(sessionCSV)
@@ -643,13 +649,18 @@ class CavityDataManager(DataManager):
         indices = {}
         for key, column in (self.idxKeys if kind != "q0" else self.q0IdxKeys):
             indices[key] = header.index(column)
-        self.idxMap[slacNum] = {cavNum: indices}
+        if kind == "calib":
+            self.idxMap[slacNum] = {cavNum: indices}
+        else:
+            self.q0IdxMap[slacNum] = {cavNum: indices}
 
     def addDataSession(self, slacNum, container, refGradVal=None,
                        calibSession=None, kind="q0"):
         # type: (int, Cavity, float, CalibDataSession, str) -> DataSession
 
-        indices = self.idxMap[slacNum][container.cavNum]
+        indices = (self.idxMap[slacNum][container.cavNum]
+                   if kind == "calib"
+                   else self.q0IdxMap[slacNum][container.cavNum])
 
         fileReader, rows = self.getRowsAndFileReader(slacNum,
                                                      cavNum=container.cavNum,
@@ -687,7 +698,7 @@ class CavityDataManager(DataManager):
 
         if kind == "q0":
             selection = getSelection(duration=2, suffix="Q0 Measurement",
-                                    options=options)
+                                     options=options)
         else:
             selection = getSelection(duration=5, suffix="Calibration",
                                      options=options, name=container.name)
@@ -917,7 +928,6 @@ class CryModDataManager(DataManager):
         options = OrderedDict()
 
         for row in fileReader:
-
             # if (len(options) + 1) % 10 == 0:
             #     printOptions(options)
             #     showMore = isYes("Search for more options? ")

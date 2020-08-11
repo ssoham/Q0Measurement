@@ -144,15 +144,16 @@ class Container(object):
         else:
             print("we shouldn't be here... (Container.addDataSessionFromRow)")
 
-    @abstractmethod
-    def genDataSession(self, timeParams, valveParams, refGradVal=None,
-                       calibSession=None):
-        raise NotImplementedError
+    def genCalibDataSession(self, timeParams, valveParams, refGradVal=None,
+                            calibSession=None):
+        # type: (TimeParams, ValveParams, float, CalibDataSession) -> CalibDataSession
+        return CalibDataSession(self, timeParams, valveParams)
 
-    @abstractmethod
     def genQ0DataSession(self, timeParams, valveParams, refGradVal=None,
                          calibSession=None):
-        raise NotImplementedError
+        # type: (TimeParams, ValveParams, float, CalibDataSession) -> Q0DataSession
+        return Q0DataSession(self, timeParams, valveParams, refGradVal,
+                             calibSession)
 
     # Returns a list of the PVs used for this container's data acquisition
     @abstractmethod
@@ -191,7 +192,7 @@ class Container(object):
 
         print("\nDetermining required JT Valve position...")
 
-        loopStart = datetime.now()
+        loopStart = datetime.now() - timedelta(hours=12)
         searchStart = loopStart - timedelta(hours=HOURS_NEEDED_FOR_FLATNESS)
         searchStart = halfHourRoundDown(searchStart)
 
@@ -353,8 +354,8 @@ class Container(object):
         # Only create a new calibration data session if one doesn't already
         # exist with those exact parameters
         if sessionHash not in self.calibDataSessions:
-            session = self.genDataSession(timeParams, valveParams, refGradVal,
-                                          calibSession)
+            session = self.genCalibDataSession(timeParams, valveParams, refGradVal,
+                                               calibSession)
             self.calibDataSessions[sessionHash] = session
 
         return self.calibDataSessions[sessionHash]
@@ -573,17 +574,6 @@ class Cryomodule(Container):
             sleep(60)
 
         writeAndWait("\nWaiting 5s for cryo to stabilize...\n", 5)
-
-    def genDataSession(self, timeParams, valveParams, refGradVal=None,
-                       calibSession=None):
-        # type: (TimeParams, ValveParams, float, CalibDataSession) -> CalibDataSession
-        return CalibDataSession(self, timeParams, valveParams)
-
-    def genQ0DataSession(self, timeParams, valveParams, refGradVal=None,
-                         calibSession=None):
-        # type: (TimeParams, ValveParams, float, CalibDataSession) -> Q0DataSession
-        return Q0DataSession(self, timeParams, valveParams, refGradVal,
-                             calibSession)
 
     def launchHeaterRun(self, delta=CAL_HEATER_DELTA):
         # type: (float) -> None
@@ -845,10 +835,6 @@ class Cryomodule(Container):
 
 class Cavity(Container):
 
-    def genQ0DataSession(self, timeParams, valveParams, refGradVal=None, calibSession=None):
-        return Q0DataSession(self, timeParams, valveParams, refGradVal,
-                             calibSession)
-
     def __init__(self, cryMod, cavNumber):
         # type: (Cryomodule, int) -> None
 
@@ -969,6 +955,11 @@ class Cavity(Container):
         # type: () -> float
         return self.parent.totalHeatDes
 
+    @property
+    def heaterDes(self):
+        # type: () -> float
+        return float(cagetPV(self.heaterDesPV))
+
     def waitForTotalHeatDes(self, valveParams):
         # type: (ValveParams) -> None
         self.parent.waitForTotalHeatDes(valveParams)
@@ -984,8 +975,9 @@ class Cavity(Container):
 
         formatter = "\nWalking cavity {NUM} heater to {{VAL}}"
         formatter = formatter.format(NUM=self.cavNum)
+        print(formatter.format(VAL=heatDelta))
 
-        for _ in range(abs(heatDelta)):
+        for _ in range(abs(int(heatDelta))):
             currVal = float(cagetPV(self.heaterDesPV))
             newVal = currVal + step
             caputPV(self.heaterDesPV, str(newVal))
@@ -999,7 +991,7 @@ class Cavity(Container):
         if not valveParams:
             valveParams = self.getRefValveParams()
 
-        deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
+        deltaTot = valveParams.refHeatLoadDes - self.heaterDes
 
         startTime = datetime.now().replace(microsecond=0)
 
@@ -1054,14 +1046,6 @@ class Cavity(Container):
                                 MYSAMPLER_TIME_INTERVAL])
 
         return dataSession, valveParams
-
-    # refGradVal and calibSession are required parameters but are nullable to
-    # match the signature in Container
-    def genDataSession(self, timeParams, valveParams, refGradVal=None,
-                       calibSession=None):
-        # type: (TimeParams, ValveParams, float, CalibDataSession) -> Q0DataSession
-        return Q0DataSession(self, timeParams, valveParams, refGradVal,
-                             calibSession)
 
     def hash(self, timeParams, slacNum, jlabNum, calibSession=None,
              refGradVal=None):
@@ -1588,13 +1572,21 @@ class Cavity(Container):
         print("**** REMINDER: refills aren't automated - please contact the"
               " cryo group ****")
 
-        self.walkHeater(delta)
+        # self.waitForLL()
+        # self.walkHeater(delta)
 
         if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
             print("Please ask the cryo group to refill to {LL} on the"
                   " downstream sensor".format(LL=MAX_DS_LL))
 
-            self.waitForCryo(desPos)
+            # self.waitForCryo(desPos)
+
+            self.waitForLL()
+            self.walkHeater(delta)
+            self.waitForJT(desPos)
+
+        else:
+            self.walkHeater(delta)
 
         startTime = datetime.now()
 

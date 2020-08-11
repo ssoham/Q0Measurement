@@ -63,7 +63,7 @@ FNULL = open(devnull, "w")
 INITIAL_CAL_HEAT_LOAD = 8
 
 # The number of distinct heater settings we're using for cryomodule calibrations
-NUM_CAL_STEPS = 5
+NUM_CAL_STEPS = 7
 
 NUM_LL_POINTS_TO_AVG = 25
 
