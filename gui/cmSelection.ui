@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Q0CryomoduleSelector</class>
+ <widget class="QWidget" name="Q0CryomoduleSelector">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>675</width>
+    <height>690</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>675</width>
+    <height>690</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>Q0 Cryomodule Selection</string>
+  </property>
+  <property name="windowFilePath">
+   <string>cmSelection.ui</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutL0B">
+     <item>
+      <widget class="QLabel" name="labelL0B">
+       <property name="text">
+        <string>L0B</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerL0B">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>235</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="selectAllCheckboxL0B">
+       <property name="text">
+        <string>Select ALL</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="PyDMTemplateRepeater" name="cryomodulesL0B">
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="layoutType" stdset="0">
+      <enum>PyDMTemplateRepeater::Flow</enum>
+     </property>
+     <property name="layoutSpacing" stdset="0">
+      <number>0</number>
+     </property>
+     <property name="countShownInDesigner" stdset="0">
+      <number>20</number>
+     </property>
+     <property name="templateFilename" stdset="0">
+      <string>cmCheckboxButton.ui</string>
+     </property>
+     <property name="dataSource" stdset="0">
+      <string>L0B.json</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutL1B">
+     <item>
+      <widget class="QLabel" name="labelL1B">
+       <property name="text">
+        <string>L1B</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerL1B">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>235</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="selectAllCheckboxL1B">
+       <property name="text">
+        <string>Select ALL</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="PyDMTemplateRepeater" name="cryomodulesL1B">
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="layoutType" stdset="0">
+      <enum>PyDMTemplateRepeater::Flow</enum>
+     </property>
+     <property name="layoutSpacing" stdset="0">
+      <number>0</number>
+     </property>
+     <property name="countShownInDesigner" stdset="0">
+      <number>20</number>
+     </property>
+     <property name="templateFilename" stdset="0">
+      <string>cmCheckboxButton.ui</string>
+     </property>
+     <property name="dataSource" stdset="0">
+      <string>L1B.json</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutL2B">
+     <item>
+      <widget class="QLabel" name="labelL2B">
+       <property name="text">
+        <string>L2B</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerL2B">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>235</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="selectAllCheckboxL2B">
+       <property name="text">
+        <string>Select ALL</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="PyDMTemplateRepeater" name="cryomodulesL2B">
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="layoutType" stdset="0">
+      <enum>PyDMTemplateRepeater::Flow</enum>
+     </property>
+     <property name="layoutSpacing" stdset="0">
+      <number>0</number>
+     </property>
+     <property name="countShownInDesigner" stdset="0">
+      <number>20</number>
+     </property>
+     <property name="templateFilename" stdset="0">
+      <string>cmCheckboxButton.ui</string>
+     </property>
+     <property name="dataSource" stdset="0">
+      <string>L2B.json</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutL3B">
+     <item>
+      <widget class="QLabel" name="labelL3B">
+       <property name="text">
+        <string>L3B</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacerL3B">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>235</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="selectAllCheckboxL3B">
+       <property name="text">
+        <string>Select ALL</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="PyDMTemplateRepeater" name="cryomodulesL3B">
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="layoutType" stdset="0">
+      <enum>PyDMTemplateRepeater::Flow</enum>
+     </property>
+     <property name="layoutSpacing" stdset="0">
+      <number>0</number>
+     </property>
+     <property name="countShownInDesigner" stdset="0">
+      <number>20</number>
+     </property>
+     <property name="templateFilename" stdset="0">
+      <string>cmCheckboxButton.ui</string>
+     </property>
+     <property name="dataSource" stdset="0">
+      <string>L3B.json</string>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>PyDMTemplateRepeater</class>
+   <extends>QFrame</extends>
+   <header>pydm.widgets.template_repeater</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>
