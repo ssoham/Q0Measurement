@@ -421,7 +421,7 @@ def collapseGradVals(row, gradCols):
 
     for col in gradCols:
         try:
-            grad += float(row[col])**2
+            grad += float(row[col])
         except ValueError:
             grad = None
             break

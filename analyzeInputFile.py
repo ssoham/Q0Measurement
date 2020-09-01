@@ -255,7 +255,7 @@ class BasicInputFileParser(InputFileParser):
     def getCalibAndDesGrads(self, row, slacNum):
         desiredGradients = {}
         options = {1: "Full module calibration",
-                   2: "Single cavity calibration (per cavity in row)"}
+                   2: "Single cavity calibration (to be used for each cavity in row)"}
         printOptions(options)
         prompt = "Please select a calibration option (hit enter for option 1): "
         selection = getNumInputFromLst(prompt, options.keys(), int, True)
@@ -285,10 +285,10 @@ class BasicInputFileParser(InputFileParser):
 
                 prompt = ("Please select a calibration option"
                           " (hit enter for option 1): ")
-                selection = getNumInputFromLst(prompt, options.keys(), int,
+                reuseSelection = getNumInputFromLst(prompt, options.keys(), int,
                                                True)
 
-                reuseCalibration = (selection != max(options))
+                reuseCalibration = (reuseSelection != max(options))
 
                 if not reuseCalibration:
                     cryMod = self.cryoModules[slacNum]
@@ -296,7 +296,7 @@ class BasicInputFileParser(InputFileParser):
                                                                cryMod=cryMod)
 
                 else:
-                    calibSess = idx2session[selection]
+                    calibSess = idx2session[reuseSelection]
 
         else:
             if slacNum not in self.cryoModules:
@@ -316,45 +316,48 @@ class BasicInputFileParser(InputFileParser):
             desiredGradients[cavity.cavNum] = gradDes
 
         if selection == 2:
-            for cavNum in desiredGradients.keys():
-                cavity = self.cryoModules[slacNum].cavities[cavNum]
-                if not cavity.calibDataSessions:
-                    calibSess = self.cavManager.addNewCalibration(slacNum=slacNum,
-                                                                  cavity=cavity)
+            cavNum = getNumInputFromLst("Single cavity calibration to be used (cavity number): ",
+                                        self.cryoModules[slacNum].cavities.keys(),
+                                        int, True)
+            # for cavNum in desiredGradients.keys():
+            cavity = self.cryoModules[slacNum].cavities[cavNum]
+            if not cavity.calibDataSessions:
+                calibSess = self.cavManager.addNewCalibration(slacNum=slacNum,
+                                                              cavity=cavity)
+
+            else:
+                options = {}
+                idx = 1
+                idx2session = {}
+
+                # Multiple rows in the input file may have the same SLAC
+                # cryomodule number. However, the user might want to use
+                # different calibrations. This is where we give the user the
+                # option to reuse a calibration we've already loaded up and
+                # processed.
+                calibDataSessions = cavity.calibDataSessions
+                for _, calibDataSession in calibDataSessions.items():
+                    options[idx] = str(calibDataSession)
+                    idx2session[idx] = calibDataSession
+                    idx += 1
+
+                options[idx] = "Use a different calibration"
+                printOptions(options)
+
+                prompt = ("Please select a calibration option"
+                          " (hit enter for option 1): ")
+                selection = getNumInputFromLst(prompt, options.keys(), int,
+                                               True)
+
+                reuseCalibration = (selection != max(options))
+
+                if not reuseCalibration:
+                    calibSess = self.cavManager.addDataSession(slacNum=slacNum,
+                                                               container=cavity,
+                                                               kind="calib")
 
                 else:
-                    options = {}
-                    idx = 1
-                    idx2session = {}
-
-                    # Multiple rows in the input file may have the same SLAC
-                    # cryomodule number. However, the user might want to use
-                    # different calibrations. This is where we give the user the
-                    # option to reuse a calibration we've already loaded up and
-                    # processed.
-                    calibDataSessions = cavity.calibDataSessions
-                    for _, calibDataSession in calibDataSessions.items():
-                        options[idx] = str(calibDataSession)
-                        idx2session[idx] = calibDataSession
-                        idx += 1
-
-                    options[idx] = "Use a different calibration"
-                    printOptions(options)
-
-                    prompt = ("Please select a calibration option"
-                              " (hit enter for option 1): ")
-                    selection = getNumInputFromLst(prompt, options.keys(), int,
-                                                   True)
-
-                    reuseCalibration = (selection != max(options))
-
-                    if not reuseCalibration:
-                        calibSess = self.cavManager.addDataSession(slacNum=slacNum,
-                                                                   container=cavity,
-                                                                   kind="calib")
-
-                    else:
-                        calibSess = idx2session[selection]
+                    calibSess = idx2session[selection]
         return calibSess, desiredGradients
 
 
@@ -553,7 +556,7 @@ class CavityDataManager(DataManager):
     @property
     def idxKeys(self):
         if not self._idxKeys:
-            self._idxKeys = self.baseIdxKeys + [("cavNumIdx", "Cavity")]
+            self._idxKeys = self.baseIdxKeys + [("lerfNumIdx", "LERF CM Number")]
         return self._idxKeys
 
     @property
@@ -684,13 +687,13 @@ class CavityDataManager(DataManager):
 
             grad = float(row[indices["gradIdx"]]) if kind == "q0" else None
 
-            cavNum = int(row[indices["cavNumIdx"]])
+            # cavNum = int(row[indices["cavNumIdx"]])
 
             # The files are per cryomodule, so there's a lot of different
             # cavities in the file. We check to make sure that we're only
             # presenting the options for the requested cavity at the requested
             # gradient (by just skipping the irrelevant ones)
-            if (grad and (grad != refGradVal)) or (cavNum != container.cavNum):
+            if grad and (grad != refGradVal):
                 continue
 
             addOption(csvRow=row, lineNum=fileReader.line_num, indices=indices,

@@ -210,6 +210,9 @@ class Container(object):
             csvReaderLL = getAndParseRawData(searchStart, numPoints,
                                              [self.dsLevelPV], verbose=False)
 
+            if not csvReaderLL:
+                raise AssertionError("No Archiver data found")
+
             compatibleNext(csvReaderLL)
             llVals = []
 
@@ -793,7 +796,7 @@ class Cryomodule(Container):
             desiredGradient = 0
 
             for grad in desiredGradients.values():
-                desiredGradient += grad ** 2
+                desiredGradient += grad
 
             session = self.addQ0DataSession(timeParams, valveParams,
                                             refGradVal=desiredGradient,
@@ -804,7 +807,7 @@ class Cryomodule(Container):
             for i in range(8):
                 if (i + 1) in desiredGradients:
                     desGrads.append(desiredGradients[i + 1])
-                    totGrad += desiredGradients[i + 1] ** 2
+                    totGrad += desiredGradients[i + 1]
                 else:
                     desGrads.append(0)
 
@@ -813,7 +816,7 @@ class Cryomodule(Container):
                 csvWriter.writerow(
                     [self.cryModNumJLAB, valveParams.refHeatLoadDes,
                      valveParams.refHeatLoadAct, valveParams.refValvePos]
-                    + desGrads + [sqrt(totGrad), startTime.strftime("%m/%d/%y %H:%M:%S"),
+                    + desGrads + [totGrad, startTime.strftime("%m/%d/%y %H:%M:%S"),
                                   endTime.strftime("%m/%d/%y %H:%M:%S"),
                                   MYSAMPLER_TIME_INTERVAL])
 
@@ -856,7 +859,8 @@ class Cavity(Container):
                          .format(CM=self.parent.cryModNumSLAC, CAV=cavNumber))
 
         self._calibIdxFile = ("calibrations/cm{CM}/cav{CAV}/calibrationsCM{CM}CAV{CAV}.csv"
-                         .format(CM=self.parent.cryModNumSLAC, CAV=cavNumber))
+                              .format(CM=self.parent.cryModNumSLAC,
+                                      CAV=cavNumber))
 
     @property
     def gradTol(self):
@@ -890,9 +894,9 @@ class Cavity(Container):
             compatibleMkdirs(self._calibIdxFile)
             with open(self._calibIdxFile, "w+") as f:
                 csvWriter = writer(f)
-                csvWriter.writerow(["JLAB Number", "Reference Heat Load (Des)",
+                csvWriter.writerow(["LERF CM Number", "JT Valve Position", "Start",
+                                    "End", "Reference Heat Load (Des)",
                                     "Reference Heat Load (Act)",
-                                    "JT Valve Position", "Start", "End",
                                     "MySampler Time Interval"])
 
         return self._calibIdxFile
@@ -1038,11 +1042,11 @@ class Cavity(Container):
         # Record this calibration dataSession's metadata
         with open(self.calibIdxFile, 'a') as f:
             csvWriter = writer(f)
-            csvWriter.writerow([self.cryModNumJLAB, valveParams.refHeatLoadDes,
-                                valveParams.refHeatLoadAct,
-                                valveParams.refValvePos,
+            csvWriter.writerow([self.cryModNumJLAB, valveParams.refValvePos,
                                 startTime.strftime("%m/%d/%y %H:%M:%S"),
                                 endTime.strftime("%m/%d/%y %H:%M:%S"),
+                                valveParams.refHeatLoadDes,
+                                valveParams.refHeatLoadAct,
                                 MYSAMPLER_TIME_INTERVAL])
 
         return dataSession, valveParams
@@ -2776,7 +2780,13 @@ class RFDataRun(DataRun):
         # type: (float, float, float) -> float
         # The initial Q0 calculation doesn't account for the temperature
         # variation of the 2 K helium
-        uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
+        cavLength = 1.038
+        rUponQ = 1012
+
+        uncorrectedQ0 = (((grad * 1000000 * cavLength) ** 2)
+                         / (rUponQ * rfHeatLoad))
+
+        # uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
 
         # We can correct Q0 for the helium temperature!
         tempFromPress = (avgPressure * 0.0125) + 1.705
