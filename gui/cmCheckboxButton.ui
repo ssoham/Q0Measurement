@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>118</width>
-    <height>41</height>
+    <width>137</width>
+    <height>44</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -45,6 +45,9 @@
      </property>
      <property name="showIcon" stdset="0">
       <bool>false</bool>
+     </property>
+     <property name="openInNewWindow" stdset="0">
+      <bool>true</bool>
      </property>
     </widget>
    </item>

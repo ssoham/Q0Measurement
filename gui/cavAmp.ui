@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>131</width>
-    <height>112</height>
+    <width>266</width>
+    <height>143</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -23,21 +23,18 @@
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_3">
         <item>
-         <widget class="PyDMLineEdit" name="PyDMLineEdit">
-          <property name="toolTip">
-           <string/>
+         <widget class="QLineEdit" name="lineEdit">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
           </property>
-          <property name="dragEnabled">
-           <bool>true</bool>
+          <property name="text">
+           <string>16.608</string>
           </property>
-          <property name="readOnly">
-           <bool>true</bool>
-          </property>
-          <property name="showUnits" stdset="0">
-           <bool>true</bool>
-          </property>
-          <property name="channel" stdset="0">
-           <string>ACCL:${area}:${cm}${cav}0:AMAX</string>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
           </property>
          </widget>
         </item>
@@ -64,6 +61,13 @@
        </layout>
       </item>
       <item>
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>ACCL:${area}:${cm}${cav}0:AMAX</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QPushButton" name="pushButton">
         <property name="text">
          <string>Use AMAX</string>
@@ -75,13 +79,6 @@
    </item>
   </layout>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>PyDMLineEdit</class>
-   <extends>QLineEdit</extends>
-   <header>pydm.widgets.line_edit</header>
-  </customwidget>
- </customwidgets>
  <resources/>
  <connections/>
 </ui>
