@@ -28,38 +28,17 @@
     </widget>
    </item>
    <item>
-    <widget class="PyDMRelatedDisplayButton" name="cavityConfigureButton">
+    <widget class="QPushButton" name="pushButton">
      <property name="enabled">
-      <bool>true</bool>
-     </property>
-     <property name="toolTip">
-      <string/>
+      <bool>false</bool>
      </property>
      <property name="text">
       <string>CM ${cm}</string>
-     </property>
-     <property name="filenames" stdset="0">
-      <stringlist>
-       <string>amplitude.ui</string>
-      </stringlist>
-     </property>
-     <property name="showIcon" stdset="0">
-      <bool>false</bool>
-     </property>
-     <property name="openInNewWindow" stdset="0">
-      <bool>true</bool>
      </property>
     </widget>
    </item>
   </layout>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>PyDMRelatedDisplayButton</class>
-   <extends>QPushButton</extends>
-   <header>pydm.widgets.related_display_button</header>
-  </customwidget>
- </customwidgets>
  <resources/>
  <connections/>
 </ui>

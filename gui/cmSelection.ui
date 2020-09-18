@@ -18,6 +18,13 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
+    <widget class="QLabel" name="label">
+     <property name="text">
+      <string>The default cavity gradient is either AMAX or 16.608 MV (whichever is lower). Use the buttons to edit this.</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QScrollArea" name="scrollArea">
      <property name="widgetResizable">
       <bool>true</bool>
@@ -28,7 +35,7 @@
         <x>0</x>
         <y>0</y>
         <width>649</width>
-        <height>664</height>
+        <height>640</height>
        </rect>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_2">
@@ -109,6 +116,9 @@
            <property name="text">
             <string>Select ALL</string>
            </property>
+           <property name="tristate">
+            <bool>true</bool>
+           </property>
           </widget>
          </item>
         </layout>
@@ -159,6 +169,9 @@
            <property name="text">
             <string>Select ALL</string>
            </property>
+           <property name="tristate">
+            <bool>true</bool>
+           </property>
           </widget>
          </item>
         </layout>
@@ -208,6 +221,9 @@
           <widget class="QCheckBox" name="selectAllCheckboxL3B">
            <property name="text">
             <string>Select ALL</string>
+           </property>
+           <property name="tristate">
+            <bool>true</bool>
            </property>
           </widget>
          </item>
