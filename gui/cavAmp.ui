@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>266</width>
-    <height>143</height>
+    <height>147</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,9 +15,12 @@
   </property>
   <layout class="QGridLayout" name="gridLayout">
    <item row="0" column="0">
-    <widget class="QGroupBox" name="groupBox">
+    <widget class="QGroupBox" name="cavityGroupbox">
      <property name="title">
       <string>Cavity ${cav}</string>
+     </property>
+     <property name="checkable">
+      <bool>true</bool>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout">
       <item>
@@ -68,12 +71,15 @@
         <property name="text">
          <string>ACCL:${area}:${cm}${cav}0:AMAX</string>
         </property>
+        <property name="textInteractionFlags">
+         <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByMouse</set>
+        </property>
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="buttonUseAMAX">
+       <widget class="QPushButton" name="restoreDefaultButton">
         <property name="text">
-         <string>Use AMAX</string>
+         <string>Restore Default</string>
         </property>
        </widget>
       </item>

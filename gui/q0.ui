@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>228</width>
-    <height>114</height>
+    <width>285</width>
+    <height>216</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,27 +15,28 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="PyDMRelatedDisplayButton" name="cmSelectorButton">
-     <property name="toolTip">
-      <string/>
-     </property>
-     <property name="text">
-      <string>Select CMs</string>
-     </property>
-     <property name="filenames" stdset="0">
-      <stringlist>
-       <string>cmSelection.ui</string>
-      </stringlist>
-     </property>
-     <property name="titles" stdset="0">
-      <stringlist>
-       <string>Select CMs</string>
-      </stringlist>
-     </property>
-     <property name="openInNewWindow" stdset="0">
-      <bool>true</bool>
-     </property>
-    </widget>
+    <layout class="QGridLayout" name="gridLayout">
+     <item row="0" column="0">
+      <widget class="QRadioButton" name="radioButton">
+       <property name="toolTip">
+        <string>This will run every selected CM at once</string>
+       </property>
+       <property name="text">
+        <string>Full Module</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QRadioButton" name="radioButton_3">
+       <property name="toolTip">
+        <string>For each CM selected, this will run all 8 cavities at the ops max (or usuer specified gradient) and then run them all again minus the one being measured (it will iterate through all selected cavities)</string>
+       </property>
+       <property name="text">
+        <string>Single Cavity</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
    <item>
     <widget class="QPushButton" name="cmSelectButton">
@@ -51,6 +52,9 @@
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
       <widget class="QLabel" name="selectorLabel">
+       <property name="toolTip">
+        <string>CMs where cavities are deselected or not at ops max will appear with an asterisk (*)</string>
+       </property>
        <property name="text">
         <string>Selected CMs:</string>
        </property>
@@ -58,11 +62,23 @@
      </item>
      <item>
       <widget class="QLabel" name="selectionOutput">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="toolTip">
+        <string>CMs where cavities are deselected or not at ops max will appear with an asterisk (*)</string>
+       </property>
        <property name="text">
         <string/>
        </property>
        <property name="wordWrap">
         <bool>true</bool>
+       </property>
+       <property name="textInteractionFlags">
+        <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByMouse</set>
        </property>
       </widget>
      </item>
@@ -81,15 +97,29 @@
      </item>
     </layout>
    </item>
+   <item>
+    <widget class="QPushButton" name="settingsButton">
+     <property name="text">
+      <string>Show Measurement Settings Dialogue</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="pushButton">
+     <property name="text">
+      <string>Take Calibration</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="pushButton_2">
+     <property name="text">
+      <string>Take Measurment</string>
+     </property>
+    </widget>
+   </item>
   </layout>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>PyDMRelatedDisplayButton</class>
-   <extends>QPushButton</extends>
-   <header>pydm.widgets.related_display_button</header>
-  </customwidget>
- </customwidgets>
  <resources/>
  <connections/>
 </ui>
