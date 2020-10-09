@@ -1,0 +1,7 @@
+[{"label": "Heater Power Tolerance", "prefix": "+/-", "value": "0.5", "unit": "W", "name": "heaterPowerTol"},
+  {"label": "Gradient Tolerance", "prefix": "+/-", "value": "0.3", "unit": "MV/m", "name": "gradientTol"},
+  {"label": "JT Valve Position Tolerance", "prefix": "+/-", "value": "4", "unit": "%", "name": "jtValePositionTol"},
+  {"label": "Desired Resolution for Collected Archiver Data", "prefix": "", "value": "1", "unit": "Hz", "name": "archiverResolution"},
+  {"label": "Minimum Individual Measurement Duration", "prefix": "", "value": "200", "unit": "s", "name": "minMeasurementDuration"},
+  {"label": "Number of Calibration Data Points", "prefix": "", "value": "12", "unit": "", "name": "numCalibrationPoints"},
+  {"label": "Number of Data Points in Rolling Buffer for Averaging Liquid Level", "prefix": "", "value": "25", "unit": "", "name": "rollingAvgBufferSize"}]

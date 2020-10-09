@@ -1,7 +1,7 @@
 from pydm import Display
 from PyQt5 import QtGui
 from PyQt5.QtWidgets import (QWidgetItem, QCheckBox, QPushButton, QLineEdit,
-                             QGroupBox, QHBoxLayout)
+                             QGroupBox, QHBoxLayout, QMessageBox)
 from os import path
 from qtpy.QtCore import Slot
 from pydm.widgets.template_repeater import PyDMTemplateRepeater
@@ -36,6 +36,8 @@ class Q0Measurement(Display):
                                                              - timedelta(hours=24))
         self.ui.settingsButton.clicked.connect(partial(self.showDisplay,
                                                        self.settingsWindow))
+
+        self.ui.startCalibrationButton.clicked.connect(self.takeNewCalibration)
 
         self.pathToAmplitudeWindow = getPath("amplitude.ui")
 
@@ -73,7 +75,6 @@ class Q0Measurement(Display):
 
         self.populateCheckboxes()
 
-    # These nested methods have HIGH deprecation potential...
     def populateCheckboxes(self):
 
         for sector, checkbox in enumerate(self.selectAllCheckboxes):
@@ -106,6 +107,24 @@ class Q0Measurement(Display):
 
                 self.sectors[sector].append(name)
                 self.checkboxSectorMap[checkbox] = sector
+
+    @staticmethod
+    @Slot()
+    def takeNewCalibration():
+        def takeCalibration(decision):
+            if "No" in decision.text():
+                return
+            else:
+                print("taking new calibration")
+        sanityCheck = QMessageBox()
+        sanityCheck.setWindowTitle("Sanity Check")
+        sanityCheck.setText("Are you sure? This can take on the order of 5 hours")
+        sanityCheck.setIcon(QMessageBox.Warning)
+        sanityCheck.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        sanityCheck.setDefaultButton(QMessageBox.No)
+        sanityCheck.buttonClicked.connect(takeCalibration)
+        sanityCheck.exec()
+        sanityCheck.show()
 
     @Slot()
     def showDisplay(self, display):
