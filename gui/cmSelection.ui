@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>675</width>
-    <height>690</height>
+    <width>669</width>
+    <height>662</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -18,14 +18,13 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="QLabel" name="label">
-     <property name="text">
-      <string>The default cavity gradient is either AMAX or 16.608 MV (whichever is lower). Use the buttons to edit this.</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QScrollArea" name="scrollArea">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
      <property name="widgetResizable">
       <bool>true</bool>
      </property>
@@ -34,8 +33,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>649</width>
-        <height>640</height>
+        <width>643</width>
+        <height>636</height>
        </rect>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_2">

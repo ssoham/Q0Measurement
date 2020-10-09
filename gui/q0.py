@@ -1,7 +1,7 @@
 from pydm import Display
 from PyQt5 import QtGui
 from PyQt5.QtWidgets import (QWidgetItem, QCheckBox, QPushButton, QLineEdit,
-                             QGroupBox)
+                             QGroupBox, QHBoxLayout)
 from os import path
 from qtpy.QtCore import Slot
 from pydm.widgets.template_repeater import PyDMTemplateRepeater
@@ -78,7 +78,7 @@ class Q0Measurement(Display):
 
         for sector, checkbox in enumerate(self.selectAllCheckboxes):
             # TODO consider changing to QButtonGroup
-            checkbox.stateChanged.connect(partial(self.selectAll, checkbox, sector))
+            checkbox.stateChanged.connect(partial(self.selectAllSectorCryomodules, checkbox, sector))
 
         repeaters = [self.selectWindow.ui.cryomodulesL0B,
                      self.selectWindow.ui.cryomodulesL1B,
@@ -86,19 +86,18 @@ class Q0Measurement(Display):
                      self.selectWindow.ui.cryomodulesL3B]  # type: List[PyDMTemplateRepeater]
 
         for sector, repeater in enumerate(repeaters):
-            num = repeater.count()
 
-            for i in range(num):
-                item = repeater.layout().itemAt(i)  # type: QWidgetItem
+            pairs = repeater.findChildren(QHBoxLayout)  # type: List[QHBoxLayout]
 
-                button = item.widget().layout().itemAt(1).widget()  # type: QPushButton
+            for pair in pairs:
+                button = pair.itemAt(1).widget()  # type: QPushButton
                 name = button.text().split()[1]
                 self.cryomoduleButtons[name] = button
                 button.clicked.connect(partial(self.openAmplitudeWindow, name,
                                                sector))
 
-                checkbox = item.widget().layout().itemAt(0).widget()  # type: QCheckBox
-                self.cryomoduleCheckboxes[name] = checkbox
+                checkbox = pair.itemAt(0).widget()
+                self.cryomoduleCheckboxes[name] = checkbox # type: QCheckBox
 
                 self.cryomoduleCheckboxButtonMap[checkbox] = button
 
@@ -128,12 +127,12 @@ class Q0Measurement(Display):
         else:
             self.selectAllCavitiesCheckboxes[cm].setCheckState(0 if not allChecked else 2)
 
-        self.checkForDefault(cm, allChecked)
+        self.updateOutputBasedOnDefaultConfig(cm, allChecked)
 
     @Slot()
     # TODO use AMAX/ops limit
-    def cavityAmplitudeChanged(self, cm):
-        # type: (str) -> None
+    def checkIfAllCavitiesAtDefault(self, cm, updateOutput=True):
+        # type: (str, bool) -> bool
 
         isDefault = True
 
@@ -153,9 +152,13 @@ class Q0Measurement(Display):
                 isDefault = False
                 break
 
-        self.checkForDefault(cm, isDefault)
+        if updateOutput:
+            self.updateOutputBasedOnDefaultConfig(cm, isDefault)
 
-    def checkForDefault(self, cm, isDefault):
+        return isDefault
+
+    # TODO put sector logic in here
+    def updateOutputBasedOnDefaultConfig(self, cm, isDefault):
         starredName = "{CM}*".format(CM=cm)
 
         if isDefault:
@@ -189,7 +192,7 @@ class Q0Measurement(Display):
                 displayCav = item.widget()  # type: Display
 
                 lineEdit = displayCav.ui.desiredAmplitude  # type: QLineEdit
-                lineEdit.textChanged.connect(partial(self.cavityAmplitudeChanged, cm))
+                lineEdit.textChanged.connect(partial(self.checkIfAllCavitiesAtDefault, cm))
                 lineEdits.append(lineEdit)
 
                 groupBox = displayCav.ui.cavityGroupbox  # type: QGroupBox
@@ -235,6 +238,7 @@ class Q0Measurement(Display):
                                         .replace("]", ""))
 
     @Slot()
+    # TODO check if all checkboxes in sector are clicked
     def cryomoduleCheckboxToggled(self, cryomodule):
         # type:  (str) -> None
 
@@ -244,54 +248,68 @@ class Q0Measurement(Display):
         sector = self.checkboxSectorMap[checkbox]
         selectAllCheckbox = self.selectAllCheckboxes[sector]
 
+        state = selectAllCheckbox.checkState()
+        sectorLabel = "L{SECTOR}B*".format(SECTOR=sector)
+
         if checkbox.isChecked():
-            self.selectedDisplayCMs.add(cryomodule)
             self._selectedFullCMs.add(cryomodule)
-
-            if cryomodule in self.desiredCavAmps:
-                self.cavityAmplitudeChanged(cryomodule)
-
             button.setEnabled(True)
+
+            isDefault = (self.checkIfAllCavitiesAtDefault(cryomodule, False)
+                         if cryomodule in self.desiredCavAmps else True)
+
+            if state == 0:
+                selectAllCheckbox.setCheckState(1)
+
+            elif state == 1:
+                self.selectedDisplayCMs.add(cryomodule if isDefault
+                                            else cryomodule + "*")
+
+            else:
+                if not isDefault:
+                    self.selectedDisplayCMs.add(sectorLabel)
 
         else:
             self._selectedFullCMs.discard(cryomodule)
             button.setEnabled(False)
 
-            sectorLabel = "L{SECTOR}B".format(SECTOR=sector)
-            if sectorLabel in self.selectedDisplayCMs:
+            if state == 2:
+                selectAllCheckbox.setCheckState(1)
                 self.selectedDisplayCMs.discard(sectorLabel)
+                self.selectedDisplayCMs.discard("L{SECTOR}B".format(SECTOR=sector))
 
-                for label in self.sectors[sector]:
-                    self.selectedDisplayCMs.add(label)
+                for sectorCryomodule in self.sectors[sector]:
+                    isDefault = (self.checkIfAllCavitiesAtDefault(sectorCryomodule, False)
+                                 if sectorCryomodule in self.desiredCavAmps
+                                 else True)
+                    self.selectedDisplayCMs.add(sectorCryomodule
+                                                if isDefault
+                                                else (sectorCryomodule + "*"))
 
             self.selectedDisplayCMs.discard(cryomodule + "*")
             self.selectedDisplayCMs.discard(cryomodule)
 
-        selectAllCheckbox.setCheckState(1)
-
         self.updateSelectedText()
 
     @Slot()
-    def selectAll(self, selectAllCheckbox, sector):
+    def selectAllSectorCryomodules(self, selectAllCheckbox, sector):
         # type:  (QCheckBox, int) -> None
+
+        sectorLabel = "L{SECTOR}B".format(SECTOR=sector)
 
         if selectAllCheckbox.checkState() == 2:
 
             for name in self.sectors[sector]:
                 self.cryomoduleCheckboxes[name].setChecked(True)
 
-            for name in self.sectors[sector]:
-                self.selectedDisplayCMs.discard(name)
-
-            selectAllCheckbox.setCheckState(2)
-            self.selectedDisplayCMs.add("L{SECTOR}B".format(SECTOR=sector))
+            if (sectorLabel + "*") not in self.selectedDisplayCMs:
+                self.selectedDisplayCMs.add(sectorLabel)
 
         elif selectAllCheckbox.checkState() == 0:
             for name in self.sectors[sector]:
                 self.cryomoduleCheckboxes[name].setChecked(False)
 
-            selectAllCheckbox.setCheckState(0)
-
-            self.selectedDisplayCMs.discard("L{SECTOR}B".format(SECTOR=sector))
+            self.selectedDisplayCMs.discard(sectorLabel)
+            self.selectedDisplayCMs.discard(sectorLabel + "*")
 
         self.updateSelectedText()
