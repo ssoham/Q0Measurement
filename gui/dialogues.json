@@ -1,0 +1,6 @@
+[{"type": "Calibration", "label": "Calibration Status", "status": "No Calibration Loaded",
+  "loadButtonName":  "loadCalibrationButton", "newButtonName": "newCalibrationButton",
+  "dataButtonName": "calibrationDataButton", "labelName": "calibrationLabel", "boxName": "calibrationFrame"},
+  {"type": "RF Measurement", "label": "RF Measurement Status", "status": "No RF Measurement Loaded",
+    "loadButtonName": "loadRfButton", "newButtonName": "newRfButton",
+    "dataButtonName": "rfDataButton", "labelName": "rfLabel", "boxName": "rfFrame"}]

@@ -1,22 +1,27 @@
 from pydm import Display
-from PyQt5 import QtGui
+from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import (QWidgetItem, QCheckBox, QPushButton, QLineEdit,
-                             QGroupBox, QHBoxLayout, QMessageBox)
+                             QGroupBox, QHBoxLayout, QMessageBox, QWidget,
+                             QLabel, QFrame)
 from os import path
 from qtpy.QtCore import Slot
 from pydm.widgets.template_repeater import PyDMTemplateRepeater
 from typing import List, Dict
 from functools import partial, reduce
 from datetime import datetime, timedelta
+from requests import post
 import sys
-
-DEFAULT_AMPLITUDE = 16.608
 
 sys.path.insert(0, '..')
 
+DEFAULT_AMPLITUDE = 16.608
+
+STATUS_LIST = {0: "No Data Loaded", 1: "Calibration Loaded", 2: "Analyzed",
+               3: "Calibration Running", 4: "RF Measurement Running"}
+
 
 class Q0Measurement(Display):
-    def __init__(self, parent=None, args=[], ui_filename="q0.ui"):
+    def __init__(self, parent=None, args=None, ui_filename="q0.ui"):
 
         super(Q0Measurement, self).__init__(parent=parent, args=args,
                                             ui_filename=ui_filename)
@@ -26,10 +31,6 @@ class Q0Measurement(Display):
         def getPath(fileName):
             return path.join(pathHere, fileName)
 
-        self.selectWindow = Display(ui_filename=getPath("cmSelection.ui"))
-        self.ui.cmSelectButton.clicked.connect(partial(self.showDisplay,
-                                                       self.selectWindow))
-
         self.settingsWindow = Display(ui_filename=getPath("settings.ui"))
         self.settingsWindow.ui.valvePosSearchStart.setDateTime(datetime.now())
         self.settingsWindow.ui.valvePosSearchEnd.setDateTime(datetime.now()
@@ -37,7 +38,41 @@ class Q0Measurement(Display):
         self.ui.settingsButton.clicked.connect(partial(self.showDisplay,
                                                        self.settingsWindow))
 
-        self.ui.startCalibrationButton.clicked.connect(self.takeNewCalibration)
+        self.liveSignalsWindow = Display(ui_filename=getPath("signals.ui"))
+        self.ui.liveSignalsButton.clicked.connect(partial(self.showDisplay,
+                                                          self.liveSignalsWindow))
+
+        name2button = {}  # type: Dict[str, QPushButton]
+
+        # Get all the buttons from my template repeater and figure out which
+        # one's which with the accessible names (set in dialogues.json)
+        for button in self.ui.dialogues.findChildren(QPushButton):
+            name2button[button.accessibleName()] = button
+
+        name2button["newCalibrationButton"].clicked.connect(self.takeNewCalibration)
+
+        name2label = {}  # type: Dict[str, QLabel]
+
+        for label in self.ui.dialogues.findChildren(QLabel):
+            name2label[label.accessibleName()] = label
+
+        self.selectionOutput = self.ui.cmSelectionLabel
+        self.calibrationStatus = name2label["calibrationLabel"]
+
+        name2frame = {}  # type: Dict[str, QFrame]
+
+        for frame in self.ui.dialogues.findChildren(QFrame):
+            if frame.accessibleName():
+                name2frame[frame.accessibleName()] = frame
+
+        self.calibrationFrame = name2frame["calibrationFrame"]
+        self.rfFrame = name2frame["rfFrame"]
+
+        self.selectWindow = Display(ui_filename=getPath("cmSelection.ui"))
+        self.ui.cmSelectButton.clicked.connect(partial(self.showDisplay,
+                                                       self.selectWindow))
+
+        # self.ui.startCalibrationButton.clicked.connect(self.takeNewCalibration)
 
         self.pathToAmplitudeWindow = getPath("amplitude.ui")
 
@@ -75,6 +110,9 @@ class Q0Measurement(Display):
 
         self.populateCheckboxes()
 
+        self.sanityCheck = QMessageBox()
+        self.setupSanityCheck()
+
     def populateCheckboxes(self):
 
         for sector, checkbox in enumerate(self.selectAllCheckboxes):
@@ -108,27 +146,38 @@ class Q0Measurement(Display):
                 self.sectors[sector].append(name)
                 self.checkboxSectorMap[checkbox] = sector
 
-    @staticmethod
-    @Slot()
-    def takeNewCalibration():
-        def takeCalibration(decision):
+    def setupSanityCheck(self):
+        def takeMeasurement(decision):
             if "No" in decision.text():
+                print("Measurement canceled")
                 return
             else:
-                print("taking new calibration")
-        sanityCheck = QMessageBox()
-        sanityCheck.setWindowTitle("Sanity Check")
-        sanityCheck.setText("Are you sure? This can take on the order of 5 hours")
-        sanityCheck.setIcon(QMessageBox.Warning)
-        sanityCheck.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        sanityCheck.setDefaultButton(QMessageBox.No)
-        sanityCheck.buttonClicked.connect(takeCalibration)
-        sanityCheck.exec()
-        sanityCheck.show()
+                print("Taking new measurement")
+                self.showDisplay(self.liveSignalsWindow)
+                self.calibrationStatus.setStyleSheet("color: blue;")
+                self.calibrationStatus.setText("Starting Calibration")
+
+        self.sanityCheck.setWindowTitle("Sanity Check")
+        self.sanityCheck.setText("Are you sure? This will take multiple hours")
+        self.sanityCheck.setIcon(QMessageBox.Warning)
+        self.sanityCheck.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        self.sanityCheck.setDefaultButton(QMessageBox.No)
+        self.sanityCheck.buttonClicked.connect(takeMeasurement)
+
+    @Slot()
+    def takeNewCalibration(self):
+        self.sanityCheck.show()
 
     @Slot()
     def showDisplay(self, display):
+        # type: (QWidget) -> None
         display.show()
+
+        # brings the display to the front
+        display.raise_()
+
+        # gives the display focus
+        display.activateWindow()
 
     @Slot()
     # TODO needs to check all cavities
@@ -252,9 +301,18 @@ class Q0Measurement(Display):
         desiredAmplitude.setText(str(DEFAULT_AMPLITUDE))
 
     def updateSelectedText(self):
-        self.ui.selectionOutput.setText(str(sorted(self.selectedDisplayCMs))
-                                        .replace("'", "").replace("[", "")
-                                        .replace("]", ""))
+        if not self.selectedDisplayCMs:
+            self.selectionOutput.setStyleSheet("color: red;")
+            self.selectionOutput.setText("No Cryomodules Selected")
+            self.calibrationFrame.setEnabled(False)
+            self.rfFrame.setEnabled(False)
+
+        else:
+            self.selectionOutput.setStyleSheet("color: green;")
+            self.selectionOutput.setText(str(sorted(self.selectedDisplayCMs))
+                                         .replace("'", "").replace("[", "")
+                                         .replace("]", ""))
+            self.calibrationFrame.setEnabled(True)
 
     @Slot()
     # TODO check if all checkboxes in sector are clicked
@@ -279,6 +337,8 @@ class Q0Measurement(Display):
 
             if state == 0:
                 selectAllCheckbox.setCheckState(1)
+                self.selectedDisplayCMs.add(cryomodule if isDefault
+                                            else cryomodule + "*")
 
             elif state == 1:
                 self.selectedDisplayCMs.add(cryomodule if isDefault
@@ -320,6 +380,7 @@ class Q0Measurement(Display):
 
             for name in self.sectors[sector]:
                 self.cryomoduleCheckboxes[name].setChecked(True)
+                self.selectedDisplayCMs.discard(name)
 
             if (sectorLabel + "*") not in self.selectedDisplayCMs:
                 self.selectedDisplayCMs.add(sectorLabel)

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Form</class>
+ <widget class="QWidget" name="Form">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>612</width>
+    <height>480</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QGridLayout" name="gridLayout">
+   <item row="0" column="0" colspan="2">
+    <widget class="QTabWidget" name="existingTabs">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="existingParsedDataTab">
+      <attribute name="title">
+       <string>Parsed Data</string>
+      </attribute>
+      <layout class="QGridLayout" name="gridLayout_7">
+       <item row="0" column="0">
+        <layout class="QGridLayout" name="gridLayout_10"/>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="existingLineFitTab">
+      <attribute name="title">
+       <string>Line Fit</string>
+      </attribute>
+      <layout class="QGridLayout" name="gridLayout_8">
+       <item row="0" column="0">
+        <widget class="QWidget" name="widget_5" native="true"/>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item row="1" column="0">
+    <widget class="QLabel" name="label_4">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="text">
+      <string>${label}:</string>
+     </property>
+    </widget>
+   </item>
+   <item row="1" column="1">
+    <widget class="QLabel" name="label_3">
+     <property name="text">
+      <string>Not Yet Calculated</string>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
