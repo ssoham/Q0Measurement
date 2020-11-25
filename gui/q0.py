@@ -1,23 +1,31 @@
 from pydm import Display
-from PyQt5.QtGui import QPalette, QColor
+from PyQt5.QtGui import QStandardItem
 from PyQt5.QtWidgets import (QWidgetItem, QCheckBox, QPushButton, QLineEdit,
                              QGroupBox, QHBoxLayout, QMessageBox, QWidget,
-                             QLabel, QFrame)
-from os import path
+                             QLabel, QFrame, QComboBox)
+from os import path, pardir
 from qtpy.QtCore import Slot
 from pydm.widgets.template_repeater import PyDMTemplateRepeater
 from typing import List, Dict
 from functools import partial, reduce
 from datetime import datetime, timedelta
 from requests import post
+from csv import reader
 import sys
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
 
 sys.path.insert(0, '..')
 
 DEFAULT_AMPLITUDE = 16.608
 
-STATUS_LIST = {0: "No Data Loaded", 1: "Calibration Loaded", 2: "Analyzed",
-               3: "Calibration Running", 4: "RF Measurement Running"}
+
+class MplCanvas(FigureCanvasQTAgg):
+
+    def __init__(self, parent=None, width=5, height=4, dpi=100):
+        fig = Figure(figsize=(width, height), dpi=dpi)
+        self.axes = fig.add_subplot(111)
+        super(MplCanvas, self).__init__(fig)
 
 
 class Q0Measurement(Display):
@@ -26,53 +34,41 @@ class Q0Measurement(Display):
         super(Q0Measurement, self).__init__(parent=parent, args=args,
                                             ui_filename=ui_filename)
 
-        pathHere = path.dirname(sys.modules[self.__module__].__file__)
+        self.pathHere = path.dirname(sys.modules[self.__module__].__file__)
 
         def getPath(fileName):
-            return path.join(pathHere, fileName)
+            return path.join(self.pathHere, fileName)
+
+        sc = MplCanvas(self, width=5, height=4, dpi=100)
+        # TODO get rid of meaningless test data
+        sc.axes.plot([0, 1, 2, 3, 4], [10, 1, 20, 3, 40])
+        self.calibrationResultsWindow = Display(ui_filename=getPath("results.ui"),
+                                                macros={"label": "dLL/dt Slope"})
+        self.calibrationResultsWindow.ui.dataLayout.addWidget(sc)
 
         self.settingsWindow = Display(ui_filename=getPath("settings.ui"))
-        self.settingsWindow.ui.valvePosSearchStart.setDateTime(datetime.now())
-        self.settingsWindow.ui.valvePosSearchEnd.setDateTime(datetime.now()
-                                                             - timedelta(hours=24))
-        self.ui.settingsButton.clicked.connect(partial(self.showDisplay,
-                                                       self.settingsWindow))
+        self.setupSettingsWindow()
 
         self.liveSignalsWindow = Display(ui_filename=getPath("signals.ui"))
         self.ui.liveSignalsButton.clicked.connect(partial(self.showDisplay,
                                                           self.liveSignalsWindow))
 
-        name2button = {}  # type: Dict[str, QPushButton]
+        self.calibrationOptionsWindow = Display(ui_filename=getPath("options.ui"))
+        self.calibrationOptionsWindow.ui.cryomoduleComboBox.activated.connect(self.populatecalibrationOptions)
+        self.calibrationOptionsWindow.ui.optionTable.resizeColumnsToContents()
 
-        # Get all the buttons from my template repeater and figure out which
-        # one's which with the accessible names (set in dialogues.json)
-        for button in self.ui.dialogues.findChildren(QPushButton):
-            name2button[button.accessibleName()] = button
+        self.setupButtons()
 
-        name2button["newCalibrationButton"].clicked.connect(self.takeNewCalibration)
+        self.calibrationStatus = None
+        self.setupLabels()
 
-        name2label = {}  # type: Dict[str, QLabel]
-
-        for label in self.ui.dialogues.findChildren(QLabel):
-            name2label[label.accessibleName()] = label
-
-        self.selectionOutput = self.ui.cmSelectionLabel
-        self.calibrationStatus = name2label["calibrationLabel"]
-
-        name2frame = {}  # type: Dict[str, QFrame]
-
-        for frame in self.ui.dialogues.findChildren(QFrame):
-            if frame.accessibleName():
-                name2frame[frame.accessibleName()] = frame
-
-        self.calibrationFrame = name2frame["calibrationFrame"]
-        self.rfFrame = name2frame["rfFrame"]
+        self.calibrationFrame = None
+        self.rfFrame = None
+        self.setupFrames()
 
         self.selectWindow = Display(ui_filename=getPath("cmSelection.ui"))
         self.ui.cmSelectButton.clicked.connect(partial(self.showDisplay,
                                                        self.selectWindow))
-
-        # self.ui.startCalibrationButton.clicked.connect(self.takeNewCalibration)
 
         self.pathToAmplitudeWindow = getPath("amplitude.ui")
 
@@ -110,8 +106,60 @@ class Q0Measurement(Display):
 
         self.populateCheckboxes()
 
+        for sector in self.sectors:
+            self.calibrationOptionsWindow.ui.cryomoduleComboBox.addItems(sector)
+
         self.sanityCheck = QMessageBox()
         self.setupSanityCheck()
+
+    def populatecalibrationOptions(self):
+        self.calibrationOptionsWindow.ui.optionTable.clearContents()
+        parent = path.abspath(path.join(self.pathHere, pardir))
+        cmName = self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentText()
+        calFolderPath = path.join(path.join(parent, "calibrations"),
+                                  "cm{NAME}".format(NAME=cmName))
+        print(calFolderPath)
+        baseFile = path.join(calFolderPath,
+                             "calibrationsCM{NAME}.csv".format(NAME=cmName))
+
+        with open(baseFile, "rb") as fileInput:
+            for row in reader(fileInput):
+                items = [QStandardItem(field) for field in row]
+                self.model.appendRow(items)
+        return
+
+    def setupFrames(self):
+        name2frame = {}  # type: Dict[str, QFrame]
+        for frame in self.ui.dialogues.findChildren(QFrame):
+            if frame.accessibleName():
+                name2frame[frame.accessibleName()] = frame
+        self.calibrationFrame = name2frame["calibrationFrame"]
+        self.rfFrame = name2frame["rfFrame"]
+
+    def setupLabels(self):
+        name2label = {}  # type: Dict[str, QLabel]
+        for label in self.ui.dialogues.findChildren(QLabel):
+            name2label[label.accessibleName()] = label
+        self.calibrationStatus = name2label["calibrationLabel"]
+
+    def setupButtons(self):
+        name2button = {}  # type: Dict[str, QPushButton]
+        # Get all the buttons from my template repeater and figure out which
+        # one's which with the accessible names (set in dialogues.json)
+        for button in self.ui.dialogues.findChildren(QPushButton):
+            name2button[button.accessibleName()] = button
+        name2button["newCalibrationButton"].clicked.connect(self.takeNewCalibration)
+        name2button["loadCalibrationButton"].clicked.connect(partial(self.showDisplay,
+                                                                     self.calibrationOptionsWindow))
+        name2button["calibrationDataButton"].clicked.connect(partial(self.showDisplay,
+                                                                     self.calibrationResultsWindow))
+
+    def setupSettingsWindow(self):
+        self.settingsWindow.ui.valvePosSearchStart.setDateTime(datetime.now())
+        self.settingsWindow.ui.valvePosSearchEnd.setDateTime(datetime.now()
+                                                             - timedelta(hours=24))
+        self.ui.settingsButton.clicked.connect(partial(self.showDisplay,
+                                                       self.settingsWindow))
 
     def populateCheckboxes(self):
 
@@ -136,7 +184,7 @@ class Q0Measurement(Display):
                                                sector))
 
                 checkbox = pair.itemAt(0).widget()
-                self.cryomoduleCheckboxes[name] = checkbox # type: QCheckBox
+                self.cryomoduleCheckboxes[name] = checkbox  # type: QCheckBox
 
                 self.cryomoduleCheckboxButtonMap[checkbox] = button
 
@@ -302,16 +350,16 @@ class Q0Measurement(Display):
 
     def updateSelectedText(self):
         if not self.selectedDisplayCMs:
-            self.selectionOutput.setStyleSheet("color: red;")
-            self.selectionOutput.setText("No Cryomodules Selected")
+            self.ui.cmSelectionLabel.setStyleSheet("color: red;")
+            self.ui.cmSelectionLabel.setText("No Cryomodules Selected")
             self.calibrationFrame.setEnabled(False)
             self.rfFrame.setEnabled(False)
 
         else:
-            self.selectionOutput.setStyleSheet("color: green;")
-            self.selectionOutput.setText(str(sorted(self.selectedDisplayCMs))
-                                         .replace("'", "").replace("[", "")
-                                         .replace("]", ""))
+            self.ui.cmSelectionLabel.setStyleSheet("color: green;")
+            self.ui.cmSelectionLabel.setText(str(sorted(self.selectedDisplayCMs))
+                                             .replace("'", "").replace("[", "")
+                                             .replace("]", ""))
             self.calibrationFrame.setEnabled(True)
 
     @Slot()

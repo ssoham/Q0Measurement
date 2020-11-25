@@ -29,7 +29,7 @@
       <string>Default settings will work fine in most use cases</string>
      </property>
      <property name="text">
-      <string>Open Measurement Settings Dialogue</string>
+      <string>Open Measurement Settings Dialog</string>
      </property>
     </widget>
    </item>
@@ -176,7 +176,7 @@
          <string>${buttonName}</string>
         </property>
         <property name="text">
-         <string>Open Cryomodule Selection Dialogue</string>
+         <string>Open Cryomodule Selection Dialog</string>
         </property>
         <property name="checked">
          <bool>false</bool>
@@ -276,6 +276,12 @@
               </colorrole>
              </disabled>
             </palette>
+           </property>
+           <property name="font">
+            <font>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
            </property>
            <property name="toolTip">
             <string>CMs where cavities are deselected or not at ops max will appear with an asterisk (*)</string>
