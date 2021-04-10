@@ -1,10 +1,10 @@
 from pydm import Display
-from PyQt5.QtGui import QStandardItem
+from PyQt5.QtGui import QStandardItem, QStandardItemModel
 from PyQt5.QtWidgets import (QWidgetItem, QCheckBox, QPushButton, QLineEdit,
                              QGroupBox, QHBoxLayout, QMessageBox, QWidget,
-                             QLabel, QFrame, QComboBox)
-from os import path, pardir
-from qtpy.QtCore import Slot
+                             QLabel, QFrame, QComboBox, QTableView)
+from os import path, pardir, scandir
+from qtpy.QtCore import Slot, Qt
 from pydm.widgets.template_repeater import PyDMTemplateRepeater
 from typing import List, Dict
 from functools import partial, reduce
@@ -16,6 +16,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 sys.path.insert(0, '..')
+
+# This is down here because we need the sys path insert first to access this module
+from utils import (compatibleNext, FULL_CALIBRATION_FILENAME_TEMPLATE,
+                   CAVITY_CALIBRATION_FILENAME_TEMPLATE)
+from container import Cryomodule
 
 DEFAULT_AMPLITUDE = 16.608
 
@@ -53,9 +58,16 @@ class Q0Measurement(Display):
         self.ui.liveSignalsButton.clicked.connect(partial(self.showDisplay,
                                                           self.liveSignalsWindow))
 
+        self.calibrationOptionModel = QStandardItemModel(self)
+
         self.calibrationOptionsWindow = Display(ui_filename=getPath("options.ui"))
-        self.calibrationOptionsWindow.ui.cryomoduleComboBox.activated.connect(self.populatecalibrationOptions)
-        self.calibrationOptionsWindow.ui.optionTable.resizeColumnsToContents()
+        self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentTextChanged.connect(self.populateCryomoduleCalibrationOptions)
+        self.calibrationOptionsWindow.ui.cavityComboBox.currentTextChanged.connect(self.populateCavityCalibrationOptions)
+        self.calibrationOptionsWindow.ui.optionView.setModel(self.calibrationOptionModel)
+        self.calibrationOptionsWindow.ui.optionView.selectionModel().selectionChanged.connect(self.selectCalibration)
+        self.calibrationOptionsWindow.ui.loadButton.clicked.connect(self.loadCalibration)
+
+        self.calibrationSelection = {}
 
         self.setupButtons()
 
@@ -109,24 +121,92 @@ class Q0Measurement(Display):
         for sector in self.sectors:
             self.calibrationOptionsWindow.ui.cryomoduleComboBox.addItems(sector)
 
+        self.calibrationOptionsWindow.ui.cavityComboBox.addItem("ALL")
+        for i in range(1, 9):
+            self.calibrationOptionsWindow.ui.cavityComboBox.addItem(str(i))
+
         self.sanityCheck = QMessageBox()
         self.setupSanityCheck()
 
-    def populatecalibrationOptions(self):
-        self.calibrationOptionsWindow.ui.optionTable.clearContents()
+    # This is some convoluted bullshit
+    def selectCalibration(self):
+
+        self.calibrationSelection["CM"] = self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentText()
+
+        calibrationTableView = self.calibrationOptionsWindow.ui.optionView  # type: QTableView
+        row = calibrationTableView.selectionModel().selectedRows().pop().row()
+
+        for column in range(self.calibrationOptionModel.columnCount()):
+            data = self.calibrationOptionModel.index(row, column).data()
+            header = self.calibrationOptionModel.horizontalHeaderItem(column).text()
+            self.calibrationSelection[header] = data
+
+        # self.calibrationStatus.setStyleSheet("color: blue;")
+        self.calibrationStatus.setText(
+            "CM {CM} calibration from {START} selected but not loaded".format(
+                START=self.calibrationSelection["Start"],
+                CM=self.calibrationSelection["CM"]))
+
+        self.calibrationOptionsWindow.ui.loadButton.setEnabled(True)
+
+    def loadCalibration(self):
+        cryomodule = Cryomodule(self.calibrationSelection["CM"],
+                                self.calibrationSelection["JLAB Number"])
+        calibration = cryomodule.addCalibDataSessionFromGUI(self.calibrationSelection)
+        self.calibrationStatus.setStyleSheet("color: green;")
+        self.calibrationStatus.setText(
+            "CM {CM} calibration from {START} loaded".format(
+                START=self.calibrationSelection["Start"],
+                CM=self.calibrationSelection["CM"]))
+        print(calibration)
+
+    def setupCalibrationTable(self):
+        self.calibrationOptionModel.clear()
         parent = path.abspath(path.join(self.pathHere, pardir))
         cmName = self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentText()
-        calFolderPath = path.join(path.join(parent, "calibrations"),
-                                  "cm{NAME}".format(NAME=cmName))
-        print(calFolderPath)
-        baseFile = path.join(calFolderPath,
-                             "calibrationsCM{NAME}.csv".format(NAME=cmName))
+        calibrationFolder = path.join(path.join(parent, "calibrations"), "cm{NAME}".format(NAME=cmName))
+        return cmName, calibrationFolder
 
-        with open(baseFile, "rb") as fileInput:
-            for row in reader(fileInput):
+    def populateCryomoduleCalibrationOptions(self):
+
+        cmName, calFolderPath = self.setupCalibrationTable()
+
+        calibrationFile = path.join(calFolderPath,
+                                    FULL_CALIBRATION_FILENAME_TEMPLATE.format(CM=cmName))
+
+        if not path.isfile(calibrationFile):
+            return
+
+        self.populateCalibrationTable(calibrationFile)
+
+    def populateCavityCalibrationOptions(self):
+        cavity = self.calibrationOptionsWindow.ui.cavityComboBox.currentText()
+
+        if cavity == "ALL":
+            self.populateCryomoduleCalibrationOptions()
+            return
+
+        cmName, calFolderPath = self.setupCalibrationTable()
+        calibrationFile = path.join(calFolderPath,
+                                    CAVITY_CALIBRATION_FILENAME_TEMPLATE.format(CM=cmName,
+                                                                                CAV=cavity))
+        if not path.isfile(calibrationFile):
+            print(calibrationFile)
+            return
+
+        self.populateCalibrationTable(calibrationFile)
+
+    def populateCalibrationTable(self, calibrationFilePath):
+        with open(calibrationFilePath) as calibrationFile:
+            calibrationReader = reader(calibrationFile)
+            header = compatibleNext(calibrationReader)
+            self.calibrationOptionModel.setHorizontalHeaderLabels(header)
+
+            for row in calibrationReader:
                 items = [QStandardItem(field) for field in row]
-                self.model.appendRow(items)
-        return
+                self.calibrationOptionModel.appendRow(items)
+
+        self.calibrationOptionsWindow.ui.optionView.resizeColumnsToContents()
 
     def setupFrames(self):
         name2frame = {}  # type: Dict[str, QFrame]
@@ -135,6 +215,11 @@ class Q0Measurement(Display):
                 name2frame[frame.accessibleName()] = frame
         self.calibrationFrame = name2frame["calibrationFrame"]
         self.rfFrame = name2frame["rfFrame"]
+
+        # For some reason, I need to disable these here vs in designer or the
+        # conditional enabling doesn't work
+        self.calibrationFrame.setEnabled(False)
+        self.rfFrame.setEnabled(False)
 
     def setupLabels(self):
         name2label = {}  # type: Dict[str, QLabel]
@@ -417,6 +502,8 @@ class Q0Measurement(Display):
             self.selectedDisplayCMs.discard(cryomodule)
 
         self.updateSelectedText()
+        firstCM = list(sorted(self._selectedFullCMs))[0]
+        self.calibrationOptionsWindow.cryomoduleComboBox.setCurrentText(firstCM)
 
     @Slot()
     def selectAllSectorCryomodules(self, selectAllCheckbox, sector):

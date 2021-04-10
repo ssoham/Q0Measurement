@@ -144,6 +144,22 @@ class Container(object):
         else:
             print("we shouldn't be here... (Container.addDataSessionFromRow)")
 
+    def addCalibDataSessionFromGUI(self, rowDict):
+        startTime = datetime.strptime(rowDict["Start"], "%m/%d/%y %H:%M:%S")
+        endTime = datetime.strptime(rowDict["End"], "%m/%d/%y %H:%M:%S")
+
+        try:
+            timeInterval = int(rowDict["MySampler Time Interval"])
+        except (IndexError, ValueError):
+            timeInterval = MYSAMPLER_TIME_INTERVAL
+
+        timeParams = TimeParams(startTime, endTime, timeInterval)
+        valveParams = ValveParams(float(rowDict["JT Valve Position"]),
+                                  float(rowDict["Reference Heat Load (Des)"]),
+                                  float(rowDict["Reference Heat Load (Des)"]))
+
+        return self.addCalibDataSession(timeParams, valveParams, None, None)
+
     def genCalibDataSession(self, timeParams, valveParams, refGradVal=None,
                             calibSession=None):
         # type: (TimeParams, ValveParams, float, CalibDataSession) -> CalibDataSession
@@ -1848,17 +1864,17 @@ class DataSession(object):
         if isfile(self.fileName):
             return self.fileName
 
-        (header, heaterActCols, heaterDesCols, colsToDelete,
-         csvReader, gradCols) = getDataAndHeaterCols(self.timeParams.startTime,
-                                                     self.numPoints,
-                                                     self.container.heaterDesPVs,
-                                                     self.container.heaterActPVs,
-                                                     self.container.getPVs(),
-                                                     self.timeParams.timeInterval,
-                                                     gradPVs=self.container.gradPVs)
-
-        if not csvReader:
-            return None
+        try:
+            (header, heaterActCols, heaterDesCols, colsToDelete,
+             csvReader, gradCols) = getDataAndHeaterCols(self.timeParams.startTime,
+                                                         self.numPoints,
+                                                         self.container.heaterDesPVs,
+                                                         self.container.heaterActPVs,
+                                                         self.container.getPVs(),
+                                                         self.timeParams.timeInterval,
+                                                         gradPVs=self.container.gradPVs)
+        except TypeError:
+            raise AssertionError("Data not retrieved from Archiver")
 
         else:
 

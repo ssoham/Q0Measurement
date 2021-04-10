@@ -1,7 +1,7 @@
 from __future__ import print_function, division
 
 from _csv import reader as _reader
-from datetime import datetime
+from datetime import datetime, timedelta
 from json import dumps
 
 # from builtins import input
@@ -17,6 +17,8 @@ from collections import OrderedDict
 from typing import List, Callable, Union, Dict, Tuple, Optional, KeysView
 from errno import EEXIST
 from six import moves
+from archiver import Archiver
+from requests.exceptions import ConnectTimeout
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -74,6 +76,9 @@ CAL_HEATER_DELTA = 1
 JT_SEARCH_TIME_RANGE = 24
 JT_SEARCH_HOURS_PER_STEP = 0.5
 HOURS_NEEDED_FOR_FLATNESS = 2
+
+FULL_CALIBRATION_FILENAME_TEMPLATE = "calibrationsCM{CM}.csv"
+CAVITY_CALIBRATION_FILENAME_TEMPLATE = "cav{CAV}/calibrationsCM{CM}CAV{CAV}.csv"
 
 
 class ValveParams:
@@ -258,14 +263,15 @@ def getTimeParams(row, indices):
 def getMySamplerData(startTime, numPoints, signals,
                      timeInt=MYSAMPLER_TIME_INTERVAL):
     # type: (datetime, int, List[str], int) -> Optional[str]
-    cmd = (['mySampler', '-b'] + [startTime.strftime("%Y-%m-%d %H:%M:%S")]
-           + ['-s', str(timeInt) + 's', '-n' + str(numPoints)]
-           + signals)
+    archiver = Archiver("lcls")
     try:
-        return check_output(cmd)
+        data = archiver.getDataWithTimeInterval(pvList=signals, startTime=startTime,
+                                                endTime=(startTime + timedelta(seconds=(numPoints*timeInt))),
+                                                timeDelta=timedelta(seconds=timeInt))
+        return data
 
-    except (CalledProcessError, OSError) as e:
-        writeAndFlushStdErr("mySampler failed with error: " + str(e) + "\n")
+    except ConnectTimeout:
+        writeAndFlushStdErr("Archiver timed out - are you VPNed in?")
         return None
 
 
