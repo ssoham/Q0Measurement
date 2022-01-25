@@ -18,7 +18,7 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from abc import ABCMeta, abstractmethod
 from typing import List, Dict, Optional, Union
-from utils import (writeAndFlushStdErr, MYSAMPLER_TIME_INTERVAL, TEST_MODE,
+from utils import (writeAndFlushStdErr, ARCHIVER_TIME_INTERVAL, TEST_MODE,
                    VALVE_POS_TOL, HEATER_TOL, GRAD_TOL,
                    MIN_RUN_DURATION, isYes, writeAndWait, MAX_DS_LL, cagetPV,
                    caputPV, getTimeParams, MIN_DS_LL, getAndParseRawData,
@@ -144,19 +144,21 @@ class Container(object):
         else:
             print("we shouldn't be here... (Container.addDataSessionFromRow)")
 
-    def addCalibDataSessionFromGUI(self, rowDict):
-        startTime = datetime.strptime(rowDict["Start"], "%m/%d/%y %H:%M:%S")
-        endTime = datetime.strptime(rowDict["End"], "%m/%d/%y %H:%M:%S")
+    def addCalibDataSessionFromGUI(self, calibrationSelection):
+        # type: (Dict[str]) -> CalibDataSession
+
+        startTime = datetime.strptime(calibrationSelection["Start"], "%m/%d/%y %H:%M:%S")
+        endTime = datetime.strptime(calibrationSelection["End"], "%m/%d/%y %H:%M:%S")
 
         try:
-            timeInterval = int(rowDict["MySampler Time Interval"])
+            timeInterval = int(calibrationSelection["MySampler Time Interval"])
         except (IndexError, ValueError):
-            timeInterval = MYSAMPLER_TIME_INTERVAL
+            timeInterval = ARCHIVER_TIME_INTERVAL
 
         timeParams = TimeParams(startTime, endTime, timeInterval)
-        valveParams = ValveParams(float(rowDict["JT Valve Position"]),
-                                  float(rowDict["Reference Heat Load (Des)"]),
-                                  float(rowDict["Reference Heat Load (Des)"]))
+        valveParams = ValveParams(float(calibrationSelection["JT Valve Position"]),
+                                  float(calibrationSelection["Reference Heat Load (Des)"]),
+                                  float(calibrationSelection["Reference Heat Load (Des)"]))
 
         return self.addCalibDataSession(timeParams, valveParams, None, None)
 
@@ -212,7 +214,7 @@ class Container(object):
         searchStart = loopStart - timedelta(hours=HOURS_NEEDED_FOR_FLATNESS)
         searchStart = halfHourRoundDown(searchStart)
 
-        numPoints = int((60 / MYSAMPLER_TIME_INTERVAL)
+        numPoints = int((60 / ARCHIVER_TIME_INTERVAL)
                         * (HOURS_NEEDED_FOR_FLATNESS * 60))
 
         while (loopStart - searchStart) <= timedelta(hours=timeRange):
@@ -499,7 +501,7 @@ class Cryomodule(Container):
             start = datetime.now() - timedelta(seconds=NUM_LL_POINTS_TO_AVG)
             dsValReader = getAndParseRawData(start, NUM_LL_POINTS_TO_AVG,
                                              [self.dsLevelPV],
-                                             MYSAMPLER_TIME_INTERVAL,
+                                             ARCHIVER_TIME_INTERVAL,
                                              False)
 
             # Getting rid of the header
@@ -661,7 +663,7 @@ class Cryomodule(Container):
 
         self.walkHeaters(-((NUM_CAL_STEPS * CAL_HEATER_DELTA) + 1))
 
-        timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
+        timeParams = TimeParams(startTime, endTime, ARCHIVER_TIME_INTERVAL)
 
         dataSession = self.addCalibDataSession(timeParams, valveParams)
 
@@ -673,7 +675,7 @@ class Cryomodule(Container):
                                 valveParams.refValvePos,
                                 startTime.strftime("%m/%d/%y %H:%M:%S"),
                                 endTime.strftime("%m/%d/%y %H:%M:%S"),
-                                MYSAMPLER_TIME_INTERVAL])
+                                ARCHIVER_TIME_INTERVAL])
 
         return dataSession, valveParams
 
@@ -807,7 +809,7 @@ class Cryomodule(Container):
             print("\nEnd time: {END}".format(END=endTime))
             self.walkHeaters(-10)
 
-            timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
+            timeParams = TimeParams(startTime, endTime, ARCHIVER_TIME_INTERVAL)
 
             desiredGradient = 0
 
@@ -834,7 +836,7 @@ class Cryomodule(Container):
                      valveParams.refHeatLoadAct, valveParams.refValvePos]
                     + desGrads + [totGrad, startTime.strftime("%m/%d/%y %H:%M:%S"),
                                   endTime.strftime("%m/%d/%y %H:%M:%S"),
-                                  MYSAMPLER_TIME_INTERVAL])
+                                  ARCHIVER_TIME_INTERVAL])
 
             print("\nStart Time: {START}".format(START=startTime))
             print("End Time: {END}".format(END=endTime))
@@ -1051,7 +1053,7 @@ class Cavity(Container):
 
         self.walkHeater(-(NUM_CAL_STEPS * 8))
 
-        timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
+        timeParams = TimeParams(startTime, endTime, ARCHIVER_TIME_INTERVAL)
 
         dataSession = self.addCalibDataSession(timeParams, valveParams)
 
@@ -1063,7 +1065,7 @@ class Cavity(Container):
                                 endTime.strftime("%m/%d/%y %H:%M:%S"),
                                 valveParams.refHeatLoadDes,
                                 valveParams.refHeatLoadAct,
-                                MYSAMPLER_TIME_INTERVAL])
+                                ARCHIVER_TIME_INTERVAL])
 
         return dataSession, valveParams
 
@@ -1677,7 +1679,7 @@ class Cavity(Container):
 
             endTime = self.launchHeaterRun(valveParams.refValvePos).replace(microsecond=0)
 
-            timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
+            timeParams = TimeParams(startTime, endTime, ARCHIVER_TIME_INTERVAL)
 
             session = self.addQ0DataSession(timeParams, valveParams,
                                             refGradVal=desiredGradient,
@@ -1691,7 +1693,7 @@ class Cavity(Container):
                      endTime.strftime("%m/%d/%y %H:%M:%S"),
                      valveParams.refHeatLoadDes,
                      valveParams.refHeatLoadAct,
-                     MYSAMPLER_TIME_INTERVAL])
+                     ARCHIVER_TIME_INTERVAL])
 
             print("\nStart Time: {START}".format(START=startTime))
             print("End Time: {END}".format(END=endTime))
@@ -1860,6 +1862,8 @@ class DataSession(object):
     # one doesn't already exist
     def generateCSV(self):
         # type: () -> Optional[str]
+
+        print(self.fileName)
 
         if isfile(self.fileName):
             return self.fileName
@@ -2119,7 +2123,7 @@ class CalibDataSession(DataSession):
     def fileNameFormatter(self):
         # type: () -> str
         # e.g. calib_CM12_2019-02-25--11-25_18672.csv
-        return "data/calib/cm{CM}/calib_{cryoMod}{suff}"
+        return "../data/calib/cm{CM}/calib_{cryoMod}{suff}"
 
     @property
     def adjustedRunSlopes(self):
@@ -2298,7 +2302,7 @@ class Q0DataSession(DataSession):
     @property
     def fileNameFormatter(self):
         # type: () -> str
-        return "data/q0meas/cm{CM}/q0meas_{cryoMod}_cav{cavityNum}{suff}"
+        return "../data/q0meas/cm{CM}/q0meas_{cryoMod}_cav{cavityNum}{suff}"
 
     # For Q0 data sessions we use the heater run(s) to calculate the heat
     # adjustment we should apply to the calculated RF heat load before

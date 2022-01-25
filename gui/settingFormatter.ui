@@ -80,7 +80,7 @@
          </sizepolicy>
         </property>
         <property name="accessibleName">
-         <string>$name</string>
+         <string>${name}</string>
         </property>
         <property name="text">
          <string>${value}</string>

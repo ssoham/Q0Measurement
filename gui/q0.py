@@ -1,12 +1,14 @@
+import json
+
 from pydm import Display
-from PyQt5.QtGui import QStandardItem, QStandardItemModel
+from PyQt5.QtGui import QStandardItem, QStandardItemModel, QIntValidator
 from PyQt5.QtWidgets import (QWidgetItem, QCheckBox, QPushButton, QLineEdit,
                              QGroupBox, QHBoxLayout, QMessageBox, QWidget,
                              QLabel, QFrame, QComboBox, QTableView)
 from os import path, pardir, scandir
 from qtpy.QtCore import Slot, Qt
 from pydm.widgets.template_repeater import PyDMTemplateRepeater
-from typing import List, Dict
+from typing import List, Dict, Union
 from functools import partial, reduce
 from datetime import datetime, timedelta
 from requests import post
@@ -14,23 +16,30 @@ from csv import reader
 import sys
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from decimal import Decimal
 
 sys.path.insert(0, '..')
 
 # This is down here because we need the sys path insert first to access this module
 from utils import (compatibleNext, FULL_CALIBRATION_FILENAME_TEMPLATE,
-                   CAVITY_CALIBRATION_FILENAME_TEMPLATE)
-from container import Cryomodule
+                   CAVITY_CALIBRATION_FILENAME_TEMPLATE, redrawAxis)
+from q0Linac import Q0Cryomodule
 
 DEFAULT_AMPLITUDE = 16.608
 
 
 class MplCanvas(FigureCanvasQTAgg):
 
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
+    def __init__(self, width=5, height=4, dpi=100):
         fig = Figure(figsize=(width, height), dpi=dpi)
         self.axes = fig.add_subplot(111)
         super(MplCanvas, self).__init__(fig)
+
+
+def findWidget(accessibleName: str, widgetList: List[QWidget]) -> Union[QLineEdit, QPushButton]:
+    for widget in widgetList:
+        if widget.accessibleName() == accessibleName:
+            return widget
 
 
 class Q0Measurement(Display):
@@ -41,31 +50,35 @@ class Q0Measurement(Display):
 
         self.pathHere = path.dirname(sys.modules[self.__module__].__file__)
 
-        def getPath(fileName):
-            return path.join(self.pathHere, fileName)
+        # Set up calibration data window
+        self.calibrationLiquidLevelCanvas = MplCanvas()
+        self.calibrationLineFitCanvas = MplCanvas()
+        self.calibrationResultsWindow = None
+        self.setupCalibrationDataWindow()
 
-        sc = MplCanvas(self, width=5, height=4, dpi=100)
-        # TODO get rid of meaningless test data
-        sc.axes.plot([0, 1, 2, 3, 4], [10, 1, 20, 3, 40])
-        self.calibrationResultsWindow = Display(ui_filename=getPath("results.ui"),
-                                                macros={"label": "dLL/dt Slope"})
-        self.calibrationResultsWindow.ui.dataLayout.addWidget(sc)
+        # Set up RF data window
+        self.rfLiquidLevelCanvas = MplCanvas()
+        self.rfLineFitCanvas = MplCanvas()
+        self.rfResultsWindow = None
+        self.setupRfDataWindow()
 
-        self.settingsWindow = Display(ui_filename=getPath("settings.ui"))
+        self.settingsWindow = Display(ui_filename=self.getPath("settings.ui"))
         self.setupSettingsWindow()
 
-        self.liveSignalsWindow = Display(ui_filename=getPath("signals.ui"))
+        heaterLineEdits = self.settingsWindow.ui.heaterSettingRepeater.findChildren(QLineEdit)
+        self.initialCalibrationHeatLoadLineEdit: QLineEdit = findWidget("initialCalibrationHeatLoad",
+                                                                        heaterLineEdits)
+        self.initialCalibrationHeatLoadLineEdit.setValidator(QIntValidator(8, 48))
+
+        # TODO implement custom liveplot (archiver + append callback)
+        self.liveSignalsWindow = Display(ui_filename=self.getPath("signals.ui"))
         self.ui.liveSignalsButton.clicked.connect(partial(self.showDisplay,
                                                           self.liveSignalsWindow))
 
         self.calibrationOptionModel = QStandardItemModel(self)
 
-        self.calibrationOptionsWindow = Display(ui_filename=getPath("options.ui"))
-        self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentTextChanged.connect(self.populateCryomoduleCalibrationOptions)
-        self.calibrationOptionsWindow.ui.cavityComboBox.currentTextChanged.connect(self.populateCavityCalibrationOptions)
-        self.calibrationOptionsWindow.ui.optionView.setModel(self.calibrationOptionModel)
-        self.calibrationOptionsWindow.ui.optionView.selectionModel().selectionChanged.connect(self.selectCalibration)
-        self.calibrationOptionsWindow.ui.loadButton.clicked.connect(self.loadCalibration)
+        self.calibrationOptionsWindow = Display(ui_filename=self.getPath("options.ui"))
+        self.setupCalibrationOptionsWindow()
 
         self.calibrationSelection = {}
 
@@ -74,15 +87,15 @@ class Q0Measurement(Display):
         self.calibrationStatus = None
         self.setupLabels()
 
-        self.calibrationFrame = None
-        self.rfFrame = None
+        self.calibrationGroupBox = None
+        self.rfGroupBox = None
         self.setupFrames()
 
-        self.selectWindow = Display(ui_filename=getPath("cmSelection.ui"))
+        self.selectWindow = Display(ui_filename=self.getPath("cmSelection.ui"))
         self.ui.cmSelectButton.clicked.connect(partial(self.showDisplay,
                                                        self.selectWindow))
 
-        self.pathToAmplitudeWindow = getPath("amplitude.ui")
+        self.pathToAmplitudeWindow = self.getPath("amplitude.ui")
 
         # maps cryomodule names to their checkboxes
         self.cryomoduleCheckboxes = {}  # type: Dict[str, QCheckBox]
@@ -125,8 +138,35 @@ class Q0Measurement(Display):
         for i in range(1, 9):
             self.calibrationOptionsWindow.ui.cavityComboBox.addItem(str(i))
 
-        self.sanityCheck = QMessageBox()
-        self.setupSanityCheck()
+        self.calibrationSanityCheck = QMessageBox()
+        self.setupSanityCheck(self.calibrationSanityCheck,
+                              self.calibrationStatus)
+
+        self.calibration = None
+
+    def setupCalibrationOptionsWindow(self):
+        self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentTextChanged.connect(
+                self.populateCryomoduleCalibrationOptions)
+        self.calibrationOptionsWindow.ui.cavityComboBox.currentTextChanged.connect(
+                self.populateCavityCalibrationOptions)
+        self.calibrationOptionsWindow.ui.optionView.setModel(self.calibrationOptionModel)
+        self.calibrationOptionsWindow.ui.optionView.selectionModel().selectionChanged.connect(self.selectCalibration)
+        self.calibrationOptionsWindow.ui.loadButton.clicked.connect(self.loadCalibration)
+
+    def setupRfDataWindow(self):
+        self.rfResultsWindow = Display(ui_filename=self.getPath("results.ui"),
+                                       macros={"label": "dLL/dt Slope"})
+        self.rfResultsWindow.ui.dataLayout.addWidget(self.rfLiquidLevelCanvas)
+        self.rfResultsWindow.ui.lineFitLayout.addWidget(self.rfLineFitCanvas)
+
+    def setupCalibrationDataWindow(self):
+        self.calibrationResultsWindow = Display(ui_filename=self.getPath("results.ui"),
+                                                macros={"label": "dLL/dt Slope"})
+        self.calibrationResultsWindow.ui.dataLayout.addWidget(self.calibrationLiquidLevelCanvas)
+        self.calibrationResultsWindow.ui.lineFitLayout.addWidget(self.calibrationLineFitCanvas)
+
+    def getPath(self, fileName):
+        return path.join(self.pathHere, fileName)
 
     # This is some convoluted bullshit
     def selectCalibration(self):
@@ -143,22 +183,57 @@ class Q0Measurement(Display):
 
         # self.calibrationStatus.setStyleSheet("color: blue;")
         self.calibrationStatus.setText(
-            "CM {CM} calibration from {START} selected but not loaded".format(
-                START=self.calibrationSelection["Start"],
-                CM=self.calibrationSelection["CM"]))
+                "CM {CM} calibration from {START} selected but not loaded".format(
+                        START=self.calibrationSelection["Start"],
+                        CM=self.calibrationSelection["CM"]))
 
         self.calibrationOptionsWindow.ui.loadButton.setEnabled(True)
 
     def loadCalibration(self):
-        cryomodule = Cryomodule(self.calibrationSelection["CM"],
-                                self.calibrationSelection["JLAB Number"])
-        calibration = cryomodule.addCalibDataSessionFromGUI(self.calibrationSelection)
+
+        cryomodule = Q0Cryomodule(self.calibrationSelection["CM"],
+                                  self.calibrationSelection["JLAB Number"])
+        self.calibration = cryomodule.addCalibDataSessionFromGUI(self.calibrationSelection)  # type: CalibDataSession
+
+        redrawAxis(self.calibrationLiquidLevelCanvas,
+                   title="Liquid Level vs. Time", xlabel="Unix Time (s)",
+                   ylabel="Downstream Liquid Level (%)")
+
+        redrawAxis(self.calibrationLineFitCanvas,
+                   title="Liquid Level Rate of Change vs. Heat Load",
+                   xlabel="Heat Load (W)", ylabel="dLL/dt (%/s)")
+
+        for run in self.calibration.dataRuns:
+            self.calibrationLiquidLevelCanvas.axes.plot(run.timeStamps, run.data,
+                                                        label=run.label)
+            self.calibrationLiquidLevelCanvas.axes.plot(run.timeStamps, [run.slope * x
+                                                                         + run.intercept
+                                                                         for x
+                                                                         in run.timeStamps])
+
+        self.calibrationLineFitCanvas.axes.plot(self.calibration.runElecHeatLoadsAdjusted,
+                                                self.calibration.adjustedRunSlopes,
+                                                marker="o", linestyle="None",
+                                                label="Heater Calibration Data")
+
+        slopeStr = "{slope} %/(s*W)".format(slope=self.calibration.calibSlope)
+        self.calibrationResultsWindow.ui.slope.setText(slopeStr)
+
+        self.calibrationLineFitCanvas.axes.plot(self.calibration.runElecHeatLoadsAdjusted,
+                                                [self.calibration.calibSlope * x
+                                                 for x in self.calibration.runElecHeatLoadsAdjusted],
+                                                label=slopeStr)
+
+        self.calibrationLineFitCanvas.axes.legend(loc='best')
+        self.calibrationLiquidLevelCanvas.axes.legend(loc='best')
+
         self.calibrationStatus.setStyleSheet("color: green;")
         self.calibrationStatus.setText(
-            "CM {CM} calibration from {START} loaded".format(
-                START=self.calibrationSelection["Start"],
-                CM=self.calibrationSelection["CM"]))
-        print(calibration)
+                "CM {CM} calibration from {START} loaded".format(
+                        START=self.calibrationSelection["Start"],
+                        CM=self.calibrationSelection["CM"]))
+
+        self.rfGroupBox.setEnabled(True)
 
     def setupCalibrationTable(self):
         self.calibrationOptionModel.clear()
@@ -198,28 +273,30 @@ class Q0Measurement(Display):
 
     def populateCalibrationTable(self, calibrationFilePath):
         with open(calibrationFilePath) as calibrationFile:
-            calibrationReader = reader(calibrationFile)
-            header = compatibleNext(calibrationReader)
-            self.calibrationOptionModel.setHorizontalHeaderLabels(header)
+            data: List[dict] = json.load(calibrationFile)
 
-            for row in calibrationReader:
-                items = [QStandardItem(field) for field in row]
+            header = list(data[0].keys())
+            self.calibrationOptionModel.setHorizontalHeaderLabels(header)
+            for entry in data:
+                items = []
+                for column in header:
+                    items.append(QStandardItem(entry[column]))
                 self.calibrationOptionModel.appendRow(items)
 
         self.calibrationOptionsWindow.ui.optionView.resizeColumnsToContents()
 
     def setupFrames(self):
-        name2frame = {}  # type: Dict[str, QFrame]
-        for frame in self.ui.dialogues.findChildren(QFrame):
-            if frame.accessibleName():
-                name2frame[frame.accessibleName()] = frame
-        self.calibrationFrame = name2frame["calibrationFrame"]
-        self.rfFrame = name2frame["rfFrame"]
+        groupBoxes = {}  # type: Dict[str, QGroupBox]
+        for groupBox in self.ui.dialogues.findChildren(QGroupBox):
+            if groupBox.accessibleName():
+                groupBoxes[groupBox.accessibleName()] = groupBox
+        self.calibrationGroupBox = groupBoxes["calibrationGroupBox"]
+        self.rfGroupBox = groupBoxes["rfGroupBox"]
 
         # For some reason, I need to disable these here vs in designer or the
         # conditional enabling doesn't work
-        self.calibrationFrame.setEnabled(False)
-        self.rfFrame.setEnabled(False)
+        self.calibrationGroupBox.setEnabled(False)
+        self.rfGroupBox.setEnabled(False)
 
     def setupLabels(self):
         name2label = {}  # type: Dict[str, QLabel]
@@ -233,6 +310,7 @@ class Q0Measurement(Display):
         # one's which with the accessible names (set in dialogues.json)
         for button in self.ui.dialogues.findChildren(QPushButton):
             name2button[button.accessibleName()] = button
+
         name2button["newCalibrationButton"].clicked.connect(self.takeNewCalibration)
         name2button["loadCalibrationButton"].clicked.connect(partial(self.showDisplay,
                                                                      self.calibrationOptionsWindow))
@@ -279,7 +357,7 @@ class Q0Measurement(Display):
                 self.sectors[sector].append(name)
                 self.checkboxSectorMap[checkbox] = sector
 
-    def setupSanityCheck(self):
+    def setupSanityCheck(self, sanityCheckWindow, statusLabel):
         def takeMeasurement(decision):
             if "No" in decision.text():
                 print("Measurement canceled")
@@ -287,19 +365,84 @@ class Q0Measurement(Display):
             else:
                 print("Taking new measurement")
                 self.showDisplay(self.liveSignalsWindow)
-                self.calibrationStatus.setStyleSheet("color: blue;")
-                self.calibrationStatus.setText("Starting Calibration")
+                statusLabel.setStyleSheet("color: blue;")
+                statusLabel.setText("Starting Procedure")
 
-        self.sanityCheck.setWindowTitle("Sanity Check")
-        self.sanityCheck.setText("Are you sure? This will take multiple hours")
-        self.sanityCheck.setIcon(QMessageBox.Warning)
-        self.sanityCheck.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        self.sanityCheck.setDefaultButton(QMessageBox.No)
-        self.sanityCheck.buttonClicked.connect(takeMeasurement)
+        sanityCheckWindow.setWindowTitle("Sanity Check")
+        sanityCheckWindow.setText("Are you sure? This will take multiple hours")
+        sanityCheckWindow.setIcon(QMessageBox.Warning)
+        sanityCheckWindow.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        sanityCheckWindow.setDefaultButton(QMessageBox.No)
+        sanityCheckWindow.buttonClicked.connect(takeMeasurement)
 
     @Slot()
     def takeNewCalibration(self):
-        self.sanityCheck.show()
+        self.calibrationSanityCheck.show()
+
+    # def runCalibration(self, valveParams=None):
+    #     # type: (ValveParams) -> (CalibDataSession, ValveParams)
+    #
+    #     # Check whether or not we've already found a good JT position during
+    #     # this program execution
+    #     if not valveParams:
+    #         valveParams = self.getRefValveParams()
+    #
+    #     deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
+    #
+    #     startTime = datetime.now().replace(microsecond=0)
+    #
+    #     self.walkHeaters((int(self.initialCalibrationHeatLoadLineEdit.text()) + deltaTot) / 8)
+    #
+    #     self.waitForCryo(valveParams.refValvePos)
+    #
+    #     self.launchHeaterRun(0)
+    #     if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
+    #         print("Please ask the cryo group to refill to {LL} on the"
+    #               " downstream sensor".format(LL=MAX_DS_LL))
+    #
+    #         self.waitForCryo(valveParams.refValvePos)
+    #
+    #     for _ in range(NUM_CAL_STEPS - 1):
+    #         self.launchHeaterRun()
+    #
+    #         if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
+    #             print("Please ask the cryo group to refill to {LL} on the"
+    #                   " downstream sensor".format(LL=MAX_DS_LL))
+    #
+    #             self.waitForCryo(valveParams.refValvePos)
+    #
+    #     # Kinda jank way to avoid waiting for cryo conditions after the final
+    #     # run
+    #     self.launchHeaterRun()
+    #
+    #     endTime = datetime.now().replace(microsecond=0)
+    #
+    #     print("\nStart Time: {START}".format(START=startTime))
+    #     print("End Time: {END}".format(END=datetime.now()))
+    #
+    #     duration = (datetime.now() - startTime).total_seconds() / 3600
+    #     print("Duration in hours: {DUR}".format(DUR=duration))
+    #
+    #     # Walking the heaters back to their starting settings
+    #     # self.walkHeaters(-NUM_CAL_RUNS)
+    #
+    #     self.walkHeaters(-((NUM_CAL_STEPS * CAL_HEATER_DELTA) + 1))
+    #
+    #     timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
+    #
+    #     dataSession = self.addCalibDataSession(timeParams, valveParams)
+    #
+    #     # Record this calibration dataSession's metadata
+    #     with open(self.calibIdxFile, 'a') as f:
+    #         csvWriter = writer(f)
+    #         csvWriter.writerow([self.cryModNumJLAB, valveParams.refHeatLoadDes,
+    #                             valveParams.refHeatLoadAct,
+    #                             valveParams.refValvePos,
+    #                             startTime.strftime("%m/%d/%y %H:%M:%S"),
+    #                             endTime.strftime("%m/%d/%y %H:%M:%S"),
+    #                             MYSAMPLER_TIME_INTERVAL])
+    #
+    #     return dataSession, valveParams
 
     @Slot()
     def showDisplay(self, display):
@@ -381,7 +524,7 @@ class Q0Measurement(Display):
         # this on startup)
         if cm not in self.buttonDisplays:
             displayCM = Display(ui_filename=self.pathToAmplitudeWindow,
-                                macros={"cm": cm,
+                                macros={"cm"  : cm,
                                         "area": "L{SECTOR}B".format(SECTOR=sector)})
             repeater = displayCM.ui.cavityRepeater
 
@@ -437,15 +580,15 @@ class Q0Measurement(Display):
         if not self.selectedDisplayCMs:
             self.ui.cmSelectionLabel.setStyleSheet("color: red;")
             self.ui.cmSelectionLabel.setText("No Cryomodules Selected")
-            self.calibrationFrame.setEnabled(False)
-            self.rfFrame.setEnabled(False)
+            self.calibrationGroupBox.setEnabled(False)
+            self.rfGroupBox.setEnabled(False)
 
         else:
             self.ui.cmSelectionLabel.setStyleSheet("color: green;")
             self.ui.cmSelectionLabel.setText(str(sorted(self.selectedDisplayCMs))
                                              .replace("'", "").replace("[", "")
                                              .replace("]", ""))
-            self.calibrationFrame.setEnabled(True)
+            self.calibrationGroupBox.setEnabled(True)
 
     @Slot()
     # TODO check if all checkboxes in sector are clicked

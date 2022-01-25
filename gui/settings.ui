@@ -23,7 +23,7 @@
    <item row="0" column="0">
     <widget class="QTabWidget" name="tabWidget">
      <property name="currentIndex">
-      <number>0</number>
+      <number>3</number>
      </property>
      <widget class="QWidget" name="tab">
       <attribute name="title">
@@ -31,7 +31,7 @@
       </attribute>
       <layout class="QGridLayout" name="gridLayout_6">
        <item row="0" column="0">
-        <widget class="PyDMTemplateRepeater" name="cryomodulesL0B_4">
+        <widget class="PyDMTemplateRepeater" name="heliumSettingRepeater">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
            <horstretch>0</horstretch>
@@ -41,6 +41,9 @@
          <property name="frameShape">
           <enum>QFrame::NoFrame</enum>
          </property>
+         <property name="layoutType" stdset="0">
+          <enum>PyDMTemplateRepeater::Vertical</enum>
+         </property>
          <property name="countShownInDesigner" stdset="0">
           <number>20</number>
          </property>
@@ -49,9 +52,6 @@
          </property>
          <property name="dataSource" stdset="0">
           <string>heliumSettings.json</string>
-         </property>
-         <property name="layoutType" stdset="0">
-          <string>Vertical</string>
          </property>
         </widget>
        </item>
@@ -63,7 +63,7 @@
       </attribute>
       <layout class="QGridLayout" name="gridLayout_5">
        <item row="0" column="0">
-        <widget class="PyDMTemplateRepeater" name="cryomodulesL0B_3">
+        <widget class="PyDMTemplateRepeater" name="heaterSettingRepeater">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
            <horstretch>0</horstretch>
@@ -73,6 +73,9 @@
          <property name="frameShape">
           <enum>QFrame::NoFrame</enum>
          </property>
+         <property name="layoutType" stdset="0">
+          <enum>PyDMTemplateRepeater::Vertical</enum>
+         </property>
          <property name="countShownInDesigner" stdset="0">
           <number>20</number>
          </property>
@@ -81,9 +84,6 @@
          </property>
          <property name="dataSource" stdset="0">
           <string>heaterSettings.json</string>
-         </property>
-         <property name="layoutType" stdset="0">
-          <string>Vertical</string>
          </property>
         </widget>
        </item>
@@ -227,7 +227,7 @@
         </widget>
        </item>
        <item row="2" column="0">
-        <widget class="PyDMTemplateRepeater" name="cryomodulesL0B_2">
+        <widget class="PyDMTemplateRepeater" name="jtSettingRepeater">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
            <horstretch>0</horstretch>
@@ -237,6 +237,9 @@
          <property name="frameShape">
           <enum>QFrame::NoFrame</enum>
          </property>
+         <property name="layoutType" stdset="0">
+          <enum>PyDMTemplateRepeater::Vertical</enum>
+         </property>
          <property name="countShownInDesigner" stdset="0">
           <number>20</number>
          </property>
@@ -245,9 +248,6 @@
          </property>
          <property name="dataSource" stdset="0">
           <string>jtSettings.json</string>
-         </property>
-         <property name="layoutType" stdset="0">
-          <string>Vertical</string>
          </property>
         </widget>
        </item>
@@ -259,7 +259,7 @@
       </attribute>
       <layout class="QGridLayout" name="gridLayout_3">
        <item row="0" column="0">
-        <widget class="PyDMTemplateRepeater" name="cryomodulesL0B">
+        <widget class="PyDMTemplateRepeater" name="dataSettingRepeater">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
            <horstretch>0</horstretch>
@@ -269,6 +269,9 @@
          <property name="frameShape">
           <enum>QFrame::NoFrame</enum>
          </property>
+         <property name="layoutType" stdset="0">
+          <enum>PyDMTemplateRepeater::Vertical</enum>
+         </property>
          <property name="countShownInDesigner" stdset="0">
           <number>20</number>
          </property>
@@ -277,9 +280,6 @@
          </property>
          <property name="dataSource" stdset="0">
           <string>dataSettings.json</string>
-         </property>
-         <property name="layoutType" stdset="0">
-          <string>Vertical</string>
          </property>
         </widget>
        </item>

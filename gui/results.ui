@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>612</width>
-    <height>480</height>
+    <width>933</width>
+    <height>583</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -17,7 +17,7 @@
    <item row="0" column="0" colspan="2">
     <widget class="QTabWidget" name="existingTabs">
      <property name="currentIndex">
-      <number>0</number>
+      <number>1</number>
      </property>
      <widget class="QWidget" name="existingParsedDataTab">
       <attribute name="title">
@@ -35,14 +35,14 @@
       </attribute>
       <layout class="QGridLayout" name="gridLayout_8">
        <item row="0" column="0">
-        <widget class="QWidget" name="widget_5" native="true"/>
+        <layout class="QGridLayout" name="lineFitLayout"/>
        </item>
       </layout>
      </widget>
     </widget>
    </item>
    <item row="1" column="0">
-    <widget class="QLabel" name="label_4">
+    <widget class="QLabel" name="slopeLabel">
      <property name="sizePolicy">
       <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
        <horstretch>0</horstretch>
@@ -55,7 +55,7 @@
     </widget>
    </item>
    <item row="1" column="1">
-    <widget class="QLabel" name="label_3">
+    <widget class="QLabel" name="slope">
      <property name="text">
       <string>Not Yet Calculated</string>
      </property>

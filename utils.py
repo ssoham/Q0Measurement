@@ -4,21 +4,24 @@ from _csv import reader as _reader
 from datetime import datetime, timedelta
 from json import dumps
 
-# from builtins import input
 from time import sleep
 from sys import stdout, stderr, version_info
 from subprocess import check_output, CalledProcessError, check_call
 from os import devnull, path, makedirs
-from csv import reader
 from re import compile, findall
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from collections import OrderedDict
-from typing import List, Callable, Union, Dict, Tuple, Optional, KeysView
+from typing import List, Callable, Union, Dict, Tuple, Optional, KeysView, Any
 from errno import EEXIST
+
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from six import moves
-from archiver import Archiver
+from archiver import Archiver, ArchiverData
 from requests.exceptions import ConnectTimeout
+from pathlib import Path
+from dataclasses import dataclass
+
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -53,7 +56,7 @@ GRAD_TOL = 0.3
 # samples the chosen PVs at a user-specified time interval. Increase to improve
 # statistics, decrease to lower the size of the CSV files and speed up
 # MySampler data acquisition.
-MYSAMPLER_TIME_INTERVAL = 1
+ARCHIVER_TIME_INTERVAL = 1
 
 # Used in custom input functions
 ERROR_MESSAGE = "Please provide valid input"
@@ -77,22 +80,71 @@ JT_SEARCH_TIME_RANGE = 24
 JT_SEARCH_HOURS_PER_STEP = 0.5
 HOURS_NEEDED_FOR_FLATNESS = 2
 
-FULL_CALIBRATION_FILENAME_TEMPLATE = "calibrationsCM{CM}.csv"
-CAVITY_CALIBRATION_FILENAME_TEMPLATE = "cav{CAV}/calibrationsCM{CM}CAV{CAV}.csv"
+FULL_CALIBRATION_FILENAME_TEMPLATE = "calibrationsCM{CM}.json"
+CAVITY_CALIBRATION_FILENAME_TEMPLATE = "cav{CAV}/calibrationsCM{CM}CAV{CAV}.json"
 
 
+def q0Hash(argList: List[Any]):
+    """
+    A hash is effectively a unique numerical identifier. The purpose of a
+    hash function is to generate an ID for an object. This function
+    takes all of the input parameters and XORs (the ^ symbol) them.
+
+    What is an XOR? It's an operator that takes two bit strings and goes
+    through them, bit by bit, returning True (1) only if one bit is 0 and the
+    other is 1
+
+    EX) consider the following two bit strings a, b, and c = a^b:
+          a: 101010010010 (2706 in base 10)
+          b: 100010101011 (2219)
+          ---------------
+          c: 001000111001 (569)
+
+    What we're doing here is taking each input data object's built-in hash
+    function (which returns an int) and XORing those ints together. It's not
+    QUITE unique, but XOR is the accepted way to hash in Python because
+    collisions are extremely rare.
+
+    As to WHY we're doing this, it's to have an easy way to compare
+    two data sessions so that we can avoid creating (and storing) duplicate
+    data sessions.
+    """
+
+    if len(argList) == 1:
+        return hash(argList.pop())
+
+    for arg in argList:
+        return hash(arg) ^ q0Hash(argList[1:])
+
+
+@dataclass
 class ValveParams:
-    def __init__(self, refValvePos, refHeatLoadDes, refHeatLoadAct):
-        self.refValvePos = refValvePos
-        self.refHeatLoadDes = refHeatLoadDes
-        self.refHeatLoadAct = refHeatLoadAct
+    refValvePos: float
+    refHeatLoadDes: float
+    refHeatLoadAct: float
 
 
+@dataclass
 class TimeParams:
-    def __init__(self, startTime, endTime, timeInterval):
-        self.startTime = startTime
-        self.endTime = endTime
-        self.timeInterval = timeInterval
+    startTime: datetime
+    endTime: datetime
+    timeInterval: int
+
+
+@dataclass
+class CryomodulePVs:
+    heaterDesPVs: List[str]
+    heaterActPVs: List[str]
+    valvePV: str
+    dsLevelPV: str
+    usLevelPV: str
+    dsPressurePV: str
+    gradPVs: Optional[List[str]] = None
+
+    def asList(self) -> List[str]:
+        return ([self.valvePV, self.dsLevelPV, self.usLevelPV,
+                 self.dsPressurePV] + self.heaterDesPVs + self.heaterActPVs +
+                (self.gradPVs if self.gradPVs else []))
 
 
 def isYes(prompt):
@@ -237,7 +289,7 @@ def getTimeParams(row, indices):
 
     timeIntervalStr = row[indices["timeIntIdx"]]
     timeInterval = (int(timeIntervalStr) if timeIntervalStr
-                    else MYSAMPLER_TIME_INTERVAL)
+                    else ARCHIVER_TIME_INTERVAL)
 
     timeParams = TimeParams(startTime, endTime, timeInterval)
 
@@ -260,13 +312,13 @@ def getTimeParams(row, indices):
 # @param startTime: datetime object
 # @param signals: list of PV strings
 ############################################################################
-def getMySamplerData(startTime, numPoints, signals,
-                     timeInt=MYSAMPLER_TIME_INTERVAL):
-    # type: (datetime, int, List[str], int) -> Optional[str]
+def getArchiverData(startTime, numPoints, signals,
+                    timeInt=ARCHIVER_TIME_INTERVAL):
+    # type: (datetime, int, List[str], int) -> Optional[ArchiverData]
     archiver = Archiver("lcls")
     try:
         data = archiver.getDataWithTimeInterval(pvList=signals, startTime=startTime,
-                                                endTime=(startTime + timedelta(seconds=(numPoints*timeInt))),
+                                                endTime=(startTime + timedelta(seconds=(numPoints * timeInt))),
                                                 timeDelta=timedelta(seconds=timeInt))
         return data
 
@@ -275,21 +327,21 @@ def getMySamplerData(startTime, numPoints, signals,
         return None
 
 
-def getAndParseRawData(startTime, numPoints, signals,
-                       timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
-    # type: (datetime, int, List[str], int, bool) -> Optional[_reader]
-    if verbose:
-        print("\nGetting data from the archive...\n")
-    rawData = getMySamplerData(startTime, numPoints, signals, timeInt)
-
-    if not rawData:
-        return None
-
-    else:
-        rawDataSplit = rawData.splitlines()
-        rows = ["\t".join(rawDataSplit.pop(0).strip().split())]
-        rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
-        return reader(rows, delimiter='\t')
+# def getAndParseRawData(startTime, numPoints, signals,
+#                        timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
+#     # type: (datetime, int, List[str], int, bool) -> Optional[_reader]
+#     if verbose:
+#         print("\nGetting data from the archive...\n")
+#     rawData = getArchiverData(startTime, numPoints, signals, timeInt)
+#
+#     if not rawData:
+#         return None
+#
+#     else:
+#         rawDataSplit = rawData.splitlines()
+#         rows = ["\t".join(rawDataSplit.pop(0).strip().split())]
+#         rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
+#         return reader(rows, delimiter='\t')
 
 
 def reformatDate(row):
@@ -322,6 +374,15 @@ def genAxis(title, xlabel, ylabel):
     return ax
 
 
+def redrawAxis(canvas, title, xlabel, ylabel):
+    # type: (FigureCanvasQTAgg, str, str, str) -> None
+    canvas.axes.cla()
+    canvas.draw_idle()
+    canvas.axes.set_title(title)
+    canvas.axes.set_xlabel(xlabel)
+    canvas.axes.set_ylabel(ylabel)
+
+
 # A surprisingly ugly way to pretty print a dictionary
 def printOptions(options):
     # type: (Dict[int, str]) -> None
@@ -345,8 +406,8 @@ def getSelection(duration, suffix, options, name=None):
     # presented as the last option in the list
 
     options[max(options) + 1
-            if options else 1] = ("Launch new {TYPE} ({DUR} hours)"
-                                  .format(TYPE=suffix, DUR=duration))
+    if options else 1] = ("Launch new {TYPE} ({DUR} hours)"
+                          .format(TYPE=suffix, DUR=duration))
 
     # The keys in options are line numbers in a CSV file. We want to present
     # them to the user in a more friendly format, starting from 1 and counting
@@ -373,51 +434,52 @@ def drawAndShow():
     plt.show()
 
 
-# Gets raw data from MySampler and does some of the prep work necessary for
-# collapsing all of the heater DES and ACT values down into summed values
-# (rewrites the CSV header, stores the indices for the heater DES and ACT PVs)
-def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
-                         allPVs, timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True,
-                         gradPVs=None):
-    # type: (datetime, int, List[str], List[str], List[str], int, bool, List) -> Optional[List[str], List[int], List[int], List[int], _reader, List]
-
-    def populateHeaterCols(pvList, buff):
-        # type: (List[str], List[float]) -> None
-        for heaterPV in pvList:
-            buff.append(header.index(heaterPV))
-
-    csvReader = getAndParseRawData(startTime, numPoints, allPVs, timeInt,
-                                   verbose)
-
-    if not csvReader:
-        return None
-
-    else:
-
-        header = csvReader.next()
-
-        heaterDesCols = []
-        populateHeaterCols(heaterDesPVs, heaterDesCols)
-
-        heaterActCols = []
-        populateHeaterCols(heaterActPVs, heaterActCols)
-
-        gradCols = []
-        if gradPVs:
-            populateHeaterCols(gradPVs, gradCols)
-
-        # So that we don't corrupt the indices while we're deleting them
-        colsToDelete = sorted(heaterDesCols + heaterActCols + gradCols, reverse=True)
-
-        for index in colsToDelete:
-            del header[index]
-
-        header.append("Electric Heat Load Setpoint")
-        header.append("Electric Heat Load Readback")
-        if gradPVs:
-            header.append("Effective Gradient")
-
-        return header, heaterActCols, heaterDesCols, colsToDelete, csvReader, gradCols
+# # Gets raw data from MySampler and does some of the prep work necessary for
+# # collapsing all of the heater DES and ACT values down into summed values
+# # (rewrites the CSV header, stores the indices for the heater DES and ACT PVs)
+# def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
+#                          allPVs, timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True,
+#                          gradPVs=None):
+#     # type: (datetime, int, List[str], List[str], List[str], int, bool, List) -> Optional[List[str], List[int], List[int], List[int], _reader, List]
+#
+#     def populateHeaterCols(pvList, buff):
+#         # type: (List[str], List[float]) -> None
+#         for heaterPV in pvList:
+#             buff.append(header.index(heaterPV))
+#
+#     data = getArchiverData(startTime, numPoints, allPVs, timeInt)
+#     csvReader = getAndParseRawData(startTime, numPoints, allPVs, timeInt,
+#                                    verbose)
+#
+#     if not csvReader:
+#         return None
+#
+#     else:
+#
+#         header = csvReader.next()
+#
+#         heaterDesCols = []
+#         populateHeaterCols(heaterDesPVs, heaterDesCols)
+#
+#         heaterActCols = []
+#         populateHeaterCols(heaterActPVs, heaterActCols)
+#
+#         gradCols = []
+#         if gradPVs:
+#             populateHeaterCols(gradPVs, gradCols)
+#
+#         # So that we don't corrupt the indices while we're deleting them
+#         colsToDelete = sorted(heaterDesCols + heaterActCols + gradCols, reverse=True)
+#
+#         for index in colsToDelete:
+#             del header[index]
+#
+#         header.append("Electric Heat Load Setpoint")
+#         header.append("Electric Heat Load Readback")
+#         if gradPVs:
+#             header.append("Effective Gradient")
+#
+#         return header, heaterActCols, heaterDesCols, colsToDelete, csvReader, gradCols
 
 
 def collapseGradVals(row, gradCols):
@@ -467,17 +529,16 @@ def compatibleNext(csvReader):
         return next(csvReader)
 
 
-def compatibleMkdirs(filename):
-    # type: (str) -> str
+def compatibleMkdirs(filePath: Path) -> Path:
     if version_info[0] < 3:
-        if not path.exists(path.dirname(filename)):
+        if not path.exists(filePath):
             try:
-                makedirs(path.dirname(filename))
+                makedirs(filePath)
             # Guard against race condition per Stack Overflow
             except OSError as exc:
                 if exc.errno != EEXIST:
                     raise
     else:
-        makedirs(path.dirname(filename), exist_ok=True)
+        makedirs(filePath, exist_ok=True)
 
-    return filename
+    return filePath
