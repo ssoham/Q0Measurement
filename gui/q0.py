@@ -1,31 +1,37 @@
 import json
-
-from pydm import Display
-from PyQt5.QtGui import QStandardItem, QStandardItemModel, QIntValidator
-from PyQt5.QtWidgets import (QWidgetItem, QCheckBox, QPushButton, QLineEdit,
-                             QGroupBox, QHBoxLayout, QMessageBox, QWidget,
-                             QLabel, QFrame, QComboBox, QTableView)
-from os import path, pardir, scandir
-from qtpy.QtCore import Slot, Qt
-from pydm.widgets.template_repeater import PyDMTemplateRepeater
-from typing import List, Dict, Union
-from functools import partial, reduce
-from datetime import datetime, timedelta
-from requests import post
-from csv import reader
 import sys
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from functools import partial, reduce
+from os import pardir, path
+from typing import Dict, List, Optional, Union
+
+from PyQt5.QtGui import QIntValidator, QStandardItem, QStandardItemModel
+from PyQt5.QtWidgets import (QButtonGroup, QCheckBox, QGroupBox, QHBoxLayout,
+                             QLabel, QLineEdit, QMessageBox, QPushButton,
+                             QRadioButton, QTableView, QVBoxLayout, QWidget,
+                             QWidgetItem)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from decimal import Decimal
+from pydm import Display
+from pydm.widgets.embedded_display import PyDMEmbeddedDisplay
+from pydm.widgets.label import PyDMLabel
+from pydm.widgets.template_repeater import PyDMTemplateRepeater
+from pydm.widgets.timeplot import PyDMTimePlot
+from qtpy.QtCore import Slot
 
 sys.path.insert(0, '..')
 
 # This is down here because we need the sys path insert first to access this module
-from utils import (compatibleNext, FULL_CALIBRATION_FILENAME_TEMPLATE,
+from utils import (FULL_CALIBRATION_FILENAME_TEMPLATE,
                    CAVITY_CALIBRATION_FILENAME_TEMPLATE, redrawAxis)
-from q0Linac import Q0Cryomodule
+from q0Linac import Q0_LINAC_OBJECTS, Q0Cryomodule
+from scLinac import CM_LINAC_MAP
+from dataSession import CalibDataSession
 
-DEFAULT_AMPLITUDE = 16.608
+PLOT_WIDTH = 2
+PLOT_SYMBOL = "o"
+PLOT_SYMBOL_SIZE = 4
 
 
 class MplCanvas(FigureCanvasQTAgg):
@@ -36,17 +42,79 @@ class MplCanvas(FigureCanvasQTAgg):
         super(MplCanvas, self).__init__(fig)
 
 
-def findWidget(accessibleName: str, widgetList: List[QWidget]) -> Union[QLineEdit, QPushButton]:
+def findWidget(accessibleName: str,
+               widgetList: List[Union[QLineEdit, QPushButton]]) -> Union[QLineEdit, QPushButton]:
     for widget in widgetList:
         if widget.accessibleName() == accessibleName:
             return widget
 
 
-class Q0Measurement(Display):
-    def __init__(self, parent=None, args=None, ui_filename="q0.ui"):
+@dataclass()
+class TimePlotObjects:
+    liquidLevelPlot: PyDMTimePlot
+    pressurePlot: PyDMTimePlot
+    heaterPlot: PyDMTimePlot
+    valvePlot: PyDMTimePlot
+    rfPlot: PyDMTimePlot
+    radiationPlot: PyDMTimePlot
+    temperaturePlot: PyDMTimePlot
 
-        super(Q0Measurement, self).__init__(parent=parent, args=args,
-                                            ui_filename=ui_filename)
+    def clearCurves(self) -> None:
+        self.liquidLevelPlot.clearCurves()
+        self.pressurePlot.clearCurves()
+        self.heaterPlot.clearCurves()
+        self.valvePlot.clearCurves()
+        self.rfPlot.clearCurves()
+        self.radiationPlot.clearCurves()
+        self.temperaturePlot.clearCurves()
+
+    def updateChannels(self, cryomodule: Q0Cryomodule) -> None:
+        self.clearCurves()
+
+        self.liquidLevelPlot.addYChannel(cryomodule.dsLevelPV,
+                                         lineWidth=PLOT_WIDTH,
+                                         symbol=PLOT_SYMBOL,
+                                         symbolSize=PLOT_SYMBOL_SIZE)
+        self.liquidLevelPlot.addYChannel(cryomodule.usLevelPV,
+                                         lineWidth=PLOT_WIDTH,
+                                         symbol=PLOT_SYMBOL,
+                                         symbolSize=PLOT_SYMBOL_SIZE)
+
+        self.pressurePlot.addYChannel(cryomodule.dsPressurePV,
+                                      lineWidth=PLOT_WIDTH,
+                                      symbol=PLOT_SYMBOL,
+                                      symbolSize=PLOT_SYMBOL_SIZE)
+
+        for heaterPV in cryomodule.heaterActPVs:
+            self.heaterPlot.addYChannel(heaterPV, lineWidth=PLOT_WIDTH,
+                                        symbol=PLOT_SYMBOL,
+                                        symbolSize=PLOT_SYMBOL_SIZE)
+
+        self.valvePlot.addYChannel(cryomodule.valvePV,
+                                   lineWidth=PLOT_WIDTH,
+                                   symbol=PLOT_SYMBOL,
+                                   symbolSize=PLOT_SYMBOL_SIZE)
+
+        self.valvePlot.addYChannel(cryomodule.jtPosSetpointPV,
+                                   lineWidth=PLOT_WIDTH,
+                                   symbol=PLOT_SYMBOL,
+                                   symbolSize=PLOT_SYMBOL_SIZE)
+
+        for cavity in cryomodule.cavities.values():
+            self.rfPlot.addYChannel(cavity.amplitudeActPV,
+                                    lineWidth=PLOT_WIDTH,
+                                    symbol=PLOT_SYMBOL,
+                                    symbolSize=PLOT_SYMBOL_SIZE)
+
+
+class Q0Measurement(Display):
+
+    def ui_filename(self):
+        return "q0.ui"
+
+    def __init__(self, parent=None, args=None):
+
+        super(Q0Measurement, self).__init__(parent=parent, args=args)
 
         self.pathHere = path.dirname(sys.modules[self.__module__].__file__)
 
@@ -74,6 +142,13 @@ class Q0Measurement(Display):
         self.liveSignalsWindow = Display(ui_filename=self.getPath("signals.ui"))
         self.ui.liveSignalsButton.clicked.connect(partial(self.showDisplay,
                                                           self.liveSignalsWindow))
+        self.plots = TimePlotObjects(liquidLevelPlot=self.liveSignalsWindow.ui.liquidLevelPlot,
+                                     pressurePlot=self.liveSignalsWindow.ui.pressurePlot,
+                                     heaterPlot=self.liveSignalsWindow.ui.heaterPlot,
+                                     valvePlot=self.liveSignalsWindow.ui.valvePlot,
+                                     rfPlot=self.liveSignalsWindow.ui.rfPlot,
+                                     radiationPlot=self.liveSignalsWindow.ui.radiationPlot,
+                                     temperaturePlot=self.liveSignalsWindow.ui.temperaturePlot)
 
         self.calibrationOptionModel = QStandardItemModel(self)
 
@@ -81,8 +156,6 @@ class Q0Measurement(Display):
         self.setupCalibrationOptionsWindow()
 
         self.calibrationSelection = {}
-
-        self.setupButtons()
 
         self.calibrationStatus = None
         self.setupLabels()
@@ -98,13 +171,13 @@ class Q0Measurement(Display):
         self.pathToAmplitudeWindow = self.getPath("amplitude.ui")
 
         # maps cryomodule names to their checkboxes
-        self.cryomoduleCheckboxes = {}  # type: Dict[str, QCheckBox]
+        self.cryomoduleRadioButtons = {}  # type: Dict[str, QRadioButton]
 
         # maps cryomodule names to their buttons
         self.cryomoduleButtons = {}  # type: Dict[str, QPushButton]
 
         # maps checkboxes to their buttons
-        self.cryomoduleCheckboxButtonMap = {}  # type: Dict[QCheckBox, QPushButton]
+        self.cryomoduleRadioButtonMap = {}  # type: Dict[QRadioButton, QPushButton]
 
         # maps cryomodule names to the cavity display
         self.buttonDisplays = {}  # type: Dict[str, Display]
@@ -118,18 +191,14 @@ class Q0Measurement(Display):
         # maps cryomodule names to select all cavities checkbox
         self.selectAllCavitiesCheckboxes = {}  # type: Dict[str, QCheckBox]
 
-        self.selectedDisplayCMs = set()
-        self._selectedFullCMs = set()
+        self.selectedDisplayCM: Optional[str] = None
+        self.selectedCM: Optional[str] = None
 
         self.sectors = [[], [], [], []]  # type: List[List[str]]
-        self.selectAllCheckboxes = [self.selectWindow.ui.selectAllCheckboxL0B,
-                                    self.selectWindow.ui.selectAllCheckboxL1B,
-                                    self.selectWindow.ui.selectAllCheckboxL2B,
-                                    self.selectWindow.ui.selectAllCheckboxL3B]  # type: List[QCheckBox]
 
-        self.checkboxSectorMap = {}  # type: Dict[QCheckBox, int]
-
-        self.populateCheckboxes()
+        self.radioButtonSectorMap: Dict[QRadioButton, int] = {}
+        self.buttonGroup = QButtonGroup(self)
+        self.populateRadioButtons()
 
         for sector in self.sectors:
             self.calibrationOptionsWindow.ui.cryomoduleComboBox.addItems(sector)
@@ -142,7 +211,17 @@ class Q0Measurement(Display):
         self.setupSanityCheck(self.calibrationSanityCheck,
                               self.calibrationStatus)
 
+        self.setupButtons()
+
         self.calibration = None
+
+        self.valveParams = {}
+
+    def setupLiveSignals(self):
+        self.plots.clearCurves()
+        linacIdx = CM_LINAC_MAP[self.selectedCM]
+        cryoModule: Q0Cryomodule = Q0_LINAC_OBJECTS[linacIdx].cryomodules[self.selectedCM]
+        self.plots.valvePlot.addYChannel(cryoModule.valvePV)
 
     def setupCalibrationOptionsWindow(self):
         self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentTextChanged.connect(
@@ -191,9 +270,9 @@ class Q0Measurement(Display):
 
     def loadCalibration(self):
 
-        cryomodule = Q0Cryomodule(self.calibrationSelection["CM"],
-                                  self.calibrationSelection["JLAB Number"])
-        self.calibration = cryomodule.addCalibDataSessionFromGUI(self.calibrationSelection)  # type: CalibDataSession
+        linacName = CM_LINAC_MAP[self.calibrationSelection["CM"]]
+        cryomodule = Q0_LINAC_OBJECTS[linacName]
+        self.calibration: CalibDataSession = cryomodule.addCalibDataSessionFromGUI(self.calibrationSelection)
 
         redrawAxis(self.calibrationLiquidLevelCanvas,
                    title="Liquid Level vs. Time", xlabel="Unix Time (s)",
@@ -311,7 +390,7 @@ class Q0Measurement(Display):
         for button in self.ui.dialogues.findChildren(QPushButton):
             name2button[button.accessibleName()] = button
 
-        name2button["newCalibrationButton"].clicked.connect(self.takeNewCalibration)
+        name2button["newCalibrationButton"].clicked.connect(self.calibrationSanityCheck.show)
         name2button["loadCalibrationButton"].clicked.connect(partial(self.showDisplay,
                                                                      self.calibrationOptionsWindow))
         name2button["calibrationDataButton"].clicked.connect(partial(self.showDisplay,
@@ -324,38 +403,40 @@ class Q0Measurement(Display):
         self.ui.settingsButton.clicked.connect(partial(self.showDisplay,
                                                        self.settingsWindow))
 
-    def populateCheckboxes(self):
+    def populateRadioButtons(self):
 
-        for sector, checkbox in enumerate(self.selectAllCheckboxes):
-            # TODO consider changing to QButtonGroup
-            checkbox.stateChanged.connect(partial(self.selectAllSectorCryomodules, checkbox, sector))
+        displays: List[PyDMEmbeddedDisplay] = [self.selectWindow.ui.cryomodulesL0B,
+                                               self.selectWindow.ui.cryomodulesL1B,
+                                               self.selectWindow.ui.cryomodulesL2B,
+                                               self.selectWindow.ui.cryomodulesL3B]
 
-        repeaters = [self.selectWindow.ui.cryomodulesL0B,
-                     self.selectWindow.ui.cryomodulesL1B,
-                     self.selectWindow.ui.cryomodulesL2B,
-                     self.selectWindow.ui.cryomodulesL3B]  # type: List[PyDMTemplateRepeater]
+        for sector, display in enumerate(displays):
+            display.loadWhenShown = False
 
-        for sector, repeater in enumerate(repeaters):
+            groupbox: QVBoxLayout = display.findChildren(QVBoxLayout).pop()
+            repeater: PyDMTemplateRepeater = groupbox.itemAt(0).widget()
 
-            pairs = repeater.findChildren(QHBoxLayout)  # type: List[QHBoxLayout]
+            pairs: List[QHBoxLayout] = repeater.findChildren(QHBoxLayout)
 
             for pair in pairs:
-                button = pair.itemAt(1).widget()  # type: QPushButton
+                button: QPushButton = pair.itemAt(1).widget()
                 name = button.text().split()[1]
                 self.cryomoduleButtons[name] = button
                 button.clicked.connect(partial(self.openAmplitudeWindow, name,
                                                sector))
 
-                checkbox = pair.itemAt(0).widget()
-                self.cryomoduleCheckboxes[name] = checkbox  # type: QCheckBox
+                radioButton: QRadioButton = pair.itemAt(0).widget()
+                self.cryomoduleRadioButtons[name] = radioButton
 
-                self.cryomoduleCheckboxButtonMap[checkbox] = button
+                self.cryomoduleRadioButtonMap[radioButton] = button
 
-                # TODO consider changing to QButtonGroup
-                checkbox.stateChanged.connect(partial(self.cryomoduleCheckboxToggled, name))
+                self.buttonGroup.addButton(radioButton)
+
+                radioButton.toggled.connect(partial(self.cryomoduleRadioButtonToggled,
+                                                    name))
 
                 self.sectors[sector].append(name)
-                self.checkboxSectorMap[checkbox] = sector
+                self.radioButtonSectorMap[radioButton] = sector
 
     def setupSanityCheck(self, sanityCheckWindow, statusLabel):
         def takeMeasurement(decision):
@@ -367,6 +448,7 @@ class Q0Measurement(Display):
                 self.showDisplay(self.liveSignalsWindow)
                 statusLabel.setStyleSheet("color: blue;")
                 statusLabel.setText("Starting Procedure")
+                self.takeNewCalibration()
 
         sanityCheckWindow.setWindowTitle("Sanity Check")
         sanityCheckWindow.setText("Are you sure? This will take multiple hours")
@@ -377,72 +459,66 @@ class Q0Measurement(Display):
 
     @Slot()
     def takeNewCalibration(self):
-        self.calibrationSanityCheck.show()
-
-    # def runCalibration(self, valveParams=None):
-    #     # type: (ValveParams) -> (CalibDataSession, ValveParams)
-    #
-    #     # Check whether or not we've already found a good JT position during
-    #     # this program execution
-    #     if not valveParams:
-    #         valveParams = self.getRefValveParams()
-    #
-    #     deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
-    #
-    #     startTime = datetime.now().replace(microsecond=0)
-    #
-    #     self.walkHeaters((int(self.initialCalibrationHeatLoadLineEdit.text()) + deltaTot) / 8)
-    #
-    #     self.waitForCryo(valveParams.refValvePos)
-    #
-    #     self.launchHeaterRun(0)
-    #     if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
-    #         print("Please ask the cryo group to refill to {LL} on the"
-    #               " downstream sensor".format(LL=MAX_DS_LL))
-    #
-    #         self.waitForCryo(valveParams.refValvePos)
-    #
-    #     for _ in range(NUM_CAL_STEPS - 1):
-    #         self.launchHeaterRun()
-    #
-    #         if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
-    #             print("Please ask the cryo group to refill to {LL} on the"
-    #                   " downstream sensor".format(LL=MAX_DS_LL))
-    #
-    #             self.waitForCryo(valveParams.refValvePos)
-    #
-    #     # Kinda jank way to avoid waiting for cryo conditions after the final
-    #     # run
-    #     self.launchHeaterRun()
-    #
-    #     endTime = datetime.now().replace(microsecond=0)
-    #
-    #     print("\nStart Time: {START}".format(START=startTime))
-    #     print("End Time: {END}".format(END=datetime.now()))
-    #
-    #     duration = (datetime.now() - startTime).total_seconds() / 3600
-    #     print("Duration in hours: {DUR}".format(DUR=duration))
-    #
-    #     # Walking the heaters back to their starting settings
-    #     # self.walkHeaters(-NUM_CAL_RUNS)
-    #
-    #     self.walkHeaters(-((NUM_CAL_STEPS * CAL_HEATER_DELTA) + 1))
-    #
-    #     timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
-    #
-    #     dataSession = self.addCalibDataSession(timeParams, valveParams)
-    #
-    #     # Record this calibration dataSession's metadata
-    #     with open(self.calibIdxFile, 'a') as f:
-    #         csvWriter = writer(f)
-    #         csvWriter.writerow([self.cryModNumJLAB, valveParams.refHeatLoadDes,
-    #                             valveParams.refHeatLoadAct,
-    #                             valveParams.refValvePos,
-    #                             startTime.strftime("%m/%d/%y %H:%M:%S"),
-    #                             endTime.strftime("%m/%d/%y %H:%M:%S"),
-    #                             MYSAMPLER_TIME_INTERVAL])
-    #
-    #     return dataSession, valveParams
+        pass
+        # if not self.valveParamsForNewMeasurement:
+        #     self.valveParamsForNewMeasurement = self.getRefValveParams()
+        #
+        # deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
+        #
+        # startTime = datetime.now().replace(microsecond=0)
+        #
+        # self.walkHeaters((int(self.initialCalibrationHeatLoadLineEdit.text()) + deltaTot) / 8)
+        #
+        # self.waitForCryo(valveParams.refValvePos)
+        #
+        # self.launchHeaterRun(0)
+        # if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
+        #     print("Please ask the cryo group to refill to {LL} on the"
+        #           " downstream sensor".format(LL=MAX_DS_LL))
+        #
+        #     self.waitForCryo(valveParams.refValvePos)
+        #
+        # for _ in range(NUM_CAL_STEPS - 1):
+        #     self.launchHeaterRun()
+        #
+        #     if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
+        #         print("Please ask the cryo group to refill to {LL} on the"
+        #               " downstream sensor".format(LL=MAX_DS_LL))
+        #
+        #         self.waitForCryo(valveParams.refValvePos)
+        #
+        # # Kinda jank way to avoid waiting for cryo conditions after the final
+        # # run
+        # self.launchHeaterRun()
+        #
+        # endTime = datetime.now().replace(microsecond=0)
+        #
+        # print("\nStart Time: {START}".format(START=startTime))
+        # print("End Time: {END}".format(END=datetime.now()))
+        #
+        # duration = (datetime.now() - startTime).total_seconds() / 3600
+        # print("Duration in hours: {DUR}".format(DUR=duration))
+        #
+        # # Walking the heaters back to their starting settings
+        # # self.walkHeaters(-NUM_CAL_RUNS)
+        #
+        # self.walkHeaters(-((NUM_CAL_STEPS * CAL_HEATER_DELTA) + 1))
+        #
+        # timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
+        #
+        # dataSession = self.addCalibDataSession(timeParams, valveParams)
+        #
+        # # Record this calibration dataSession's metadata
+        # with open(self.calibIdxFile, 'a') as f:
+        #     csvWriter = writer(f)
+        #     csvWriter.writerow([self.cryModNumJLAB, valveParams.refHeatLoadDes,
+        #                         valveParams.refHeatLoadAct,
+        #                         valveParams.refValvePos,
+        #                         startTime.strftime("%m/%d/%y %H:%M:%S"),
+        #                         endTime.strftime("%m/%d/%y %H:%M:%S"),
+        #                         MYSAMPLER_TIME_INTERVAL])
+        #
+        # return dataSession, valveParams
 
     @Slot()
     def showDisplay(self, display):
@@ -501,18 +577,10 @@ class Q0Measurement(Display):
 
         return isDefault
 
-    # TODO put sector logic in here
     def updateOutputBasedOnDefaultConfig(self, cm, isDefault):
         starredName = "{CM}*".format(CM=cm)
 
-        if isDefault:
-            if starredName in self.selectedDisplayCMs:
-                self.selectedDisplayCMs.add(cm)
-                self.selectedDisplayCMs.discard(starredName)
-        else:
-            if cm in self.selectedDisplayCMs:
-                self.selectedDisplayCMs.discard(cm)
-                self.selectedDisplayCMs.add(starredName)
+        self.selectedDisplayCM = cm if isDefault else starredName
 
         self.updateSelectedText()
 
@@ -536,6 +604,12 @@ class Q0Measurement(Display):
                 displayCav = item.widget()  # type: Display
 
                 lineEdit = displayCav.ui.desiredAmplitude  # type: QLineEdit
+                try:
+                    maxAmplitude = float(displayCav.ui.amaxLabel.text())
+                except (TypeError, ValueError):
+                    maxAmplitude = 0
+
+                lineEdit.setText(str(maxAmplitude))
                 lineEdit.textChanged.connect(partial(self.checkIfAllCavitiesAtDefault, cm))
                 lineEdits.append(lineEdit)
 
@@ -543,9 +617,10 @@ class Q0Measurement(Display):
                 groupBox.toggled.connect(partial(self.cavityToggled, cm))
                 groupBoxes.append(groupBox)
 
-                restoreDefaultButton = displayCav.ui.restoreDefaultButton  # type: QPushButton
+                restoreDefaultButton: QPushButton = displayCav.ui.restoreDefaultButton
                 restoreDefaultButton.clicked.connect(partial(self.restoreDefault,
-                                                             lineEdit))
+                                                             lineEdit,
+                                                             displayCav.ui.amaxLabel))
 
             self.desiredCavAmps[cm] = lineEdits
             self.buttonDisplays[cm] = displayCM
@@ -570,14 +645,16 @@ class Q0Measurement(Display):
                 cavityGroupbox.setChecked(True)
 
     @Slot()
-    # TODO use ops max
-    def restoreDefault(self, desiredAmplitude):
-        # type: (QLineEdit) -> None
+    def restoreDefault(self, desiredAmplitude: QLineEdit, amaxLabel: PyDMLabel):
+        try:
+            maxAmplitude = float(amaxLabel.text())
+        except (ValueError, TypeError):
+            maxAmplitude = 0
 
-        desiredAmplitude.setText(str(DEFAULT_AMPLITUDE))
+        desiredAmplitude.setText(str(maxAmplitude))
 
     def updateSelectedText(self):
-        if not self.selectedDisplayCMs:
+        if not self.selectedDisplayCM:
             self.ui.cmSelectionLabel.setStyleSheet("color: red;")
             self.ui.cmSelectionLabel.setText("No Cryomodules Selected")
             self.calibrationGroupBox.setEnabled(False)
@@ -585,68 +662,35 @@ class Q0Measurement(Display):
 
         else:
             self.ui.cmSelectionLabel.setStyleSheet("color: green;")
-            self.ui.cmSelectionLabel.setText(str(sorted(self.selectedDisplayCMs))
-                                             .replace("'", "").replace("[", "")
-                                             .replace("]", ""))
+            self.ui.cmSelectionLabel.setText(self.selectedDisplayCM)
             self.calibrationGroupBox.setEnabled(True)
 
     @Slot()
     # TODO check if all checkboxes in sector are clicked
-    def cryomoduleCheckboxToggled(self, cryomodule):
+    def cryomoduleRadioButtonToggled(self, cryomodule):
         # type:  (str) -> None
 
-        checkbox = self.cryomoduleCheckboxes[cryomodule]
+        radioButton = self.cryomoduleRadioButtons[cryomodule]
         button = self.cryomoduleButtons[cryomodule]
 
-        sector = self.checkboxSectorMap[checkbox]
-        selectAllCheckbox = self.selectAllCheckboxes[sector]
-
-        state = selectAllCheckbox.checkState()
-        sectorLabel = "L{SECTOR}B*".format(SECTOR=sector)
-
-        if checkbox.isChecked():
-            self._selectedFullCMs.add(cryomodule)
+        if radioButton.isChecked():
             button.setEnabled(True)
 
             isDefault = (self.checkIfAllCavitiesAtDefault(cryomodule, False)
                          if cryomodule in self.desiredCavAmps else True)
 
-            if state == 0:
-                selectAllCheckbox.setCheckState(1)
-                self.selectedDisplayCMs.add(cryomodule if isDefault
-                                            else cryomodule + "*")
+            self.selectedDisplayCM = cryomodule + ("*" if not isDefault else "")
+            self.selectedCM = cryomodule
 
-            elif state == 1:
-                self.selectedDisplayCMs.add(cryomodule if isDefault
-                                            else cryomodule + "*")
-
-            else:
-                if not isDefault:
-                    self.selectedDisplayCMs.add(sectorLabel)
+            linacIdx = CM_LINAC_MAP[cryomodule]
+            cryomoduleObj = Q0_LINAC_OBJECTS[linacIdx].cryomodules[cryomodule]
+            self.plots.updateChannels(cryomoduleObj)
 
         else:
-            self._selectedFullCMs.discard(cryomodule)
             button.setEnabled(False)
 
-            if state == 2:
-                selectAllCheckbox.setCheckState(1)
-                self.selectedDisplayCMs.discard(sectorLabel)
-                self.selectedDisplayCMs.discard("L{SECTOR}B".format(SECTOR=sector))
-
-                for sectorCryomodule in self.sectors[sector]:
-                    isDefault = (self.checkIfAllCavitiesAtDefault(sectorCryomodule, False)
-                                 if sectorCryomodule in self.desiredCavAmps
-                                 else True)
-                    self.selectedDisplayCMs.add(sectorCryomodule
-                                                if isDefault
-                                                else (sectorCryomodule + "*"))
-
-            self.selectedDisplayCMs.discard(cryomodule + "*")
-            self.selectedDisplayCMs.discard(cryomodule)
-
         self.updateSelectedText()
-        firstCM = list(sorted(self._selectedFullCMs))[0]
-        self.calibrationOptionsWindow.cryomoduleComboBox.setCurrentText(firstCM)
+        self.calibrationOptionsWindow.cryomoduleComboBox.setCurrentText(self.selectedCM)
 
     @Slot()
     def selectAllSectorCryomodules(self, selectAllCheckbox, sector):
@@ -657,17 +701,17 @@ class Q0Measurement(Display):
         if selectAllCheckbox.checkState() == 2:
 
             for name in self.sectors[sector]:
-                self.cryomoduleCheckboxes[name].setChecked(True)
-                self.selectedDisplayCMs.discard(name)
+                self.cryomoduleRadioButtons[name].setChecked(True)
+                self.selectedDisplayCM.discard(name)
 
-            if (sectorLabel + "*") not in self.selectedDisplayCMs:
-                self.selectedDisplayCMs.add(sectorLabel)
+            if (sectorLabel + "*") not in self.selectedDisplayCM:
+                self.selectedDisplayCM.add(sectorLabel)
 
         elif selectAllCheckbox.checkState() == 0:
             for name in self.sectors[sector]:
-                self.cryomoduleCheckboxes[name].setChecked(False)
+                self.cryomoduleRadioButtons[name].setChecked(False)
 
-            self.selectedDisplayCMs.discard(sectorLabel)
-            self.selectedDisplayCMs.discard(sectorLabel + "*")
+            self.selectedDisplayCM.discard(sectorLabel)
+            self.selectedDisplayCM.discard(sectorLabel + "*")
 
         self.updateSelectedText()

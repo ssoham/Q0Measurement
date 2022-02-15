@@ -20,54 +20,33 @@
    <string>Form</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
-   <item row="1" column="0" colspan="3">
-    <widget class="PyDMTemplateRepeater" name="zoneCryomodules">
-     <property name="frameShape">
-      <enum>QFrame::StyledPanel</enum>
-     </property>
-     <property name="layoutType" stdset="0">
-      <enum>PyDMTemplateRepeater::Flow</enum>
-     </property>
-     <property name="layoutSpacing" stdset="0">
-      <number>0</number>
-     </property>
-     <property name="countShownInDesigner" stdset="0">
-      <number>20</number>
-     </property>
-     <property name="templateFilename" stdset="0">
-      <string>cmCheckboxButton.ui</string>
-     </property>
-     <property name="dataSource" stdset="0">
-      <string>${area}.json</string>
-     </property>
-    </widget>
-   </item>
-   <item row="0" column="2">
-    <widget class="QCheckBox" name="selectAllCheckbox">
-     <property name="text">
-      <string>Select ALL</string>
-     </property>
-    </widget>
-   </item>
-   <item row="0" column="0">
-    <widget class="QLabel" name="zoneLabel">
-     <property name="text">
+   <item row="0" column="0" colspan="2">
+    <widget class="QGroupBox" name="groupBox">
+     <property name="title">
       <string>${area}</string>
      </property>
+     <layout class="QVBoxLayout" name="verticalLayout">
+      <item>
+       <widget class="PyDMTemplateRepeater" name="zoneCryomodules">
+        <property name="layoutType" stdset="0">
+         <enum>PyDMTemplateRepeater::Flow</enum>
+        </property>
+        <property name="layoutSpacing" stdset="0">
+         <number>0</number>
+        </property>
+        <property name="countShownInDesigner" stdset="0">
+         <number>20</number>
+        </property>
+        <property name="templateFilename" stdset="0">
+         <string>cmCheckboxButton.ui</string>
+        </property>
+        <property name="dataSource" stdset="0">
+         <string>${area}.json</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </widget>
-   </item>
-   <item row="0" column="1">
-    <spacer name="horizontalSpacer">
-     <property name="orientation">
-      <enum>Qt::Horizontal</enum>
-     </property>
-     <property name="sizeHint" stdset="0">
-      <size>
-       <width>40</width>
-       <height>20</height>
-      </size>
-     </property>
-    </spacer>
    </item>
   </layout>
  </widget>
@@ -76,6 +55,7 @@
    <class>PyDMTemplateRepeater</class>
    <extends>QFrame</extends>
    <header>pydm.widgets.template_repeater</header>
+   <container>1</container>
   </customwidget>
  </customwidgets>
  <resources/>

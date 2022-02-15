@@ -1,5 +1,5 @@
 from scLinac import Cavity, Cryomodule, Rack, Linac, LINACS
-from typing import Type, Dict
+from typing import Type, Dict, List
 from datetime import datetime
 from utils import (ARCHIVER_TIME_INTERVAL, TimeParams, ValveParams, q0Hash,
                    CryomodulePVs)
@@ -27,10 +27,13 @@ class Q0Cavity(Cavity, object):
         self._calibIdxFile = ("calibrations/cm{CM}/cav{CAV}/calibrationsCM{CM}CAV{CAV}.csv"
                               .format(CM=self.cryomodule.name, CAV=cavityNum))
 
+        self.amplitudeDesPV = self.pvPrefix + "ADES"
+        self.amplitudeActPV = self.pvPrefix + "AACTMEAN"
+
 
 class Q0Cryomodule(Cryomodule, object):
-    def __init__(self, cryoName, linacObject, cavityClass=Q0Cavity):
-        # type: (str, Linac, Cavity) -> None
+    def __init__(self, cryoName, linacObject, _):
+        # type: (str, Linac, Q0Cavity) -> None
 
         super(Q0Cryomodule, self).__init__(cryoName, linacObject, Q0Cavity)
         self.dsPressurePV = "CPT:CM{CM}:2302:DS:PRESS".format(CM=cryoName)
@@ -52,7 +55,7 @@ class Q0Cryomodule(Cryomodule, object):
         self.heaterDesPVs = []
         self.heaterActPVs = []
 
-        for q0Cavity in self.cavities:
+        for q0Cavity in self.cavities.values():
             self.heaterActPVs.append(q0Cavity.heaterActPV)
             self.heaterDesPVs.append(q0Cavity.heaterDesPV)
 
@@ -99,8 +102,125 @@ class Q0Cryomodule(Cryomodule, object):
 
         return self.calibDataSessions[sessionHash]
 
+    # getRefValveParams searches over the last timeRange hours for a period
+    # when the liquid level was stable and then fetches an averaged JT valve
+    # position during that time as well as summed cavity heater DES and ACT
+    # values. All three numbers get packaged and returned in a ValveParams
+    # object.
+    # noinspection PyTupleAssignmentBalance,PyTypeChecker
+    # def getRefValveParams(self, timeRange=JT_SEARCH_TIME_RANGE):
+    #     # type: (float) -> ValveParams
+    #
+    #     def halfHourRoundDown(timeToRound):
+    #         # type: (datetime) -> datetime
+    #         newMinute = 0 if timeToRound.minute < 30 else 30
+    #         return datetime(timeToRound.year, timeToRound.month,
+    #                         timeToRound.day, timeToRound.hour, newMinute, 0)
+    #
+    #     print("\nDetermining required JT Valve position...")
+    #
+    #     loopStart = datetime.now() - timedelta(hours=12)
+    #     searchStart = loopStart - timedelta(hours=HOURS_NEEDED_FOR_FLATNESS)
+    #     searchStart = halfHourRoundDown(searchStart)
+    #
+    #     numPoints = int((60 / ARCHIVER_TIME_INTERVAL)
+    #                     * (HOURS_NEEDED_FOR_FLATNESS * 60))
+    #
+    #     while (loopStart - searchStart) <= timedelta(hours=timeRange):
+    #
+    #         formatter = "Checking {START} to {END} for liquid level stability."
+    #         searchEnd = searchStart + timedelta(hours=HOURS_NEEDED_FOR_FLATNESS)
+    #         startStr = searchStart.strftime("%m/%d/%y %H:%M:%S")
+    #         endStr = searchEnd.strftime("%m/%d/%y %H:%M:%S")
+    #         print(formatter.format(START=startStr, END=endStr))
+    #
+    #         csvReaderLL = getAndParseRawData(searchStart, numPoints,
+    #                                          [self.dsLevelPV], verbose=False)
+    #
+    #         if not csvReaderLL:
+    #             raise AssertionError("No Archiver data found")
+    #
+    #         compatibleNext(csvReaderLL)
+    #         llVals = []
+    #
+    #         for row in csvReaderLL:
+    #             try:
+    #                 llVals.append(float(row.pop()))
+    #             except ValueError:
+    #                 pass
+    #
+    #         # Fit a line to the liquid level over the last [numHours] hours
+    #         m, b, _, _, _ = linregress(range(len(llVals)), llVals)
+    #
+    #         # If the LL slope is small enough, this may be a good period from
+    #         # which to get a reference valve position & heater params
+    #         if log10(abs(m)) < -5:
+    #
+    #             signals = ([self.valvePV] + self.heaterDesPVs
+    #                        + self.heaterActPVs)
+    #
+    #             (header, heaterActCols, heaterDesCols, _,
+    #              csvReader, _) = getDataAndHeaterCols(searchStart, numPoints,
+    #                                                   self.heaterDesPVs,
+    #                                                   self.heaterActPVs, signals,
+    #                                                   verbose=False)
+    #
+    #             valveVals = []
+    #             heaterDesVals = []
+    #             heaterActVals = []
+    #             valveIdx = header.index(self.valvePV)
+    #
+    #             for row in csvReader:
+    #                 valveVals.append(float(row[valveIdx]))
+    #                 (heatLoadDes,
+    #                  heatLoadAct) = collapseHeaterVals(row, heaterDesCols,
+    #                                                    heaterActCols)
+    #                 heaterDesVals.append(heatLoadDes)
+    #                 heaterActVals.append(heatLoadAct)
+    #
+    #             desValSet = set(heaterDesVals)
+    #
+    #             # We only want to use time periods in which there were no
+    #             # changes made to the heater settings
+    #             if len(desValSet) == 1:
+    #                 desPos = round(mean(valveVals), 1)
+    #                 heaterDes = desValSet.pop()
+    #                 heaterAct = mean(heaterActVals)
+    #
+    #                 print("Stable period found.")
+    #                 formatter = "{THING} is {VAL}"
+    #                 print(formatter.format(THING="Desired JT valve position",
+    #                                        VAL=desPos))
+    #                 print(formatter.format(THING="Total heater DES setting",
+    #                                        VAL=heaterDes))
+    #
+    #                 return ValveParams(desPos, heaterDes, heaterAct)
+    #
+    #         searchStart -= timedelta(hours=JT_SEARCH_HOURS_PER_STEP)
+    #
+    #     # If we broke out of the while loop without returning anything, that
+    #     # means that the LL hasn't been stable enough recently. Wait a while for
+    #     # it to stabilize and then try again.
+    #     complaint = ("Cryo conditions were not stable enough over the last"
+    #                  " {NUM} hours - determining new JT valve position. Please"
+    #                  " do not adjust the heaters. Allow the PID loop to "
+    #                  "regulate the JT valve position.")
+    #     print(complaint.format(NUM=timeRange))
+    #
+    #     writeAndWait("\nWaiting 30 minutes for LL to stabilize then "
+    #                  "retrying...")
+    #
+    #     start = datetime.now()
+    #     while (datetime.now() - start).total_seconds() < 1800:
+    #         writeAndWait(".", 5)
+    #
+    #     # Try again but only search the recent past. We have to manipulate the
+    #     # search range a little bit due to how the search start time is rounded
+    #     # down to the nearest half hour.
+    #     return self.getRefValveParams(HOURS_NEEDED_FOR_FLATNESS + 0.5)
 
-Q0_LINAC_OBJECTS = []
+
+Q0_LINAC_OBJECTS: List[Linac] = []
 for name, cryomoduleList in LINACS:
     Q0_LINAC_OBJECTS.append(Linac(name, cryomoduleList, cavityClass=Q0Cavity,
                                   cryomoduleClass=Q0Cryomodule))
