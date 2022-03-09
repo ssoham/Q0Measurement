@@ -2791,7 +2791,7 @@ class RFDataRun(DataRun):
         #    self.printDiagnostics()
         self.printDiagnostics()
 
-    # The calculated Q0 value for this run. Magical formula from Mike Drury
+    # The calculated Q0 value for this run. Formula from Mike Drury
     # (drury@jlab.org) to calculate Q0 from the measured heat load on a cavity,
     # the RF gradient used during the test, and the pressure of the incoming
     # 2 K helium.

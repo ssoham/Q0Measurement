@@ -6,7 +6,8 @@ from functools import partial, reduce
 from os import pardir, path
 from typing import Dict, List, Optional, Union
 
-from PyQt5.QtGui import QIntValidator, QStandardItem, QStandardItemModel
+from PyQt5.QtGui import (QIntValidator, QStandardItem, QStandardItemModel,
+                         QDoubleValidator)
 from PyQt5.QtWidgets import (QButtonGroup, QCheckBox, QGroupBox, QHBoxLayout,
                              QLabel, QLineEdit, QMessageBox, QPushButton,
                              QRadioButton, QTableView, QVBoxLayout, QWidget,
@@ -183,7 +184,9 @@ class Q0Measurement(Display):
         self.buttonDisplays = {}  # type: Dict[str, Display]
 
         # maps cyomodule names to desired cavity amplitudes
-        self.desiredCavAmps = {}  # type: Dict[str, List[QLineEdit]]
+        self.desiredCavAmpLineEdits = {}  # type: Dict[str, List[QLineEdit]]
+
+        self.maxAmplitudeLabels: Dict[str, PyDMLabel] = {}
 
         # maps cryomodule names to cavity groupboxes
         self.cavityGroupBoxes = {}  # type: Dict[str, List[QGroupBox]]
@@ -217,11 +220,11 @@ class Q0Measurement(Display):
 
         self.valveParams = {}
 
+        self.selectedCryomoduleObject: Q0Cryomodule = None
+
     def setupLiveSignals(self):
         self.plots.clearCurves()
-        linacIdx = CM_LINAC_MAP[self.selectedCM]
-        cryoModule: Q0Cryomodule = Q0_LINAC_OBJECTS[linacIdx].cryomodules[self.selectedCM]
-        self.plots.valvePlot.addYChannel(cryoModule.valvePV)
+        self.plots.valvePlot.addYChannel(self.selectedCryomoduleObject.valvePV)
 
     def setupCalibrationOptionsWindow(self):
         self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentTextChanged.connect(
@@ -459,66 +462,7 @@ class Q0Measurement(Display):
 
     @Slot()
     def takeNewCalibration(self):
-        pass
-        # if not self.valveParamsForNewMeasurement:
-        #     self.valveParamsForNewMeasurement = self.getRefValveParams()
-        #
-        # deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
-        #
-        # startTime = datetime.now().replace(microsecond=0)
-        #
-        # self.walkHeaters((int(self.initialCalibrationHeatLoadLineEdit.text()) + deltaTot) / 8)
-        #
-        # self.waitForCryo(valveParams.refValvePos)
-        #
-        # self.launchHeaterRun(0)
-        # if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
-        #     print("Please ask the cryo group to refill to {LL} on the"
-        #           " downstream sensor".format(LL=MAX_DS_LL))
-        #
-        #     self.waitForCryo(valveParams.refValvePos)
-        #
-        # for _ in range(NUM_CAL_STEPS - 1):
-        #     self.launchHeaterRun()
-        #
-        #     if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
-        #         print("Please ask the cryo group to refill to {LL} on the"
-        #               " downstream sensor".format(LL=MAX_DS_LL))
-        #
-        #         self.waitForCryo(valveParams.refValvePos)
-        #
-        # # Kinda jank way to avoid waiting for cryo conditions after the final
-        # # run
-        # self.launchHeaterRun()
-        #
-        # endTime = datetime.now().replace(microsecond=0)
-        #
-        # print("\nStart Time: {START}".format(START=startTime))
-        # print("End Time: {END}".format(END=datetime.now()))
-        #
-        # duration = (datetime.now() - startTime).total_seconds() / 3600
-        # print("Duration in hours: {DUR}".format(DUR=duration))
-        #
-        # # Walking the heaters back to their starting settings
-        # # self.walkHeaters(-NUM_CAL_RUNS)
-        #
-        # self.walkHeaters(-((NUM_CAL_STEPS * CAL_HEATER_DELTA) + 1))
-        #
-        # timeParams = TimeParams(startTime, endTime, MYSAMPLER_TIME_INTERVAL)
-        #
-        # dataSession = self.addCalibDataSession(timeParams, valveParams)
-        #
-        # # Record this calibration dataSession's metadata
-        # with open(self.calibIdxFile, 'a') as f:
-        #     csvWriter = writer(f)
-        #     csvWriter.writerow([self.cryModNumJLAB, valveParams.refHeatLoadDes,
-        #                         valveParams.refHeatLoadAct,
-        #                         valveParams.refValvePos,
-        #                         startTime.strftime("%m/%d/%y %H:%M:%S"),
-        #                         endTime.strftime("%m/%d/%y %H:%M:%S"),
-        #                         MYSAMPLER_TIME_INTERVAL])
-        #
-        # return dataSession, valveParams
+        self.selectedCryomoduleObject.takeNewCalibration(int(self.initialCalibrationHeatLoadLineEdit.text()))
 
     @Slot()
     def showDisplay(self, display):
@@ -556,21 +500,21 @@ class Q0Measurement(Display):
 
         isDefault = True
 
-        for lineEdit in self.desiredCavAmps[cm]:
+        for idx, lineEdit in enumerate(self.desiredCavAmpLineEdits[cm]):
             if lineEdit.text():
                 try:
                     amplitude = float(lineEdit.text())
-                    if amplitude != DEFAULT_AMPLITUDE:
+                    maxAmp = float(self.maxAmplitudeLabels[cm][idx].text())
+                    if amplitude > maxAmp:
+                        lineEdit.clear()
+                    elif amplitude != maxAmp:
                         isDefault = False
-                        break
 
                 except ValueError:
                     lineEdit.clear()
                     isDefault = False
-                    break
             else:
                 isDefault = False
-                break
 
         if updateOutput:
             self.updateOutputBasedOnDefaultConfig(cm, isDefault)
@@ -598,14 +542,20 @@ class Q0Measurement(Display):
 
             lineEdits = []
             groupBoxes = []
+            amaxLabels = []
 
             for cav in range(8):
                 item = repeater.layout().itemAt(cav)  # type: QWidgetItem
                 displayCav = item.widget()  # type: Display
 
                 lineEdit = displayCav.ui.desiredAmplitude  # type: QLineEdit
+                validator = QDoubleValidator(0.0, 21.0, 2, lineEdit)
+                validator.setNotation(QDoubleValidator.StandardNotation)
+                lineEdit.setValidator(validator)
+                amaxLabel = displayCav.ui.amaxLabel
+
                 try:
-                    maxAmplitude = float(displayCav.ui.amaxLabel.text())
+                    maxAmplitude = float(amaxLabel.text())
                 except (TypeError, ValueError):
                     maxAmplitude = 0
 
@@ -617,14 +567,17 @@ class Q0Measurement(Display):
                 groupBox.toggled.connect(partial(self.cavityToggled, cm))
                 groupBoxes.append(groupBox)
 
+                amaxLabels.append(amaxLabel)
+
                 restoreDefaultButton: QPushButton = displayCav.ui.restoreDefaultButton
                 restoreDefaultButton.clicked.connect(partial(self.restoreDefault,
                                                              lineEdit,
                                                              displayCav.ui.amaxLabel))
 
-            self.desiredCavAmps[cm] = lineEdits
+            self.desiredCavAmpLineEdits[cm] = lineEdits
             self.buttonDisplays[cm] = displayCM
             self.cavityGroupBoxes[cm] = groupBoxes
+            self.maxAmplitudeLabels[cm] = amaxLabels
 
             selectAllCheckbox = displayCM.ui.selectAllCheckbox  # type: QCheckBox
             self.selectAllCavitiesCheckboxes[cm] = selectAllCheckbox
@@ -677,10 +630,13 @@ class Q0Measurement(Display):
             button.setEnabled(True)
 
             isDefault = (self.checkIfAllCavitiesAtDefault(cryomodule, False)
-                         if cryomodule in self.desiredCavAmps else True)
+                         if cryomodule in self.desiredCavAmpLineEdits else True)
 
             self.selectedDisplayCM = cryomodule + ("*" if not isDefault else "")
             self.selectedCM = cryomodule
+
+            linacIdx = CM_LINAC_MAP[self.selectedCM]
+            self.selectedCryomoduleObject = Q0_LINAC_OBJECTS[linacIdx].cryomodules[self.selectedCM]
 
             linacIdx = CM_LINAC_MAP[cryomodule]
             cryomoduleObj = Q0_LINAC_OBJECTS[linacIdx].cryomodules[cryomodule]
