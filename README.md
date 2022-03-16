@@ -80,9 +80,9 @@ correct values
 
 4) Turn the RF on in pulsed mode
 
-5) Check that the On Time in 70ms (and sets it if not)
+5) Check that the On Time is 70ms (and sets it if not)
 
-6) Increase the drive until it's at least 15 OR the gradient is at least 1 MV/m
+6) Increase the drive until it's at least 15% OR the gradient is at least 1 MV/m
 
 7) Phase the cavities by getting the "valley" of the reverse waveform as close
 to 0 as possible 
@@ -106,7 +106,7 @@ order to find an offset for the RF heat load)
 After pulling all the required data, the script parses it into data runs based 
 on heater and/or RF settings.
 
-For the calibration, it fits the NUM_CAL_STEPS data points to a line (heat load vs. dLL).
+For the calibration, it fits the NUM_CAL_STEPS data points to a line (heat load vs. dLL/dt).
 
 For the Q0 measurement, it:
 

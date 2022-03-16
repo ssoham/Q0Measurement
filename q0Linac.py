@@ -3,14 +3,13 @@ from datetime import datetime
 from typing import Dict, List
 
 from epics import PV
+from numpy import nanmean
 
 import dataSession
 from scLinac import Cavity, Cryomodule, LINACS, Linac, Rack
-from utils import (ARCHIVER_TIME_INTERVAL, CAL_HEATER_DELTA, CryomodulePVs, HOURS_NEEDED_FOR_FLATNESS,
-                   JT_SEARCH_HOURS_PER_STEP, JT_SEARCH_TIME_RANGE, RUN_STATUS_MSSG, TimeParams, ValveParams,
-                   getArchiverData, q0Hash, writeAndWait, TARGET_LL_DIFF, compatibleMkdirs,
-                   FULL_MODULE_CALIBRATION_LOAD)
-from numpy import nanmean
+from utils import (ARCHIVER_TIME_INTERVAL, CAL_HEATER_DELTA, CryomodulePVs, FULL_MODULE_CALIBRATION_LOAD,
+                   HOURS_NEEDED_FOR_FLATNESS, JT_SEARCH_HOURS_PER_STEP, JT_SEARCH_TIME_RANGE, RUN_STATUS_MSSG,
+                   TARGET_LL_DIFF, TimeParams, ValveParams, compatibleMkdirs, getArchiverData, q0Hash, writeAndWait)
 
 
 class Q0Cavity(Cavity, object):
@@ -34,6 +33,27 @@ class Q0Cavity(Cavity, object):
 
         self.amplitudeDesPV = self.pvPrefix + "ADES"
         self.amplitudeActPV = self.pvPrefix + "AACTMEAN"
+
+        self.acqCntrlEnablePV = PV(self.pvPrefix + ":ENABLE")
+
+    # Checks that the parameters associated with acquisition of the cavity RF
+    # waveforms are configured properly
+    def checkAcqControl(self):
+        print("Checking Waveform Data Acquisition Control...")
+        for infix in ["CAV", "FWD", "REV"]:
+            if self.acqCntrlEnablePV.value != 1:
+                print("Enabling {INFIX}".format(INFIX=infix))
+                self.acqCntrlEnablePV.put(1)
+
+        suffixValPairs = [("MODE", 1), ("HLDOFF", 0.1), ("STAT_START", 0.065),
+                          ("STAT_WIDTH", 0.004), ("DECIM", 255)]
+
+        for suffix, val in suffixValPairs:
+            # TODO get rid of this
+            pv = self.genAcclPV("ACQ_" + suffix)
+            if self.acqCntrlEnablePV.value != val:
+                print("Setting {SUFFIX}".format(SUFFIX=suffix))
+                caputPV(pv, str(val))
 
 
 class Q0Cryomodule(Cryomodule, object):
@@ -76,8 +96,7 @@ class Q0Cryomodule(Cryomodule, object):
                            .format(CM=self.name))
 
     @property
-    def calibIdxFile(self):
-        # type: () -> str
+    def calibIdxFile(self) -> str:
 
         if not isfile(self._calibIdxFile):
             compatibleMkdirs(self._calibIdxFile)
@@ -406,9 +425,6 @@ class Q0Cryomodule(Cryomodule, object):
             self.walkHeaters(deltaTot / 8)
 
             for cavity in self.cavities.values():
-
-                if cavity.cavNum not in desiredGradients:
-                    continue
 
                 print("\nRunning up Cavity {CAV}...".format(CAV=cavity.cavNum))
 
