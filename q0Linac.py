@@ -1,24 +1,26 @@
-from scLinac import Cavity, Cryomodule, Rack, Linac, LINACS
-from typing import Type, Dict, List
+import json
 from datetime import datetime
-from utils import (ARCHIVER_TIME_INTERVAL, TimeParams, ValveParams, q0Hash,
-                   CryomodulePVs, JT_SEARCH_TIME_RANGE, JT_SEARCH_HOURS_PER_STEP,
-                   HOURS_NEEDED_FOR_FLATNESS, getArchiverData, writeAndWait)
-import dataSession
+from typing import Dict, List
+
 from epics import PV
+
+import dataSession
+from scLinac import Cavity, Cryomodule, LINACS, Linac, Rack
+from utils import (ARCHIVER_TIME_INTERVAL, CAL_HEATER_DELTA, CryomodulePVs, HOURS_NEEDED_FOR_FLATNESS,
+                   JT_SEARCH_HOURS_PER_STEP, JT_SEARCH_TIME_RANGE, RUN_STATUS_MSSG, TimeParams, ValveParams,
+                   getArchiverData, q0Hash, writeAndWait, TARGET_LL_DIFF, compatibleMkdirs)
+from numpy import nanmean
 
 
 class Q0Cavity(Cavity, object):
-    def __init__(self, cavityNum, rackObject):
-        # type: (int, Rack) -> None
-
+    def __init__(self, cavityNum: int, rackObject: Rack):
         super(Q0Cavity, self).__init__(cavityNum, rackObject)
 
         self._fieldEmissionPVs = None
 
         self.heaterDesPV = PV("CHTR:CM{CM}:1{CAV}55:HV:{SUFF}".format(CM=self.cryomodule.name,
-                                                                   SUFF="POWER_SETPT",
-                                                                   CAV=cavityNum))
+                                                                      SUFF="POWER_SETPT",
+                                                                      CAV=cavityNum))
         self.heaterActPV = "CHTR:CM{CM}:1{CAV}55:HV:{SUFF}".format(SUFF="POWER",
                                                                    CM=self.cryomodule.name,
                                                                    CAV=cavityNum)
@@ -34,8 +36,7 @@ class Q0Cavity(Cavity, object):
 
 
 class Q0Cryomodule(Cryomodule, object):
-    def __init__(self, cryoName, linacObject, _):
-        # type: (str, Linac, Q0Cavity) -> None
+    def __init__(self, cryoName: str, linacObject: Linac, _):
 
         super(Q0Cryomodule, self).__init__(cryoName, linacObject, Q0Cavity)
         self.dsPressurePV = "CPT:CM{CM}:2302:DS:PRESS".format(CM=cryoName)
@@ -56,26 +57,39 @@ class Q0Cryomodule(Cryomodule, object):
         self.q0DataSessions = {}
         self.calibDataSessions = {}
 
-        self.heaterDesPVs = []
+        self.heaterDesPVObjects = []
         self.heaterActPVs = []
 
         for q0Cavity in self.cavities.values():
             self.heaterActPVs.append(q0Cavity.heaterActPV)
-            self.heaterDesPVs.append(q0Cavity.heaterDesPV)
+            self.heaterDesPVObjects.append(q0Cavity.heaterDesPV)
 
-        self.heaterDesPVObjects = list(map(PV, self.heaterDesPVs))
+        self.heaterDesPVs = [pv.pvname for pv in self.heaterDesPVObjects]
         # self.heaterActPVObjects = list(map(PV, self.heaterActPVs))
 
         self.valveParamsForNewMeasurement = None
 
-    def addCalibDataSessionFromGUI(self, calibrationSelection):
-        # type: (Dict[str]) -> dataSession.CalibDataSession
+        self._calibIdxFile = ("calibrations/cm{CM}/calibrationsCM{CM}.json"
+                              .format(CM=self.name))
+        self._q0IdxFile = ("q0Measurements/cm{CM}/q0MeasurementsCM{CM}.json"
+                           .format(CM=self.name))
+
+    @property
+    def calibIdxFile(self):
+        # type: () -> str
+
+        if not isfile(self._calibIdxFile):
+            compatibleMkdirs(self._calibIdxFile)
+
+        return self._calibIdxFile
+
+    def addCalibDataSessionFromGUI(self, calibrationSelection: Dict[str, str]) -> dataSession.CalibDataSession:
 
         startTime = datetime.strptime(calibrationSelection["Start"], "%m/%d/%y %H:%M:%S")
         endTime = datetime.strptime(calibrationSelection["End"], "%m/%d/%y %H:%M:%S")
 
         try:
-            timeInterval = int(calibrationSelection["MySampler Time Interval"])
+            timeInterval = int(calibrationSelection["Archiver Time Interval"])
         except (IndexError, ValueError):
             timeInterval = ARCHIVER_TIME_INTERVAL
 
@@ -88,8 +102,7 @@ class Q0Cryomodule(Cryomodule, object):
 
         return self.addCalibDataSession(timeParams, valveParams)
 
-    def addCalibDataSession(self, timeParams, valveParams):
-        # type: (TimeParams, ValveParams) -> dataSession.CalibDataSession
+    def addCalibDataSession(self, timeParams: TimeParams, valveParams: ValveParams) -> dataSession.CalibDataSession:
 
         sessionHash = q0Hash([timeParams, valveParams])
 
@@ -118,8 +131,7 @@ class Q0Cryomodule(Cryomodule, object):
     # object.
     def getRefValveParams(self, timeRange: float = JT_SEARCH_TIME_RANGE) -> ValveParams:
 
-        def halfHourRoundDown(timeToRound):
-            # type: (datetime) -> datetime
+        def halfHourRoundDown(timeToRound: datetime) -> datetime:
             newMinute = 0 if timeToRound.minute < 30 else 30
             return datetime(timeToRound.year, timeToRound.month,
                             timeToRound.day, timeToRound.hour, newMinute, 0)
@@ -156,7 +168,8 @@ class Q0Cryomodule(Cryomodule, object):
                 signals = ([self.valvePV] + self.heaterDesPVs
                            + self.heaterActPVs)
 
-                data = getArchiverData(searchStart, numPoints, signals)
+                data = getArchiverData(startTime=searchStart,
+                                       numPoints=numPoints, signals=signals)
                 valveVals = data.values[self.valvePV]
                 heaterDesVals = [sum(x) for x in zip(*itemgetter(*self.heaterDesPVs)(data.values))]
                 heaterActVals = [sum(x) for x in zip(*itemgetter(*self.heaterActPVs)(data.values))]
@@ -209,7 +222,7 @@ class Q0Cryomodule(Cryomodule, object):
 
         formatter = "\nWalking CM{NUM} heaters {DIR} by {VAL}"
         dirStr = "up" if perHeaterDelta > 0 else "down"
-        formatter = formatter.format(NUM=self.cryModNumSLAC, DIR=dirStr,
+        formatter = formatter.format(NUM=self.name, DIR=dirStr,
                                      VAL=abs(perHeaterDelta))
         print(formatter)
 
@@ -218,40 +231,63 @@ class Q0Cryomodule(Cryomodule, object):
                 currVal = heaterSetpointPV.value
                 heaterSetpointPV.put(currVal + perHeaterDelta)
 
-        # This whole thing is so that we only do 8W/min
-        steps = abs(int(perHeaterDelta))
-        stepDelta = perHeaterDelta / steps
+        else:
 
-        for i in range(steps):
+            # This whole thing is so that we only do 8W/min
+            # TODO clean this
+            steps = abs(int(perHeaterDelta))
+            finalDelta = abs(perHeaterDelta) - steps
+
+            # 1 or -1 depending on the direction
+            stepDelta = perHeaterDelta / steps
+
+            for i in range(steps):
+
+                for heaterSetpointPV in self.heaterDesPVObjects:
+                    currVal = heaterSetpointPV.value
+                    heaterSetpointPV.put(currVal + stepDelta)
+
+                sleep(60)
 
             for heaterSetpointPV in self.heaterDesPVObjects:
                 currVal = heaterSetpointPV.value
-                heaterSetpointPV.put(currVal + stepDelta)
-
-            sleep(60)
+                heaterSetpointPV.put(currVal + (finalDelta * stepDelta))
 
         writeAndWait("\nWaiting 5s for cryo to stabilize...\n", 5)
 
     def waitForLL(self):
-        # type: () -> None
         writeAndWait("\nWaiting for downstream liquid level to be {LL}%..."
                      .format(LL=MAX_DS_LL))
 
-        while (MAX_DS_LL - self.dsLevelPVObject.value) > 0:
+        while (MAX_DS_LL - self.liquidLevelDS) > 0:
             writeAndWait(".", 5)
 
         writeAndWait(" downstream liquid level at required value.")
 
     @property
-    def totalHeatDes(self):
-        # type: () -> float
+    def totalHeatDes(self) -> float:
         heatDes = 0
         for pv in self.heaterDesPVObjects:
             heatDes += pv.value
         return heatDes
 
-    def launchHeaterRun(self, delta=CAL_HEATER_DELTA):
-        # type: (float) -> None
+    @property
+    def liquidLevelDS(self) -> float:
+        # try to do averaging of the last NUM_LL_POINTS_TO_AVG points to account
+        # for signal noise
+        try:
+            archiverData = getArchiverData(endTime=datetime.now(),
+                                           numPoints=NUM_LL_POINTS_TO_AVG,
+                                           signals=[self.dsLevelPV],
+                                           timeInt=ARCHIVER_TIME_INTERVAL)
+
+            return nanmean(archiverData.values[self.dsLevelPV])
+
+        # return the most recent value if we can't average for whatever reason
+        except AttributeError:
+            return self.dsLevelPVObject.value
+
+    def launchHeaterRun(self, delta: float = CAL_HEATER_DELTA) -> None:
 
         print("Ramping heaters to the next setting...")
 
@@ -269,8 +305,7 @@ class Q0Cryomodule(Cryomodule, object):
 
         print("\nDone\n")
 
-    def takeNewCalibration(self, initialCalibrationHeatload):
-        # type: (int) -> None
+    def takeNewCalibration(self, initialCalibrationHeatload: int):
 
         if not self.valveParamsForNewMeasurement:
             self.valveParamsForNewMeasurement = self.getRefValveParams()
@@ -279,15 +314,17 @@ class Q0Cryomodule(Cryomodule, object):
 
         startTime = datetime.now().replace(microsecond=0)
 
+        # Lumping in the initial
         self.walkHeaters((initialCalibrationHeatload + deltaTot) / 8)
 
         self.waitForLL()
-        # todo mess with cryo
+        # todo fill to 95%
 
         writeAndWait("\nWaiting for JT Valve to be locked at {POS}..."
                      .format(POS=self.valveParamsForNewMeasurement.refValvePos))
-        # set self.jtModePV to 0
-        # set self.jtPosSetpointPV to valveParams.refValvePos
+
+        # todo set self.jtModePV to 0
+        # todo set self.jtPosSetpointPV to valveParams.refValvePos
 
         # Wait for the valve position to be within tolerance before continuing
         while abs(self.valvePVObject.value - refValvePos) > VALVE_POS_TOL:
@@ -334,16 +371,139 @@ class Q0Cryomodule(Cryomodule, object):
         dataSession = self.addCalibDataSession(timeParams, valveParams)
 
         # Record this calibration dataSession's metadata
-        with open(self.calibIdxFile, 'a') as f:
-            csvWriter = writer(f)
-            csvWriter.writerow([self.cryModNumJLAB, valveParams.refHeatLoadDes,
-                                valveParams.refHeatLoadAct,
-                                valveParams.refValvePos,
-                                startTime.strftime("%m/%d/%y %H:%M:%S"),
-                                endTime.strftime("%m/%d/%y %H:%M:%S"),
-                                MYSAMPLER_TIME_INTERVAL])
+
+        csvWriter.writerow(["JLAB Number", "Reference Heat Load (Des)",
+                            "Reference Heat Load (Act)",
+                            "JT Valve Position", "Start", "End",
+                            "MySampler Time Interval"])
+
+        dataDict = {"Total Heater Setpoint" : valveParams.refHeatLoadDes,
+                    "Total Heater Readback" : valveParams.refHeatLoadAct,
+                    "JT Valve Position"     : valveParams.refValvePos,
+                    "Start Time"            : startTime.strftime("%m/%d/%y %H:%M:%S"),
+                    "End Time"              : endTime.strftime("%m/%d/%y %H:%M:%S"),
+                    "Archiver Time Interval": ARCHIVER_TIME_INTERVAL}
+
+        newData = dumps(dataDict)
+
+        with open(self.calibIdxFile, 'w') as f:
+            data: Dict = json.load(f)
+            data.update(newData)
+            json.dump(data, f)
 
         return dataSession, valveParams
+
+    def takeNewQ0Measurement(self, desiredGradients: Dict[int, float],
+                             calibSession: dataSession.CalibDataSession = None,
+                             valveParams: ValveParams = None) -> (dataSession.Q0DataSession, ValveParams):
+        try:
+            self._desiredGrads = desiredGradients
+            if not valveParams:
+                valveParams = self.getRefValveParams()
+
+            deltaTot = valveParams.refHeatLoadDes - self.totalHeatDes
+            self.walkHeaters(deltaTot / 8)
+
+            for cavity in self.cavities.values():
+
+                if cavity.cavNum not in desiredGradients:
+                    continue
+
+                print("\nRunning up Cavity {CAV}...".format(CAV=cavity.cavNum))
+
+                cavity.checkAcqControl()
+                cavity.setPowerStateSSA(True)
+                cavity.characterize()
+
+                # Setting the RF low and ramping up is time consuming so we skip it
+                # during testing
+                if not TEST_MODE:
+                    caputPV(cavity.genAcclPV("SEL_ASET"), "15")
+
+                # Start with pulsed mode
+                cavity.setModeRF("4")
+
+                cavity.setStateRF(True)
+                cavity.pushGoButton()
+
+                cavity.checkAndSetOnTime()
+                cavity.checkAndSetDrive()
+
+                cavity.phaseCavity()
+
+                if not TEST_MODE:
+                    cavity.lowerAmplitude()
+
+                # go to CW
+                cavity.setModeRF("2")
+
+                cavity.walkToGradient(desiredGradients[cavity.cavNum])
+
+            self.waitForCryo(valveParams.refValvePos)
+
+            startTime = self.holdGradient(desiredGradients).replace(microsecond=0)
+
+            for cavity in self.cavities.values():
+
+                if cavity.cavNum not in desiredGradients:
+                    continue
+
+                cavity.walkToGradient(5)
+                cavity.powerDown()
+
+            # self.waitForCryo(valveParams.refValvePos)
+            self.waitForLL()
+            self.walkHeaters(10, valveParams.refHeatLoadDes / 8)
+            self.waitForJT(valveParams.refValvePos)
+            self.launchHeaterRun(0)
+            endTime = datetime.now().replace(microsecond=0)
+
+            print("\nEnd time: {END}".format(END=endTime))
+            self.walkHeaters(-10)
+
+            timeParams = TimeParams(startTime, endTime, ARCHIVER_TIME_INTERVAL)
+
+            desiredGradient = 0
+
+            for grad in desiredGradients.values():
+                desiredGradient += grad
+
+            session = self.addQ0DataSession(timeParams, valveParams,
+                                            refGradVal=desiredGradient,
+                                            calibSession=calibSession)
+
+            desGrads = []
+            totGrad = 0
+            for i in range(8):
+                if (i + 1) in desiredGradients:
+                    desGrads.append(desiredGradients[i + 1])
+                    totGrad += desiredGradients[i + 1]
+                else:
+                    desGrads.append(0)
+
+            with open(self.q0IdxFile, 'a') as f:
+                csvWriter = writer(f)
+                csvWriter.writerow(
+                        [self.cryModNumJLAB, valveParams.refHeatLoadDes,
+                         valveParams.refHeatLoadAct, valveParams.refValvePos]
+                        + desGrads + [totGrad, startTime.strftime("%m/%d/%y %H:%M:%S"),
+                                      endTime.strftime("%m/%d/%y %H:%M:%S"),
+                                      ARCHIVER_TIME_INTERVAL])
+
+            print("\nStart Time: {START}".format(START=startTime))
+            print("End Time: {END}".format(END=endTime))
+
+            duration = (endTime - startTime).total_seconds() / 3600
+            print("Duration in hours: {DUR}".format(DUR=duration))
+
+            return session, valveParams
+
+        except(CalledProcessError, IndexError, OSError, ValueError,
+               AssertionError, KeyboardInterrupt) as e:
+            writeAndFlushStdErr(
+                    "Procedure failed with error:\n{E}\n".format(E=e))
+            for cavity in self.cavities.values():
+                cavity.powerDown()
 
 
 Q0_LINAC_OBJECTS: List[Linac] = []

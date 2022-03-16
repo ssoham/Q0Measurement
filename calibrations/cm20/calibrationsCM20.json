@@ -3,7 +3,7 @@
     "Reference Heat Load (Des)": 40,
     "Reference Heat Load (Act)": 40.945,
     "JT Valve Position": 39.3,
-    "Start": "2020-01-22 15:15:00.00"
-
+    "Start": "2020-01-22 15:15:00.00",
+    "Archiver Time Interval": 1
   }
 ]

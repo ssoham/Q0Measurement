@@ -1,3 +1,4 @@
+import json
 from abc import ABCMeta, abstractmethod
 from datetime import datetime
 from decimal import Decimal
@@ -150,19 +151,17 @@ class DataSession(object):
         gradient = ([sum(x) for x in zip(*itemgetter(*self.cryomodulePVs.gradPVs)(data.values))]
                     if self.cryomodulePVs.gradPVs else None)
 
-        jsonData = dumps({"Total Heater Setpoint": heatLoadDes,
-                          "Total Heater Readback": heatLoadAct,
-                          "Whole Module Gradient": gradient,
-                          "Timestamps"           : data.timeStamps}.update(data.values))
+        dataDict = {"Total Heater Setpoint": heatLoadDes,
+                    "Total Heater Readback": heatLoadAct,
+                    "Whole Module Gradient": gradient,
+                    "Timestamps": data.timeStamps}
+
+        # Add all the other PVs to the output because why not
+        jsonData = dumps(dataDict.update(data.values))
 
         # open file for writing, "w"
-        f = open(self.filePath, "w")
-
-        # write json object to file
-        f.write(jsonData)
-
-        # close file
-        f.close()
+        with open(self.filePath, "w") as f:
+            json.dump(jsonData, f)
 
         return self.filePath
 

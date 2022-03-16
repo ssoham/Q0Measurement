@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial, reduce
 from os import pardir, path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Callable
 
 from PyQt5.QtGui import (QIntValidator, QStandardItem, QStandardItemModel,
                          QDoubleValidator)
@@ -158,7 +158,8 @@ class Q0Measurement(Display):
 
         self.calibrationSelection = {}
 
-        self.calibrationStatus = None
+        self.calibrationStatusLabel = None
+        self.q0StatusLabel = None
         self.setupLabels()
 
         self.calibrationGroupBox = None
@@ -212,7 +213,11 @@ class Q0Measurement(Display):
 
         self.calibrationSanityCheck = QMessageBox()
         self.setupSanityCheck(self.calibrationSanityCheck,
-                              self.calibrationStatus)
+                              self.calibrationStatusLabel, self.takeNewCalibration)
+
+        self.q0SanityCheck = QMessageBox()
+        self.setupSanityCheck(self.q0SanityCheck,
+                              self.q0StatusLabel, self.takeNewQ0Measurement)
 
         self.setupButtons()
 
@@ -264,7 +269,7 @@ class Q0Measurement(Display):
             self.calibrationSelection[header] = data
 
         # self.calibrationStatus.setStyleSheet("color: blue;")
-        self.calibrationStatus.setText(
+        self.calibrationStatusLabel.setText(
                 "CM {CM} calibration from {START} selected but not loaded".format(
                         START=self.calibrationSelection["Start"],
                         CM=self.calibrationSelection["CM"]))
@@ -274,7 +279,7 @@ class Q0Measurement(Display):
     def loadCalibration(self):
 
         linacName = CM_LINAC_MAP[self.calibrationSelection["CM"]]
-        cryomodule = Q0_LINAC_OBJECTS[linacName]
+        cryomodule: Q0Cryomodule = Q0_LINAC_OBJECTS[linacName]
         self.calibration: CalibDataSession = cryomodule.addCalibDataSessionFromGUI(self.calibrationSelection)
 
         redrawAxis(self.calibrationLiquidLevelCanvas,
@@ -309,15 +314,15 @@ class Q0Measurement(Display):
         self.calibrationLineFitCanvas.axes.legend(loc='best')
         self.calibrationLiquidLevelCanvas.axes.legend(loc='best')
 
-        self.calibrationStatus.setStyleSheet("color: green;")
-        self.calibrationStatus.setText(
+        self.calibrationStatusLabel.setStyleSheet("color: green;")
+        self.calibrationStatusLabel.setText(
                 "CM {CM} calibration from {START} loaded".format(
                         START=self.calibrationSelection["Start"],
                         CM=self.calibrationSelection["CM"]))
 
         self.rfGroupBox.setEnabled(True)
 
-    def setupCalibrationTable(self):
+    def setupCalibrationTable(self) -> (str, str):
         self.calibrationOptionModel.clear()
         parent = path.abspath(path.join(self.pathHere, pardir))
         cmName = self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentText()
@@ -359,10 +364,11 @@ class Q0Measurement(Display):
 
             header = list(data[0].keys())
             self.calibrationOptionModel.setHorizontalHeaderLabels(header)
-            for entry in data:
+            for sessionDict in data:
                 items = []
-                for column in header:
-                    items.append(QStandardItem(entry[column]))
+                for key in header:
+                    # Need to cast ints/floats as strings or they don't show up
+                    items.append(QStandardItem(str(sessionDict[key])))
                 self.calibrationOptionModel.appendRow(items)
 
         self.calibrationOptionsWindow.ui.optionView.resizeColumnsToContents()
@@ -384,7 +390,8 @@ class Q0Measurement(Display):
         name2label = {}  # type: Dict[str, QLabel]
         for label in self.ui.dialogues.findChildren(QLabel):
             name2label[label.accessibleName()] = label
-        self.calibrationStatus = name2label["calibrationLabel"]
+        self.calibrationStatusLabel = name2label["calibrationLabel"]
+        self.q0StatusLabel = name2label["rfLabel"]
 
     def setupButtons(self):
         name2button = {}  # type: Dict[str, QPushButton]
@@ -441,7 +448,8 @@ class Q0Measurement(Display):
                 self.sectors[sector].append(name)
                 self.radioButtonSectorMap[radioButton] = sector
 
-    def setupSanityCheck(self, sanityCheckWindow, statusLabel):
+    def setupSanityCheck(self, sanityCheckWindow: QMessageBox,
+                         statusLabel: QLabel, measurementFunction: Callable):
         def takeMeasurement(decision):
             if "No" in decision.text():
                 print("Measurement canceled")
@@ -451,7 +459,7 @@ class Q0Measurement(Display):
                 self.showDisplay(self.liveSignalsWindow)
                 statusLabel.setStyleSheet("color: blue;")
                 statusLabel.setText("Starting Procedure")
-                self.takeNewCalibration()
+                measurementFunction()
 
         sanityCheckWindow.setWindowTitle("Sanity Check")
         sanityCheckWindow.setText("Are you sure? This will take multiple hours")
@@ -463,6 +471,11 @@ class Q0Measurement(Display):
     @Slot()
     def takeNewCalibration(self):
         self.selectedCryomoduleObject.takeNewCalibration(int(self.initialCalibrationHeatLoadLineEdit.text()))
+
+    @Slot()
+    def takeNewQ0Measurement(self):
+        # TODO get desired gradients from child page
+        self.selectedCryomoduleObject.takeNewQ0Measurement()
 
     @Slot()
     def showDisplay(self, display):

@@ -22,7 +22,6 @@ from requests.exceptions import ConnectTimeout
 from pathlib import Path
 from dataclasses import dataclass
 
-
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
 TEST_MODE = False
@@ -82,6 +81,9 @@ HOURS_NEEDED_FOR_FLATNESS = 2
 
 FULL_CALIBRATION_FILENAME_TEMPLATE = "calibrationsCM{CM}.json"
 CAVITY_CALIBRATION_FILENAME_TEMPLATE = "cav{CAV}/calibrationsCM{CM}CAV{CAV}.json"
+
+RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
+                   "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
 
 
 def q0Hash(argList: List[Any]):
@@ -312,13 +314,25 @@ def getTimeParams(row, indices):
 # @param startTime: datetime object
 # @param signals: list of PV strings
 ############################################################################
-def getArchiverData(startTime, numPoints, signals,
-                    timeInt=ARCHIVER_TIME_INTERVAL):
-    # type: (datetime, int, List[str], int) -> Optional[ArchiverData]
+def getArchiverData(numPoints: int, signals: List[str],
+                    timeInt: int = ARCHIVER_TIME_INTERVAL,
+                    startTime: datetime = None, endTime: datetime = None) -> Optional[ArchiverData]:
     archiver = Archiver("lcls")
     try:
-        data = archiver.getDataWithTimeInterval(pvList=signals, startTime=startTime,
-                                                endTime=(startTime + timedelta(seconds=(numPoints * timeInt))),
+        if startTime:
+            endTime = startTime + timedelta(seconds=(numPoints * timeInt))
+
+        elif endTime:
+            startTime = endTime - timedelta(seconds=(numPoints * timeInt))
+
+        else:
+            writeAndFlushStdErr("No time boundaries supplied")
+            return None
+
+        # timeInt is is seconds
+        data = archiver.getDataWithTimeInterval(pvList=signals,
+                                                startTime=startTime,
+                                                endTime=endTime,
                                                 timeDelta=timedelta(seconds=timeInt))
         return data
 
