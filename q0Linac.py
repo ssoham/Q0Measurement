@@ -8,7 +8,8 @@ import dataSession
 from scLinac import Cavity, Cryomodule, LINACS, Linac, Rack
 from utils import (ARCHIVER_TIME_INTERVAL, CAL_HEATER_DELTA, CryomodulePVs, HOURS_NEEDED_FOR_FLATNESS,
                    JT_SEARCH_HOURS_PER_STEP, JT_SEARCH_TIME_RANGE, RUN_STATUS_MSSG, TimeParams, ValveParams,
-                   getArchiverData, q0Hash, writeAndWait, TARGET_LL_DIFF, compatibleMkdirs)
+                   getArchiverData, q0Hash, writeAndWait, TARGET_LL_DIFF, compatibleMkdirs,
+                   FULL_MODULE_CALIBRATION_LOAD)
 from numpy import nanmean
 
 
@@ -453,13 +454,13 @@ class Q0Cryomodule(Cryomodule, object):
 
             # self.waitForCryo(valveParams.refValvePos)
             self.waitForLL()
-            self.walkHeaters(10, valveParams.refHeatLoadDes / 8)
+            self.walkHeaters(FULL_MODULE_CALIBRATION_LOAD)
             self.waitForJT(valveParams.refValvePos)
             self.launchHeaterRun(0)
             endTime = datetime.now().replace(microsecond=0)
 
             print("\nEnd time: {END}".format(END=endTime))
-            self.walkHeaters(-10)
+            self.walkHeaters(-FULL_MODULE_CALIBRATION_LOAD)
 
             timeParams = TimeParams(startTime, endTime, ARCHIVER_TIME_INTERVAL)
 
