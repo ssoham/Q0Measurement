@@ -25,8 +25,7 @@ sys.path.insert(0, '..')
 # This is down here because we need the sys path insert first to access this module
 from utils import (FULL_CALIBRATION_FILENAME_TEMPLATE,
                    CAVITY_CALIBRATION_FILENAME_TEMPLATE, redrawAxis)
-from q0Linac import Q0_LINAC_OBJECTS, Q0Cryomodule
-from scLinac import CM_LINAC_MAP
+from q0Linac import Q0Cryomodule, Q0_CRYOMODULES
 from dataSession import CalibDataSession
 
 PLOT_WIDTH = 2
@@ -272,26 +271,24 @@ class Q0Measurement(Display):
 
     @Slot()
     # TODO check if all checkboxes in sector are clicked
-    def cryomoduleRadioButtonToggled(self, cryomodule):
+    def cryomoduleRadioButtonToggled(self, cryomoduleName):
         # type:  (str) -> None
 
-        radioButton = self.cryomoduleRadioButtons[cryomodule]
-        button = self.cryomoduleButtons[cryomodule]
+        radioButton = self.cryomoduleRadioButtons[cryomoduleName]
+        button = self.cryomoduleButtons[cryomoduleName]
 
         if radioButton.isChecked():
             button.setEnabled(True)
 
-            isDefault = (self.checkIfAllCavitiesAtDefault(cryomodule, False)
-                         if cryomodule in self.desiredCavAmpLineEdits else True)
+            isDefault = (self.checkIfAllCavitiesAtDefault(cryomoduleName, False)
+                         if cryomoduleName in self.desiredCavAmpLineEdits else True)
 
-            self.selectedDisplayCM = cryomodule + ("*" if not isDefault else "")
-            self.selectedCM = cryomodule
+            self.selectedDisplayCM = cryomoduleName + ("*" if not isDefault else "")
+            self.selectedCM = cryomoduleName
 
-            linacIdx = CM_LINAC_MAP[self.selectedCM]
-            self.selectedCryomoduleObject = Q0_LINAC_OBJECTS[linacIdx].cryomodules[self.selectedCM]
+            self.selectedCryomoduleObject = Q0_CRYOMODULES[self.selectedCM]
 
-            linacIdx = CM_LINAC_MAP[cryomodule]
-            cryomoduleObj = Q0_LINAC_OBJECTS[linacIdx].cryomodules[cryomodule]
+            cryomoduleObj = Q0_CRYOMODULES[cryomoduleName]
             self.plots.updateChannels(cryomoduleObj)
 
         else:
@@ -318,8 +315,7 @@ class Q0Measurement(Display):
 
     def loadCalibration(self):
 
-        linacName = CM_LINAC_MAP[self.calibrationSelection["CM"]]
-        cryomodule: Q0Cryomodule = Q0_LINAC_OBJECTS[linacName]
+        cryomodule: Q0Cryomodule = Q0_CRYOMODULES[self.calibrationSelection["CM"]]
         self.calibration: CalibDataSession = cryomodule.addCalibDataSessionFromGUI(self.calibrationSelection)
 
         redrawAxis(self.calibrationLiquidLevelCanvas,

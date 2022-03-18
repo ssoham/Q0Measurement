@@ -1,26 +1,24 @@
-from __future__ import print_function, division
-
-from _csv import reader as _reader
+from collections import OrderedDict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from errno import EEXIST
 from json import dumps
-
-from time import sleep
-from sys import stdout, stderr, version_info
-from subprocess import check_output, CalledProcessError, check_call
-from os import devnull, path, makedirs
+from os import devnull, makedirs, path
+from pathlib import Path
 from re import compile, findall
+from subprocess import CalledProcessError, check_call, check_output
+from sys import stderr, stdout, version_info
+from time import sleep
+from typing import Any, Callable, Dict, KeysView, List, Optional, Tuple, Union
+
+from epics import PV
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
-from collections import OrderedDict
-from typing import List, Callable, Union, Dict, Tuple, Optional, KeysView, Any
-from errno import EEXIST
-
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-from six import moves
-from archiver import Archiver, ArchiverData
 from requests.exceptions import ConnectTimeout
-from pathlib import Path
-from dataclasses import dataclass
+from six import moves
+
+from archiver import Archiver, ArchiverData
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -86,6 +84,20 @@ CAVITY_CALIBRATION_FILENAME_TEMPLATE = "cav{CAV}/calibrationsCM{CM}CAV{CAV}.json
 RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
                    "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
 
+SSA_SLOPE_CHANGE_TOL = 0.15
+LOADED_Q_CHANGE_TOL = 0.15e7
+CAVITY_SCALE_CHANGE_TOL = 0.2
+
+
+class RFError(Exception):
+    """
+    Exception thrown during RF Execution for the GUI to catch
+    """
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
 
 def q0Hash(argList: List[Any]):
     """
@@ -118,6 +130,13 @@ def q0Hash(argList: List[Any]):
 
     for arg in argList:
         return hash(arg) ^ q0Hash(argList[1:])
+
+
+@dataclass
+class SSAStateMap:
+    desired: int
+    opposite: int
+    pv: PV
 
 
 @dataclass
