@@ -29,7 +29,7 @@ TEST_MODE = False
 # have chosen to gather all our data with the downstream sensor above 90%. When
 # refilling the cryomodule we refill to at least 95%.
 MIN_DS_LL = 90
-MAX_DS_LL = 94
+MAX_DS_LL = 95
 
 MIN_US_LL = 66
 
@@ -46,8 +46,8 @@ MIN_RUN_DURATION = 200
 # actually enforced however, unlike the run duration.
 TARGET_LL_DIFF = 4
 
-# Used to reject data where the cavity gradient wasn't at the correct value
-GRAD_TOL = 0.3
+# Used to reject data where the cavity amplitude wasn't at the correct value
+AMPLITUDE_TOL = 0.3
 
 # We fetch data from the JLab archiver with a program called MySampler, which
 # samples the chosen PVs at a user-specified time interval. Increase to improve
@@ -88,10 +88,26 @@ SSA_SLOPE_CHANGE_TOL = 0.15
 LOADED_Q_CHANGE_TOL = 0.15e7
 CAVITY_SCALE_CHANGE_TOL = 0.2
 
+# Swapnil requests 1%/min
+JT_STEP_SIZE_PER_SECOND = 1 / 60
+
+JT_MANUAL_MODE_VALUE = 0
+JT_AUTO_MODE_VALUE = 1
+
 
 class RFError(Exception):
     """
     Exception thrown during RF Execution for the GUI to catch
+    """
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class CryoError(Exception):
+    """
+    Exception thrown during Cryo Execution for the GUI to catch
     """
 
     def __init__(self, message):

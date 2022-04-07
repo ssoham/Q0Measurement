@@ -19,7 +19,7 @@ class DataRun(object):
                                 - dataSession.valveParams.refHeatLoadDes)
 
         runElecHeatActBuff = self.dataSession.totalHeaterReadbackBuffer[self.startIdx:
-                                                              self.endIdx]
+                                                                        self.endIdx]
 
         self.heatActDelta = (mean(runElecHeatActBuff)
                              - self.dataSession.valveParams.refHeatLoadAct)
@@ -85,7 +85,7 @@ class DataRun(object):
         # type: () -> None
         # noinspection PyTupleAssignmentBalance
         self.slope, self.intercept, r_val, p_val, std_err = linregress(
-            self.timeStamps, self.data)
+                self.timeStamps, self.data)
 
         self.diagnostics["R^2"] = r_val ** 2
 
@@ -294,14 +294,13 @@ class RFDataRun(DataRun):
     # the RF gradient used during the test, and the pressure of the incoming
     # 2 K helium.
     @staticmethod
-    def calcQ0(grad, rfHeatLoad, avgPressure):
+    def calcQ0(amplitude, rfHeatLoad, avgPressure):
         # type: (float, float, float) -> float
         # The initial Q0 calculation doesn't account for the temperature
         # variation of the 2 K helium
-        cavLength = 1.038
         rUponQ = 1012
 
-        uncorrectedQ0 = (((grad * 1000000 * cavLength) ** 2)
+        uncorrectedQ0 = (((amplitude * 1000000) ** 2)
                          / (rUponQ * rfHeatLoad))
 
         # uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
@@ -312,7 +311,7 @@ class RFDataRun(DataRun):
         C1 = 271
         C2 = 0.0000726
         C3 = 0.00000214
-        C4 = grad - 0.7
+        C4 = amplitude - 0.7
         C5 = 0.000000043
         C6 = -17.02
         C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))

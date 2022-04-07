@@ -94,7 +94,7 @@ class TimePlotObjects:
                                    symbol=PLOT_SYMBOL,
                                    symbolSize=PLOT_SYMBOL_SIZE)
 
-        self.valvePlot.addYChannel(cryomodule.jtPosSetpointPV,
+        self.valvePlot.addYChannel(cryomodule.jtManPosSetpointPV,
                                    lineWidth=PLOT_WIDTH,
                                    symbol=PLOT_SYMBOL,
                                    symbolSize=PLOT_SYMBOL_SIZE)
@@ -659,7 +659,6 @@ class Q0Measurement(Display):
 
     @Slot()
     def takeNewQ0Measurement(self):
-        # TODO get desired gradients from child page
         self.selectedCryomoduleObject.takeNewQ0Measurement(self.desiredCavityAmplitudes)
 
     @Slot()

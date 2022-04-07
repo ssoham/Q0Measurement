@@ -8,19 +8,18 @@ from pathlib import Path
 from typing import List, Optional
 
 from matplotlib import pyplot as plt
-from numpy import polyfit
+from numpy import linspace, mean, polyfit
 from scipy.signal import medfilt
 
-from dataRun import DataRun, HeaterDataRun
-from utils import (CryomodulePVs, NUM_LL_POINTS_TO_AVG, TimeParams, ValveParams,
-                   compatibleMkdirs, genAxis, getArchiverData)
+import utils
+from dataRun import DataRun, HeaterDataRun, RFDataRun
 
 
 class DataSession(object):
     __metaclass__ = ABCMeta
 
-    def __init__(self, timeParams: TimeParams, valveParams: ValveParams,
-                 cryoModuleName: str, cryomodulePVs: CryomodulePVs):
+    def __init__(self, timeParams: utils.TimeParams, valveParams: utils.ValveParams,
+                 cryoModuleName: str, cryomodulePVs: utils.CryomodulePVs):
 
         self.cryoModuleName = cryoModuleName
 
@@ -130,8 +129,8 @@ class DataSession(object):
         pvs = self.cryomodulePVs.asList()
 
         try:
-            data = getArchiverData(self.timeParams.startTime, self.numPoints,
-                                   pvs, self.timeParams.timeInterval)
+            data = utils.getArchiverData(self.timeParams.startTime, self.numPoints,
+                                         pvs, self.timeParams.timeInterval)
 
         except TypeError:
             raise AssertionError("Data not retrieved from Archiver")
@@ -139,7 +138,7 @@ class DataSession(object):
         # We're collapsing the readback for each cavity's desired and actual
         # electric heat load into two sum columns (instead of 16 individual
         # columns)
-        compatibleMkdirs(self.filePath)
+        utils.compatibleMkdirs(self.filePath)
 
         # itemgetter searches the data.values dictionary for entries that match
         # keys in cryomodulePVs.heaterDesPVs and returns the values as a tuple
@@ -154,7 +153,7 @@ class DataSession(object):
         dataDict = {"Total Heater Setpoint": heatLoadDes,
                     "Total Heater Readback": heatLoadAct,
                     "Whole Module Gradient": gradient,
-                    "Timestamps": data.timeStamps}
+                    "Timestamps"           : data.timeStamps}
 
         # Add all the other PVs to the output because why not
         jsonData = dumps(dataDict.update(data.values))
@@ -170,7 +169,7 @@ class DataSession(object):
 
         self.parseDataFromJSON()
         self.downstreamLiquidLevelBuffer = medfilt(self.downstreamLiquidLevelBuffer,
-                                                   NUM_LL_POINTS_TO_AVG)
+                                                   utils.NUM_LL_POINTS_TO_AVG)
         self.populateRuns()
 
         if not self.dataRuns:
@@ -251,14 +250,14 @@ class DataSession(object):
                                if idx > 0 else elecHeatLoadDes)
 
         heaterChanged = (elecHeatLoadDes != prevElecHeatLoadDes)
-        liqLevelTooLow = (self.downstreamLiquidLevelBuffer[idx] < MIN_DS_LL)
+        liqLevelTooLow = (self.downstreamLiquidLevelBuffer[idx] < utils.MIN_DS_LL)
         valveOutsideTol = (abs(self.valvePercentageBuffer[idx]
                                - self.valveParams.refValvePos)
-                           > VALVE_POS_TOL)
+                           > utils.VALVE_POS_TOL)
         isLastElement = (idx == len(self.totalHeaterSetpointBuffer) - 1)
 
         heatersOutsideTol = (abs(elecHeatLoadDes - self.totalHeaterReadbackBuffer[idx])
-                             >= HEATER_TOL)
+                             >= utils.HEATER_TOL)
 
         # A "break" condition defining the end of a run if the desired heater
         # value changed, or if the upstream liquid level dipped below the
@@ -274,7 +273,7 @@ class DataSession(object):
             runDuration = (self.unixTimeBuff[idx]
                            - self.unixTimeBuff[runStartIdx])
 
-            if runDuration >= MIN_RUN_DURATION:
+            if runDuration >= utils.MIN_RUN_DURATION:
                 self._addRun(runStartIdx, idx - 1)
 
             return idx
@@ -289,8 +288,8 @@ class DataSession(object):
 
 class CalibDataSession(DataSession):
 
-    def __init__(self, timeParams: TimeParams, valveParams: ValveParams,
-                 cryomodulePVs: CryomodulePVs, cryoModuleName: str):
+    def __init__(self, timeParams: utils.TimeParams, valveParams: utils.ValveParams,
+                 cryomodulePVs: utils.CryomodulePVs, cryoModuleName: str):
 
         super(CalibDataSession, self).__init__(timeParams, valveParams,
                                                cryoModuleName=cryoModuleName,
@@ -355,11 +354,11 @@ class CalibDataSession(DataSession):
                     start=self.timeParams.startTime.strftime("_%Y-%m-%d--%H-%M_"),
                     nPoints=self.numPoints)
             cryoModStr = "CM{cryMod}".format(
-                    cryMod=self.container.cryModNumSLAC)
+                    cryMod=self.cryoModuleName)
 
             fileName = self.fileNameFormatter.format(cryoMod=cryoModStr,
                                                      suff=suffix,
-                                                     CM=self.container.cryModNumSLAC)
+                                                     CM=self.cryoModuleName)
             self._dataFileName = Path(fileName)
 
         return self._dataFileName
@@ -403,9 +402,9 @@ class CalibDataSession(DataSession):
 
         suffix = " ({name} Heater Calibration)".format(name=self.cryoModuleName)
 
-        self.liquidVsTimeAxis = genAxis("Liquid Level vs. Time" + suffix,
-                                        "Unix Time (s)",
-                                        "Downstream Liquid Level (%)")
+        self.liquidVsTimeAxis = utils.genAxis("Liquid Level vs. Time" + suffix,
+                                              "Unix Time (s)",
+                                              "Downstream Liquid Level (%)")
 
         for run in self.dataRuns:
             # First we plot the actual run data
@@ -419,9 +418,9 @@ class CalibDataSession(DataSession):
                                                         in run.timeStamps])
 
         self.liquidVsTimeAxis.legend(loc='best')
-        self.heaterCalibAxis = genAxis("Liquid Level Rate of Change vs."
-                                       " Heat Load", "Heat Load (W)",
-                                       "dLL/dt (%/s)")
+        self.heaterCalibAxis = utils.genAxis("Liquid Level Rate of Change vs."
+                                             " Heat Load", "Heat Load (W)",
+                                             "dLL/dt (%/s)")
 
         self.heaterCalibAxis.plot(self.runElecHeatLoadsAdjusted,
                                   self.adjustedRunSlopes,
@@ -457,7 +456,7 @@ class CalibDataSession(DataSession):
 
         print("\n-------------------------------------")
         print("---------------- {CM} ----------------"
-              .format(CM=self.container.name))
+              .format(CM=self.cryoModuleName))
         print("-------------------------------------\n")
 
         for run in self.dataRuns:
@@ -469,23 +468,25 @@ class CalibDataSession(DataSession):
 
 class Q0DataSession(DataSession):
 
-    def __init__(self, timeParams: TimeParams, valveParams: ValveParams,
-                 cryoModuleNumber: str, valvePV: str,
-                 dsLevelPV: str, dsPressurePV: str, refGradVal: float):
+    def __init__(self, timeParams: utils.TimeParams, valveParams: utils.ValveParams,
+                 cryoModuleName: str, cryomodulePVs: utils.CryomodulePVs,
+                 refGradVal: float, calibSession: CalibDataSession):
 
-        super(Q0DataSession, self).__init__(timeParams, valveParams,
-                                            cryoModuleNumber)
+        super(Q0DataSession, self).__init__(timeParams=timeParams, valveParams=valveParams,
+                                            cryoModuleName=cryoModuleName,
+                                            cryomodulePVs=cryomodulePVs)
 
         # self.container._desiredGrads = refGradVal
-        self._pvBuffMap = {valvePV     : self.valvePercentageBuffer,
-                           dsLevelPV   : self.downstreamLiquidLevelBuffer,
+        self._pvBuffMap = {cryomodulePVs.valvePV     : self.valvePercentageBuffer,
+                           cryomodulePVs.dsLevelPV   : self.downstreamLiquidLevelBuffer,
                            # self.container.gradPV: self.gradBuff,
-                           dsPressurePV: self.dsPressBuff}
+                           cryomodulePVs.dsPressurePV: self.dsPressBuff}
 
         self.refGradVal = refGradVal
 
         self.generateDataFile()
         self.processData()
+        self.calibSession = calibSession
 
     @property
     def calibSlope(self):
@@ -500,7 +501,7 @@ class Q0DataSession(DataSession):
     @property
     def fileNameFormatter(self):
         # type: () -> str
-        return "../data/q0meas/cm{CM}/q0meas_{cryoMod}_cav{cavityNum}{suff}"
+        return "../data/q0meas/cm{CM}/q0meas_{cryoMod}{suff}"
 
     # For Q0 data sessions we use the heater run(s) to calculate the heat
     # adjustment we should apply to the calculated RF heat load before
@@ -546,12 +547,11 @@ class Q0DataSession(DataSession):
                     start=self.timeParams.startTime.strftime("_%Y-%m-%d--%H-%M_"),
                     nPoints=self.numPoints)
             cryoModStr = "CM{cryMod}".format(
-                    cryMod=self.container.cryModNumSLAC)
+                    cryMod=self.cryoModuleName)
 
             self._dataFileName = self.fileNameFormatter.format(
                     cryoMod=cryoModStr, suff=suffix,
-                    cavityNum=self.container.cavNum,
-                    CM=self.container.cryModNumSLAC)
+                    CM=self.cryoModuleName)
 
         return self._dataFileName
 
@@ -578,7 +578,7 @@ class Q0DataSession(DataSession):
 
             try:
                 gradChanged = (abs(self.totalGradientBuffer[idx] - self.totalGradientBuffer[idx - 1])
-                               > self.container.gradTol) if idx != 0 else False
+                               > utils.AMPLITUDE_TOL) if idx != 0 else False
             except TypeError:
                 gradChanged = False
 
@@ -598,11 +598,11 @@ class Q0DataSession(DataSession):
 
         plt.rcParams.update({'legend.fontsize': 'small'})
 
-        suffix = " ({name})".format(name=self.container.name)
+        suffix = " ({name})".format(name=self.cryoModuleName)
 
-        self.liquidVsTimeAxis = genAxis("Liquid Level vs. Time" + suffix,
-                                        "Unix Time (s)",
-                                        "Downstream Liquid Level (%)")
+        self.liquidVsTimeAxis = utils.genAxis("Liquid Level vs. Time" + suffix,
+                                              "Unix Time (s)",
+                                              "Downstream Liquid Level (%)")
 
         for run in self.dataRuns:
             # First we plot the actual run data
@@ -661,9 +661,7 @@ class Q0DataSession(DataSession):
         # type: () -> None
 
         print("\n--------------------------------------")
-        name = self.container.name if isinstance(self.container, Cryomodule) else self.container.parent.name
-        print("------------ {CM} {CAV} ------------"
-              .format(CM=name, CAV=self.container.name))
+        print("---------------- {CM} -----------------".format(CM=self.cryoModuleName))
         print("--------------------------------------\n")
 
         for run in self.dataRuns:
@@ -678,7 +676,7 @@ class Q0DataSession(DataSession):
         calibCurveAxis.plot(self.adjustedRunHeatLoadsRF,
                             self.adjustedRunSlopes,
                             marker="o", linestyle="None",
-                            label="Projected Data for " + self.container.name)
+                            label="Projected Data for " + self.cryoModuleName)
 
         calibCurveAxis.legend(loc='best', shadow=True, numpoints=1)
 

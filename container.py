@@ -4,30 +4,29 @@
 # Authors: Lisa Zacarias, Ben Ripman
 ################################################################################
 
-from __future__ import print_function, division
-from csv import writer, reader
+from __future__ import division, print_function
+
+from abc import ABCMeta, abstractmethod
+from collections import OrderedDict
+from csv import reader, writer
+from datetime import datetime, timedelta
 from decimal import Decimal
 from os.path import isfile
 from subprocess import CalledProcessError
 from time import sleep
-from numpy import mean, exp, log10, sqrt, linspace, empty, polyfit, nanmean, nan
-from scipy.stats import linregress
-from scipy.signal import medfilt
+from typing import Dict, List, Optional, Union
+
 from matplotlib import pyplot as plt
-from collections import OrderedDict
-from datetime import datetime, timedelta
-from abc import ABCMeta, abstractmethod
-from typing import List, Dict, Optional, Union
-from utils import (writeAndFlushStdErr, ARCHIVER_TIME_INTERVAL, TEST_MODE,
-                   VALVE_POS_TOL, HEATER_TOL, GRAD_TOL,
-                   MIN_RUN_DURATION, isYes, writeAndWait, MAX_DS_LL, cagetPV,
-                   caputPV, getTimeParams, MIN_DS_LL, getAndParseRawData,
-                   genAxis, NUM_CAL_STEPS, NUM_LL_POINTS_TO_AVG,
-                   CAV_HEATER_RUN_LOAD, TARGET_LL_DIFF, CAL_HEATER_DELTA,
-                   JT_SEARCH_TIME_RANGE, JT_SEARCH_HOURS_PER_STEP,
-                   HOURS_NEEDED_FOR_FLATNESS, getDataAndHeaterCols,
-                   collapseHeaterVals, ValveParams, TimeParams, compatibleNext,
-                   compatibleMkdirs, INITIAL_CAL_HEAT_LOAD, collapseGradVals)
+from numpy import empty, exp, linspace, log10, mean, nan, nanmean, polyfit, sqrt
+from scipy.signal import medfilt
+from scipy.stats import linregress
+
+from utils import (AMPLITUDE_TOL, ARCHIVER_TIME_INTERVAL, CAL_HEATER_DELTA, CAV_HEATER_RUN_LOAD, HEATER_TOL,
+                   HOURS_NEEDED_FOR_FLATNESS, INITIAL_CAL_HEAT_LOAD, JT_SEARCH_HOURS_PER_STEP, JT_SEARCH_TIME_RANGE,
+                   MAX_DS_LL, MIN_DS_LL, MIN_RUN_DURATION, NUM_CAL_STEPS, NUM_LL_POINTS_TO_AVG, TARGET_LL_DIFF,
+                   TEST_MODE, TimeParams, VALVE_POS_TOL, ValveParams, cagetPV, caputPV, collapseGradVals,
+                   collapseHeaterVals, compatibleMkdirs, compatibleNext, genAxis, getAndParseRawData,
+                   getDataAndHeaterCols, getTimeParams, isYes, writeAndFlushStdErr, writeAndWait)
 
 RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
                    "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
@@ -447,8 +446,8 @@ class Cryomodule(Container):
             for grad in self._desiredGrads.values():
                 sumGradDes += grad
                 effectiveGradDes += grad ** 2
-            lowerBound = effectiveGradDes - (2 * GRAD_TOL * sumGradDes) + (8 * (GRAD_TOL ** 2))
-            upperBound = effectiveGradDes + (2 * GRAD_TOL * sumGradDes) + (8 * (GRAD_TOL ** 2))
+            lowerBound = effectiveGradDes - (2 * AMPLITUDE_TOL * sumGradDes) + (8 * (AMPLITUDE_TOL ** 2))
+            upperBound = effectiveGradDes + (2 * AMPLITUDE_TOL * sumGradDes) + (8 * (AMPLITUDE_TOL ** 2))
             self._gradTol = max(effectiveGradDes - lowerBound, upperBound - effectiveGradDes)
         return self._gradTol
 
@@ -687,8 +686,8 @@ class Cryomodule(Container):
         print("\nStart time: {START}".format(START=startTime))
 
         writeAndWait(
-            "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
-                MIN=minLL, DIFF=TARGET_LL_DIFF))
+                "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
+                        MIN=minLL, DIFF=TARGET_LL_DIFF))
 
         startingLevel = self.liquidLevelDS
         avgLevel = startingLevel
@@ -832,11 +831,11 @@ class Cryomodule(Container):
             with open(self.q0IdxFile, 'a') as f:
                 csvWriter = writer(f)
                 csvWriter.writerow(
-                    [self.cryModNumJLAB, valveParams.refHeatLoadDes,
-                     valveParams.refHeatLoadAct, valveParams.refValvePos]
-                    + desGrads + [totGrad, startTime.strftime("%m/%d/%y %H:%M:%S"),
-                                  endTime.strftime("%m/%d/%y %H:%M:%S"),
-                                  ARCHIVER_TIME_INTERVAL])
+                        [self.cryModNumJLAB, valveParams.refHeatLoadDes,
+                         valveParams.refHeatLoadAct, valveParams.refValvePos]
+                        + desGrads + [totGrad, startTime.strftime("%m/%d/%y %H:%M:%S"),
+                                      endTime.strftime("%m/%d/%y %H:%M:%S"),
+                                      ARCHIVER_TIME_INTERVAL])
 
             print("\nStart Time: {START}".format(START=startTime))
             print("End Time: {END}".format(END=endTime))
@@ -849,7 +848,7 @@ class Cryomodule(Container):
         except(CalledProcessError, IndexError, OSError, ValueError,
                AssertionError, KeyboardInterrupt) as e:
             writeAndFlushStdErr(
-                "Procedure failed with error:\n{E}\n".format(E=e))
+                    "Procedure failed with error:\n{E}\n".format(E=e))
             for cavity in self.cavities.values():
                 cavity.powerDown()
 
@@ -882,7 +881,7 @@ class Cavity(Container):
 
     @property
     def gradTol(self):
-        return GRAD_TOL
+        return AMPLITUDE_TOL
 
     @property
     def name(self):
@@ -1196,7 +1195,7 @@ class Cavity(Container):
 
             if not isYes(prefix + mssg.format(ACTION=desAction)):
                 raise AssertionError(
-                    "User unsatisfied with characterization - aborting")
+                        "User unsatisfied with characterization - aborting")
 
         def pushAndWait(suffix):
             caputPV(self.genAcclPV(suffix + "STRT"), "1")
@@ -1226,8 +1225,8 @@ class Cavity(Container):
 
             else:
                 askForVerification(
-                    "Large difference in {PARAM} ".format(PARAM=param),
-                    "inspect and push")
+                        "Large difference in {PARAM} ".format(PARAM=param),
+                        "inspect and push")
 
         pushAndWait("SSACAL")
 
@@ -1528,8 +1527,8 @@ class Cavity(Container):
         print("\nStart time: {START}".format(START=startTime))
 
         writeAndWait(
-            "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
-                MIN=minLL, DIFF=TARGET_LL_DIFF))
+                "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
+                        MIN=minLL, DIFF=TARGET_LL_DIFF))
 
         gradient = float(cagetPV(self.gradPV))
 
@@ -1594,14 +1593,14 @@ class Cavity(Container):
         print("**** REMINDER: refills aren't automated - please contact the"
               " cryo group ****")
 
-        # self.waitForLL()
-        # self.walkHeater(delta)
+        self.waitForLL()
+        self.walkHeater(delta)
 
         if (self.liquidLevelDS - MIN_DS_LL) < TARGET_LL_DIFF:
             print("Please ask the cryo group to refill to {LL} on the"
                   " downstream sensor".format(LL=MAX_DS_LL))
 
-            # self.waitForCryo(desPos)
+            self.waitForCryo(desPos)
 
             self.waitForLL()
             self.walkHeater(delta)
@@ -1615,8 +1614,8 @@ class Cavity(Container):
         print("\nStart time: {START}".format(START=startTime))
 
         writeAndWait(
-            "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
-                MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
+                "\nWaiting for the LL to drop {DIFF}% or below {MIN}%...".format(
+                        MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
 
         startingLevel = self.liquidLevelDS
         avgLevel = startingLevel
@@ -1688,12 +1687,12 @@ class Cavity(Container):
             with open(self.idxFile, 'a') as f:
                 csvWriter = writer(f)
                 csvWriter.writerow(
-                    [self.cavNum, desiredGradient, valveParams.refValvePos,
-                     startTime.strftime("%m/%d/%y %H:%M:%S"),
-                     endTime.strftime("%m/%d/%y %H:%M:%S"),
-                     valveParams.refHeatLoadDes,
-                     valveParams.refHeatLoadAct,
-                     ARCHIVER_TIME_INTERVAL])
+                        [self.cavNum, desiredGradient, valveParams.refValvePos,
+                         startTime.strftime("%m/%d/%y %H:%M:%S"),
+                         endTime.strftime("%m/%d/%y %H:%M:%S"),
+                         valveParams.refHeatLoadDes,
+                         valveParams.refHeatLoadAct,
+                         ARCHIVER_TIME_INTERVAL])
 
             print("\nStart Time: {START}".format(START=startTime))
             print("End Time: {END}".format(END=endTime))
@@ -1706,7 +1705,7 @@ class Cavity(Container):
         except(CalledProcessError, IndexError, OSError, ValueError,
                AssertionError, KeyboardInterrupt) as e:
             writeAndFlushStdErr(
-                "Procedure failed with error:\n{E}\n".format(E=e))
+                    "Procedure failed with error:\n{E}\n".format(E=e))
             self.powerDown()
 
 
@@ -1930,7 +1929,7 @@ class DataSession(object):
         # type: () -> None
         def linkBuffToColumn(column, dataBuff, headerRow):
             try:
-                columnDict[column] = {"idx": headerRow.index(column),
+                columnDict[column] = {"idx"   : headerRow.index(column),
                                       "buffer": dataBuff}
             except ValueError:
                 writeAndFlushStdErr("Column " + column + " not found in CSV\n")
@@ -1982,7 +1981,7 @@ class DataSession(object):
                 for col, idxBuffDict in columnDict.items():
                     try:
                         idxBuffDict["buffer"].append(
-                            float(row[idxBuffDict["idx"]]))
+                                float(row[idxBuffDict["idx"]]))
                     except ValueError:
                         writeAndFlushStdErr("Could not fill buffer: " + str(col)
                                             + "\n")
@@ -2083,7 +2082,7 @@ class CalibDataSession(DataSession):
         # Overloading these to give the IDE type hints
         self.container = container
 
-        self._pvBuffMap = {self.container.valvePV: self.valvePosBuff,
+        self._pvBuffMap = {self.container.valvePV  : self.valvePosBuff,
                            self.container.dsLevelPV: self.dsLevelBuff}
 
         self._calibSlope = None
@@ -2140,14 +2139,14 @@ class CalibDataSession(DataSession):
             # of data points.
             suffixStr = "{start}{nPoints}.csv"
             suffix = suffixStr.format(
-                start=self.timeParams.startTime.strftime("_%Y-%m-%d--%H-%M_"),
-                nPoints=self.numPoints)
+                    start=self.timeParams.startTime.strftime("_%Y-%m-%d--%H-%M_"),
+                    nPoints=self.numPoints)
             cryoModStr = "CM{cryMod}".format(
-                cryMod=self.container.cryModNumSLAC)
+                    cryMod=self.container.cryModNumSLAC)
 
             self._dataFileName = self.fileNameFormatter.format(
-                cryoMod=cryoModStr, suff=suffix,
-                CM=self.container.cryModNumSLAC)
+                    cryoMod=cryoModStr, suff=suffix,
+                    CM=self.container.cryModNumSLAC)
 
         return self._dataFileName
 
@@ -2157,7 +2156,7 @@ class CalibDataSession(DataSession):
 
         for idx, elecHeatLoad in enumerate(self.elecHeatDesBuff):
             runStartIdx = self._checkAndFlushRun(
-                self._isEndOfCalibRun(idx, elecHeatLoad), idx, runStartIdx)
+                    self._isEndOfCalibRun(idx, elecHeatLoad), idx, runStartIdx)
 
     def _addRun(self, startIdx, endIdx):
         # type: (int, int) -> None
@@ -2266,15 +2265,15 @@ class Q0DataSession(DataSession):
         self.container = container
 
         if isinstance(container, Cavity):
-            self._pvBuffMap = {self.container.parent.valvePV: self.valvePosBuff,
-                               self.container.parent.dsLevelPV: self.dsLevelBuff,
-                               self.container.gradPV: self.gradBuff,
+            self._pvBuffMap = {self.container.parent.valvePV     : self.valvePosBuff,
+                               self.container.parent.dsLevelPV   : self.dsLevelBuff,
+                               self.container.gradPV             : self.gradBuff,
                                self.container.parent.dsPressurePV: self.dsPressBuff}
 
         else:
             # self.container._desiredGrads = refGradVal
-            self._pvBuffMap = {self.container.valvePV: self.valvePosBuff,
-                               self.container.dsLevelPV: self.dsLevelBuff,
+            self._pvBuffMap = {self.container.valvePV     : self.valvePosBuff,
+                               self.container.dsLevelPV   : self.dsLevelBuff,
                                # self.container.gradPV: self.gradBuff,
                                self.container.dsPressurePV: self.dsPressBuff}
 
@@ -2345,15 +2344,15 @@ class Q0DataSession(DataSession):
         if not self._dataFileName:
             suffixStr = "{start}{nPoints}.csv"
             suffix = suffixStr.format(
-                start=self.timeParams.startTime.strftime("_%Y-%m-%d--%H-%M_"),
-                nPoints=self.numPoints)
+                    start=self.timeParams.startTime.strftime("_%Y-%m-%d--%H-%M_"),
+                    nPoints=self.numPoints)
             cryoModStr = "CM{cryMod}".format(
-                cryMod=self.container.cryModNumSLAC)
+                    cryMod=self.container.cryModNumSLAC)
 
             self._dataFileName = self.fileNameFormatter.format(
-                cryoMod=cryoModStr, suff=suffix,
-                cavityNum=self.container.cavNum,
-                CM=self.container.cryModNumSLAC)
+                    cryoMod=cryoModStr, suff=suffix,
+                    cavityNum=self.container.cavNum,
+                    CM=self.container.cryModNumSLAC)
 
         return self._dataFileName
 
@@ -2587,7 +2586,7 @@ class DataRun(object):
         # type: () -> None
         # noinspection PyTupleAssignmentBalance
         self.slope, self.intercept, r_val, p_val, std_err = linregress(
-            self.timeStamps, self.data)
+                self.timeStamps, self.data)
 
         self.diagnostics["R^2"] = r_val ** 2
 
