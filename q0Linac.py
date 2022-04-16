@@ -15,9 +15,9 @@ import utils
 from lcls_tools.devices.scLinac import Cavity, Cryomodule, LINAC_TUPLES, Linac, Rack
 
 
-class Q0Cavity(Cavity):
+class Q0Cavity(Cavity, object):
     def __init__(self, cavityNum: int, rackObject: Rack):
-        super(Q0Cavity).__init__(cavityNum, rackObject)
+        super(Q0Cavity, self).__init__(cavityNum, rackObject)
 
         self._fieldEmissionPVs = None
 
@@ -34,17 +34,19 @@ class Q0Cavity(Cavity):
         self._calibIdxFile = ("calibrations/cm{CM}/cav{CAV}/calibrationsCM{CM}CAV{CAV}.csv"
                               .format(CM=self.cryomodule.name, CAV=cavityNum))
 
-        self.amplitudeDesPV: str = self.pvPrefix + "ADES"
+        self.amplitudeDesPVStr: str = self.pvPrefix + "ADES"
 
-        self.amplitudeActPV: str = self.pvPrefix + "AACTMEAN"
-        self.amplitudeActPVObject = PV(self.amplitudeActPV)
+        self.amplitudeActPVStr: str = self.pvPrefix + "AACTMEAN"
+        self.amplitudeActPVObject = PV(self.amplitudeActPVStr)
+
+        self.gradientActPVObject = PV(self.pvPrefix + "GACTMEAN")
 
         self.llrfDataAcqEnablePVs: List[PV] = [PV(self.pvPrefix
                                                   + "{infix}:ENABLE".format(infix=infix))
                                                for infix in ["CAV", "FWD", "REV"]]
 
-        self.llrfPVValuePairs: List[Tuple[PV, float]] = [(PV(self.pvPrefix + "MODE"), 1),
-                                                         (PV(self.pvPrefix + "HLDOFF"), 0.1),
+        self.llrfPVValuePairs: List[Tuple[PV, float]] = [(PV(self.pvPrefix + "ACQ_MODE"), 1),
+                                                         (PV(self.pvPrefix + "ACQ_HLDOFF"), 0.1),
                                                          (PV(self.pvPrefix + "STAT_START"), 0.065),
                                                          (PV(self.pvPrefix + "STAT_WIDTH"), 0.004),
                                                          (PV(self.pvPrefix + "DECIM"), 255)]
@@ -74,7 +76,7 @@ class Q0Cavity(Cavity):
         self.measuredCavityScalePV = PV(self.pvPrefix + "CAV:CAL_SCALEB_NEW")
         self.pushCavityScalePV = PV(self.pvPrefix + "PUSH_CAV_SCALE.PROC")
 
-        self.SELAmplPV: PV = PV(self.pvPrefix + "SEL_ASET")
+        self.pulseDriveLevelPV: PV = PV(self.pvPrefix + "SEL_ASET")
         self.rfModePV = PV(self.pvPrefix + "RFMODECTRL")
 
         self.rfStatePV = PV(self.pvPrefix + "RFSTATE")
@@ -84,6 +86,8 @@ class Q0Cavity(Cavity):
         self.pulseStatusPV = PV(self.pvPrefix + "PULSE_STATUS")
 
         self.quenchBypassPVObject = PV(self.pvPrefix + "QUENCH_BYP_RBV")
+
+        self.pulseOnTimePVObject = PV(self.pvPrefix + "PULSE_ONTIME")
 
     def characterize(self):
         """
@@ -136,6 +140,36 @@ class Q0Cavity(Cavity):
                 print("Setting {pv}".format(pv=pv.pvname))
                 pv.put(expectedValue)
 
+    def checkAndSetDrive(self):
+        """
+        Ramps the cavity's RF drive (only relevant in pulsed mode) up until the RF
+        gradient is high enough for phasing
+        :return:
+        """
+
+        print("Checking drive...")
+
+        while (self.gradientActPVObject.value < 1) or (self.pulseDriveLevelPV.value < 15):
+            print("Increasing drive...")
+            self.pulseDriveLevelPV.put(self.pulseDriveLevelPV.value + 1)
+            self.pushGoButton()
+
+        print("Drive set")
+
+    def checkAndSetOnTime(self):
+        """
+        In pulsed mode the cavity has a duty cycle determined by the on time and
+        off time. We want the on time to be 70 ms or else the various cavity
+        parameters calculated from the waveform (e.g. the RF gradient) won't be
+        accurate.
+        :return:
+        """
+        print("Checking RF Pulse On Time...")
+        if self.pulseOnTimePVObject.value != 70:
+            print("Setting RF Pulse On Time to 70 ms")
+            self.pulseOnTimePVObject.put(70)
+            self.pushGoButton()
+
     def checkForQuench(self, oldAmplitude):
         # type: (float) -> float
         newAmplitude = self.amplitudeActPVObject.value
@@ -153,6 +187,108 @@ class Q0Cavity(Cavity):
                 print(formatStr.format(AMP=oldAmplitude))
 
         return newAmplitude
+
+    # TODO fix this
+    def phaseCavity(self):
+        """
+        Corrects the cavity phasing in pulsed mode based on analysis of the RF
+        waveform. Doesn't currently work if the phase is very far off and the
+        waveform is distorted.
+        :return:
+        """
+
+        waveformFormatStr = self.genAcclPV("{INFIX}:AWF")
+
+        def getWaveformPV(infix):
+            return waveformFormatStr.format(INFIX=infix)
+
+        # Get rid of trailing zeros - might be more elegant way of doing this
+        def trimWaveform(inputWaveform):
+            try:
+                maxValIdx = inputWaveform.index(max(inputWaveform))
+                del inputWaveform[maxValIdx:]
+
+                first = inputWaveform.pop(0)
+                while inputWaveform[0] >= first:
+                    first = inputWaveform.pop(0)
+            except IndexError:
+                pass
+
+        def getAndTrimWaveforms():
+            res = []
+
+            for suffix in ["REV", "FWD", "CAV"]:
+                res.append(cagetPV(getWaveformPV(suffix), startIdx=2))
+                res[-1] = list(map(lambda x: float(x), res[-1]))
+                trimWaveform(res[-1])
+
+            return res
+
+        def getLine(inputWaveform, lbl):
+            return ax.plot(range(len(inputWaveform)), inputWaveform, label=lbl)
+
+        # The waveforms have trailing and leading tails down to zero that would
+        # mess with our analysis - have to trim those off.
+        revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
+
+        plt.ion()
+        ax = genAxis("Waveforms", "Seconds", "Amplitude")
+
+        ax.set_autoscale_on(True)
+        ax.autoscale_view(True, True, True)
+
+        lineRev, = getLine(revWaveform, "Reverse")
+        lineCav, = getLine(cavWaveform, "Cavity")
+        lineFwd, = getLine(fwdWaveform, "Forward")
+
+        ax.figure.canvas.draw()
+        ax.figure.canvas.flush_events()
+
+        phasePV = self.genAcclPV("SEL_POFF")
+
+        # When the cavity is properly phased the reverse waveform should dip
+        # down very close to zero. Phasing the cavity consists of minimizing
+        # that minimum value as we vary the RF phase.
+        minVal = min(revWaveform)
+
+        print("Minimum reverse waveform value: {MIN}".format(MIN=minVal))
+        step = 1
+
+        while abs(minVal) > 0.5:
+            val = float(cagetPV(phasePV))
+
+            print("step: {STEP}".format(STEP=step))
+            newVal = val + step
+            caputPV(phasePV, str(newVal))
+
+            if float(cagetPV(phasePV)) != newVal:
+                writeAndFlushStdErr("Mismatch between desired and actual phase")
+
+            revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
+
+            lineWaveformPairs = [(lineRev, revWaveform), (lineCav, cavWaveform),
+                                 (lineFwd, fwdWaveform)]
+
+            for line, waveform in lineWaveformPairs:
+                line.set_data(range(len(waveform)), waveform)
+
+            ax.set_autoscale_on(True)
+            ax.autoscale_view(True, True, True)
+
+            ax.figure.canvas.draw()
+            ax.figure.canvas.flush_events()
+
+            prevMin = minVal
+            minVal = min(revWaveform)
+            print("Minimum reverse waveform value: {MIN}".format(MIN=minVal))
+
+            # I think this accounts for inflection points? Hopefully the
+            # decrease in step size addresses the potential for it to get stuck
+            if (prevMin <= 0 < minVal) or (prevMin >= 0 > minVal):
+                step *= -0.5
+
+            elif abs(minVal) > abs(prevMin) + 0.01:
+                step *= -1
 
     @staticmethod
     def pushCalibrationChange(measuredPV: PV, savedPV: PV, tolerance: float,
@@ -289,8 +425,6 @@ class Q0Cryomodule(Cryomodule, object):
         self._q0IdxFile = ("q0Measurements/cm{CM}/q0MeasurementsCM{CM}.json"
                            .format(CM=self.name))
 
-        self._desiredGradients = None
-
     def addCalibDataSession(self, timeParams: utils.TimeParams,
                             valveParams: utils.ValveParams) -> dataSession.CalibDataSession:
 
@@ -368,18 +502,19 @@ class Q0Cryomodule(Cryomodule, object):
     def calibIdxFile(self) -> str:
 
         if not isfile(self._calibIdxFile):
-            utils.compatibleMkdirs(self._calibIdxFile)
+            with open(self._calibIdxFile, "w+") as f:
+                json.dump([], f)
 
         return self._calibIdxFile
 
-    def fill(self):
+    def fillAndLock(self, desiredLevel=utils.MAX_DS_LL):
         # set the liquid level setpoint to its current readback
         self.dsLiqLevSetpointPVObj.put(self.jtValveReadbackPVObject.value)
 
         # Allow the JT valve to regulate so that we fill (slowly)
         self.jtAutoSelectPVObject.put(True)
 
-        self.rampLiquidLevel(utils.MAX_DS_LL)
+        self.rampLiquidLevel(desiredLevel)
         self.waitForLL()
 
         # set to manual
@@ -612,6 +747,12 @@ class Q0Cryomodule(Cryomodule, object):
         utils.writeAndWait(" liquid level setpoint at required value.")
 
     def takeNewCalibration(self, initialCalibrationHeatload: int):
+        """
+        Launches a new cryomodule calibration. Expected to take ~4/5 hours
+        :param initialCalibrationHeatload: provided as user input in the GUI
+                                           measurement settings
+        :return:
+        """
 
         if not self.valveParams:
             self.valveParams = self.getRefValveParams()
@@ -623,22 +764,14 @@ class Q0Cryomodule(Cryomodule, object):
         # Lumping in the initial
         self.walkHeaters((initialCalibrationHeatload + deltaTot) / 8)
 
-        self.fill()
+        self.fillAndLock()
 
         self.launchHeaterRun(0)
 
-        if (self.averagedLiquidLevelDS - utils.MIN_DS_LL) < utils.TARGET_LL_DIFF:
-            self.fill()
-
-        for _ in range(utils.NUM_CAL_STEPS - 1):
-            self.launchHeaterRun()
-
+        for _ in range(utils.NUM_CAL_STEPS):
             if (self.averagedLiquidLevelDS - utils.MIN_DS_LL) < utils.TARGET_LL_DIFF:
-                self.fill()
-
-        # Kinda jank way to avoid waiting for cryo conditions after the final
-        # run
-        self.launchHeaterRun()
+                self.fillAndLock()
+            self.launchHeaterRun()
 
         endTime = datetime.now().replace(microsecond=0)
 
@@ -656,19 +789,21 @@ class Q0Cryomodule(Cryomodule, object):
 
         # Record this calibration dataSession's metadata
 
-        dataDict = {"Total Reference Heater Setpoint": self.valveParams.refHeatLoadDes,
-                    "Total Reference Heater Readback": self.valveParams.refHeatLoadAct,
-                    "JT Valve Position"              : self.valveParams.refValvePos,
-                    "Start Time"                     : startTime.strftime("%m/%d/%y %H:%M:%S"),
-                    "End Time"                       : endTime.strftime("%m/%d/%y %H:%M:%S"),
-                    "Archiver Time Interval"         : utils.ARCHIVER_TIME_INTERVAL}
+        newData = {"Total Reference Heater Setpoint": self.valveParams.refHeatLoadDes,
+                   "Total Reference Heater Readback": self.valveParams.refHeatLoadAct,
+                   "JT Valve Position"              : self.valveParams.refValvePos,
+                   "Start Time"                     : startTime.strftime("%m/%d/%y %H:%M:%S"),
+                   "End Time"                       : endTime.strftime("%m/%d/%y %H:%M:%S"),
+                   "Archiver Time Interval"         : utils.ARCHIVER_TIME_INTERVAL}
 
-        newData = json.dumps(dataDict)
+        with open(self.calibIdxFile, 'r+') as f:
+            data: List = json.load(f)
+            data.append(newData)
 
-        with open(self.calibIdxFile, 'w') as f:
-            data: Dict = json.load(f)
-            data.update(newData)
+            # go to the beginning of the file to overwrite the existing data structure
+            f.seek(0)
             json.dump(data, f)
+            f.truncate()
 
         return dataSession, self.valveParams
 
@@ -676,7 +811,6 @@ class Q0Cryomodule(Cryomodule, object):
                              calibSession: dataSession.CalibDataSession = None,
                              valveParams: utils.ValveParams = None) -> (dataSession.Q0DataSession, utils.ValveParams):
         try:
-            self._desiredGradients = desiredAmplitudes
             if not valveParams:
                 valveParams = self.getRefValveParams()
 
@@ -690,10 +824,9 @@ class Q0Cryomodule(Cryomodule, object):
                 cavity.setPowerStateSSA(True)
                 cavity.characterize()
 
-                cavity.SELAmplPV.put(15)
+                cavity.pulseDriveLevelPV.put(utils.SAFE_PULSED_DRIVE_LEVEL)
 
-                # Start with pulsed mode
-                cavity.setModeRF(4)
+                cavity.setModeRF(utils.RF_MODE_PULSE)
 
                 cavity.setStateRF(True)
                 cavity.pushGoButton()
@@ -705,8 +838,7 @@ class Q0Cryomodule(Cryomodule, object):
 
                 cavity.lowerAmplitude()
 
-                # go to CW
-                cavity.setModeRF(2)
+                cavity.setModeRF(utils.RF_MODE_SELA)
 
                 cavity.walkToGradient(desiredAmplitudes[cavity.cavNum])
 

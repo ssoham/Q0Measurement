@@ -18,7 +18,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from requests.exceptions import ConnectTimeout
 from six import moves
 
-from archiver import Archiver, ArchiverData
+from lcls_tools.data_analysis.archiver import Archiver, ArchiverData
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -93,6 +93,15 @@ JT_STEP_SIZE_PER_SECOND = 1 / 60
 
 JT_MANUAL_MODE_VALUE = 0
 JT_AUTO_MODE_VALUE = 1
+
+RF_MODE_SELAP = 0
+RF_MODE_SELA = 1
+RF_MODE_SEL = 2
+RF_MODE_SEL_RAW = 3
+RF_MODE_PULSE = 4
+RF_MODE_CHIRP = 5
+
+SAFE_PULSED_DRIVE_LEVEL = 15
 
 
 class RFError(Exception):

@@ -89,7 +89,7 @@ class TimePlotObjects:
                                         symbol=PLOT_SYMBOL,
                                         symbolSize=PLOT_SYMBOL_SIZE)
 
-        self.valvePlot.addYChannel(cryomodule.valvePV,
+        self.valvePlot.addYChannel(cryomodule.jtValveReadbackPV,
                                    lineWidth=PLOT_WIDTH,
                                    symbol=PLOT_SYMBOL,
                                    symbolSize=PLOT_SYMBOL_SIZE)
@@ -100,7 +100,7 @@ class TimePlotObjects:
                                    symbolSize=PLOT_SYMBOL_SIZE)
 
         for cavity in cryomodule.cavities.values():
-            self.rfPlot.addYChannel(cavity.amplitudeActPV,
+            self.rfPlot.addYChannel(cavity.amplitudeActPVStr,
                                     lineWidth=PLOT_WIDTH,
                                     symbol=PLOT_SYMBOL,
                                     symbolSize=PLOT_SYMBOL_SIZE)
