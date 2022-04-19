@@ -7,7 +7,7 @@ from time import sleep
 from typing import Dict, List, Tuple
 
 from epics import PV
-from numpy import log10, mean, nanmean
+from numpy import log10, mean, nanmean, sign
 from scipy.stats import linregress
 
 import dataSession
@@ -35,9 +35,11 @@ class Q0Cavity(Cavity, object):
                               .format(CM=self.cryomodule.name, CAV=cavityNum))
 
         self.amplitudeDesPVStr: str = self.pvPrefix + "ADES"
+        self.amplitudeDesPVObject: PV = PV(self.amplitudeDesPVStr)
 
         self.amplitudeActPVStr: str = self.pvPrefix + "AACTMEAN"
         self.amplitudeActPVObject = PV(self.amplitudeActPVStr)
+        self.amplitudeActPVObject.add_callback(self.quenchCheckCallback)
 
         self.gradientActPVObject = PV(self.pvPrefix + "GACTMEAN")
 
@@ -170,125 +172,17 @@ class Q0Cavity(Cavity, object):
             self.pulseOnTimePVObject.put(70)
             self.pushGoButton()
 
-    def checkForQuench(self, oldAmplitude):
-        # type: (float) -> float
-        newAmplitude = self.amplitudeActPVObject.value
+    def quenchCheckCallback(self, **kw):
 
-        if newAmplitude < (oldAmplitude * 0.9):
-            formatStr = "Detected a quench at {AMP} - aborting"
-
+        if self.amplitudeActPVObject.value < (self.amplitudeDesPVObject.value * 0.9):
             # If the EPICs quench detection is disabled and we see a quench,
             # shut the cavity down
             if self.quenchBypassPVObject.value == 1:
-                raise AssertionError(formatStr.format(AMP=oldAmplitude))
+                raise utils.QuenchError
             # If the EPICs quench detection is enabled just print a warning
             # message
             else:
-                print(formatStr.format(AMP=oldAmplitude))
-
-        return newAmplitude
-
-    # TODO fix this
-    def phaseCavity(self):
-        """
-        Corrects the cavity phasing in pulsed mode based on analysis of the RF
-        waveform. Doesn't currently work if the phase is very far off and the
-        waveform is distorted.
-        :return:
-        """
-
-        waveformFormatStr = self.genAcclPV("{INFIX}:AWF")
-
-        def getWaveformPV(infix):
-            return waveformFormatStr.format(INFIX=infix)
-
-        # Get rid of trailing zeros - might be more elegant way of doing this
-        def trimWaveform(inputWaveform):
-            try:
-                maxValIdx = inputWaveform.index(max(inputWaveform))
-                del inputWaveform[maxValIdx:]
-
-                first = inputWaveform.pop(0)
-                while inputWaveform[0] >= first:
-                    first = inputWaveform.pop(0)
-            except IndexError:
-                pass
-
-        def getAndTrimWaveforms():
-            res = []
-
-            for suffix in ["REV", "FWD", "CAV"]:
-                res.append(cagetPV(getWaveformPV(suffix), startIdx=2))
-                res[-1] = list(map(lambda x: float(x), res[-1]))
-                trimWaveform(res[-1])
-
-            return res
-
-        def getLine(inputWaveform, lbl):
-            return ax.plot(range(len(inputWaveform)), inputWaveform, label=lbl)
-
-        # The waveforms have trailing and leading tails down to zero that would
-        # mess with our analysis - have to trim those off.
-        revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
-
-        plt.ion()
-        ax = genAxis("Waveforms", "Seconds", "Amplitude")
-
-        ax.set_autoscale_on(True)
-        ax.autoscale_view(True, True, True)
-
-        lineRev, = getLine(revWaveform, "Reverse")
-        lineCav, = getLine(cavWaveform, "Cavity")
-        lineFwd, = getLine(fwdWaveform, "Forward")
-
-        ax.figure.canvas.draw()
-        ax.figure.canvas.flush_events()
-
-        phasePV = self.genAcclPV("SEL_POFF")
-
-        # When the cavity is properly phased the reverse waveform should dip
-        # down very close to zero. Phasing the cavity consists of minimizing
-        # that minimum value as we vary the RF phase.
-        minVal = min(revWaveform)
-
-        print("Minimum reverse waveform value: {MIN}".format(MIN=minVal))
-        step = 1
-
-        while abs(minVal) > 0.5:
-            val = float(cagetPV(phasePV))
-
-            print("step: {STEP}".format(STEP=step))
-            newVal = val + step
-            caputPV(phasePV, str(newVal))
-
-            if float(cagetPV(phasePV)) != newVal:
-                writeAndFlushStdErr("Mismatch between desired and actual phase")
-
-            revWaveform, fwdWaveform, cavWaveform = getAndTrimWaveforms()
-
-            lineWaveformPairs = [(lineRev, revWaveform), (lineCav, cavWaveform),
-                                 (lineFwd, fwdWaveform)]
-
-            for line, waveform in lineWaveformPairs:
-                line.set_data(range(len(waveform)), waveform)
-
-            ax.set_autoscale_on(True)
-            ax.autoscale_view(True, True, True)
-
-            ax.figure.canvas.draw()
-            ax.figure.canvas.flush_events()
-
-            prevMin = minVal
-            minVal = min(revWaveform)
-            print("Minimum reverse waveform value: {MIN}".format(MIN=minVal))
-
-            # I think this accounts for inflection points? Hopefully the
-            # decrease in step size addresses the potential for it to get stuck
-            if (prevMin <= 0 < minVal) or (prevMin >= 0 > minVal):
-                step *= -0.5
-
-            elif abs(minVal) > abs(prevMin) + 0.01:
-                step *= -1
+                print(str(utils.QuenchError))
 
     @staticmethod
     def pushCalibrationChange(measuredPV: PV, savedPV: PV, tolerance: float,
@@ -324,16 +218,6 @@ class Q0Cavity(Cavity, object):
         if statusPV.value == 0:
             # TODO break these up into separate GUI calls for handling
             raise utils.RFError("{pv} crashed".format(pv=startPV))
-
-    def setModeRF(self, modeDesired: int):
-        """
-        Switches the cavity to a given operational mode (pulsed, CW, etc.)
-        :param modeDesired:
-        :return:
-        """
-
-        if self.rfModePV.value is not modeDesired:
-            self.rfModePV.put(modeDesired)
 
     def setStateRF(self, turnOn: bool):
         """
@@ -377,6 +261,28 @@ class Q0Cavity(Cavity, object):
                 self.setPowerStateSSA(turnOn)
 
         print("SSA power set\n")
+
+    # Walks the cavity to a given gradient in CW mode with exponential back-off
+    # in the step size (steps get smaller each time you cross over the desired
+    # gradient until the error is very low)
+    def walkToAmplitude(self, desiredAmplitude: float, step: float = 0.5,
+                        loopTime: timedelta = timedelta(seconds=2.5), gradTol: float = 0.05,
+                        printStatus: bool = True):
+
+        if printStatus:
+            utils.writeAndWait("\nWalking gradient...")
+
+        diff = desiredAmplitude - self.amplitudeActPVObject.value
+
+        if abs(diff) <= step:
+            self.amplitudeDesPVObject.put(self.amplitudeActPVObject.value + diff)
+            print("\nGradient at desired value")
+            return
+
+        else:
+            self.amplitudeDesPVObject.put(self.amplitudeActPVObject.value + sign(diff) * step)
+            sleep(loopTime.total_seconds())
+            self.walkToAmplitude(desiredAmplitude, step, loopTime, gradTol, False)
 
 
 class Q0Cryomodule(Cryomodule, object):
@@ -657,7 +563,7 @@ class Q0Cryomodule(Cryomodule, object):
 
                 currAmp = cavity.amplitudeActPVObject.value
 
-                amplitudes[cavity.cavNum] = cavity.checkForQuench(amplitudes[cavity.cavNum])
+                amplitudes[cavity.cavNum] = cavity.quenchCheckCallback(amplitudes[cavity.cavNum])
                 diff = amplitudes[cavity.cavNum] - desiredAmplitudes[cavity.cavNum]
 
                 mult = 1 if (diff <= 0) else -1
@@ -822,25 +728,21 @@ class Q0Cryomodule(Cryomodule, object):
 
                 cavity.checkAcqControl()
                 cavity.setPowerStateSSA(True)
-                cavity.characterize()
 
                 cavity.pulseDriveLevelPV.put(utils.SAFE_PULSED_DRIVE_LEVEL)
+                cavity.characterize()
 
-                cavity.setModeRF(utils.RF_MODE_PULSE)
+                cavity.rfModePV.put(utils.RF_MODE_PULSE)
 
                 cavity.setStateRF(True)
                 cavity.pushGoButton()
 
                 cavity.checkAndSetOnTime()
-                cavity.checkAndSetDrive()
+                cavity.amplitudeDesPVObject.put(2)
 
-                cavity.phaseCavity()
+                cavity.rfModePV.put(utils.RF_MODE_SELA)
 
-                cavity.lowerAmplitude()
-
-                cavity.setModeRF(utils.RF_MODE_SELA)
-
-                cavity.walkToGradient(desiredAmplitudes[cavity.cavNum])
+                cavity.walkToAmplitude(desiredAmplitudes[cavity.cavNum])
 
             self.waitForCryo(valveParams.refValvePos)
 
@@ -851,7 +753,7 @@ class Q0Cryomodule(Cryomodule, object):
                 if cavity.cavNum not in desiredAmplitudes:
                     continue
 
-                cavity.walkToGradient(5)
+                cavity.walkToAmplitude(5)
                 cavity.powerDown()
 
             # self.waitForCryo(utils.ValveParams.refValvePos)
@@ -884,14 +786,14 @@ class Q0Cryomodule(Cryomodule, object):
                 else:
                     desGrads.append(0)
 
-            with open(self.q0IdxFile, 'a') as f:
-                csvWriter = writer(f)
-                csvWriter.writerow(
-                        [self.cryModNumJLAB, utils.ValveParams.refHeatLoadDes,
-                         utils.ValveParams.refHeatLoadAct, utils.ValveParams.refValvePos]
-                        + desGrads + [totGrad, startTime.strftime("%m/%d/%y %H:%M:%S"),
-                                      endTime.strftime("%m/%d/%y %H:%M:%S"),
-                                      utils.ARCHIVER_TIME_INTERVAL])
+            # with open(self.q0IdxFile, 'a') as f:
+            #     csvWriter = writer(f)
+            #     csvWriter.writerow(
+            #             [self.cryModNumJLAB, utils.ValveParams.refHeatLoadDes,
+            #              utils.ValveParams.refHeatLoadAct, utils.ValveParams.refValvePos]
+            #             + desGrads + [totGrad, startTime.strftime("%m/%d/%y %H:%M:%S"),
+            #                           endTime.strftime("%m/%d/%y %H:%M:%S"),
+            #                           utils.ARCHIVER_TIME_INTERVAL])
 
             print("\nStart Time: {START}".format(START=startTime))
             print("End Time: {END}".format(END=endTime))
