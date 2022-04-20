@@ -173,6 +173,7 @@ class Q0Cavity(Cavity, object):
             self.pushGoButton()
 
     def quenchCheckCallback(self, **kw):
+        sleep(0.1)
 
         if self.amplitudeActPVObject.value < (self.amplitudeDesPVObject.value * 0.9):
             # If the EPICs quench detection is disabled and we see a quench,
@@ -281,7 +282,7 @@ class Q0Cavity(Cavity, object):
 
         else:
             self.amplitudeDesPVObject.put(self.amplitudeActPVObject.value + sign(diff) * step)
-            sleep(loopTime.total_seconds())
+            utils.writeAndWait(".", loopTime.total_seconds())
             self.walkToAmplitude(desiredAmplitude, step, loopTime, gradTol, False)
 
 
@@ -290,7 +291,7 @@ class Q0Cryomodule(Cryomodule, object):
 
         super(Q0Cryomodule, self).__init__(cryoName, linacObject, Q0Cavity)
         self.cavities: Dict[int, Q0Cavity]
-        self.dsPressurePV = "CPT:CM{CM}:2302:DS:PRESS".format(CM=cryoName)
+        self.dsPressurePVStr = "CPT:CM{CM}:2302:DS:PRESS".format(CM=cryoName)
 
         jtPrefix = "CLIC:CM{CM}:3001:PVJT".format(CM=cryoName)
 
@@ -299,16 +300,16 @@ class Q0Cryomodule(Cryomodule, object):
         self.jtAutoSelectPVObject = PV(jtPrefix + ":AUTO")
         self.dsLiqLevSetpointPVObj = PV(jtPrefix + ":SP_RQST")
 
-        self.jtManPosSetpointPV = (jtPrefix + ":MANPOS_RQST")
-        self.jtManPosSetpointPVObject = PV(self.jtManPosSetpointPV)
+        self.jtManPosSetpointPVStr = (jtPrefix + ":MANPOS_RQST")
+        self.jtManPosSetpointPVObject = PV(self.jtManPosSetpointPVStr)
 
-        self.jtValveReadbackPV = jtPrefix + ":ORBV"
-        self.jtValveReadbackPVObject = PV(self.jtValveReadbackPV)
+        self.jtValveReadbackPVStr = jtPrefix + ":ORBV"
+        self.jtValveReadbackPVObject = PV(self.jtValveReadbackPVStr)
 
         lvlFormatStr = "CLL:CM{CM}:{{INFIX}}:{{LOC}}:LVL".format(CM=cryoName)
-        self.dsLevelPV = lvlFormatStr.format(INFIX="2301", LOC="DS")
-        self.dsLevelPVObject = PV(self.dsLevelPV)
-        self.usLevelPV = lvlFormatStr.format(INFIX="2601", LOC="US")
+        self.dsLevelPVStr = lvlFormatStr.format(INFIX="2301", LOC="DS")
+        self.dsLevelPVObject = PV(self.dsLevelPVStr)
+        self.usLevelPVStr = lvlFormatStr.format(INFIX="2601", LOC="US")
 
         self.q0DataSessions = {}
         self.calibDataSessions = {}
@@ -320,8 +321,8 @@ class Q0Cryomodule(Cryomodule, object):
             self.heaterActPVObjects.append(q0Cavity.heaterActPV)
             self.heaterDesPVObjects.append(q0Cavity.heaterDesPV)
 
-        self.heaterDesPVs = [pv.pvname for pv in self.heaterDesPVObjects]
-        self.heaterActPVs = [pv.pvname for pv in self.heaterActPVObjects]
+        self.heaterDesPVStrings = [pv.pvname for pv in self.heaterDesPVObjects]
+        self.heaterActPVStrings = [pv.pvname for pv in self.heaterActPVObjects]
         # self.heaterActPVObjects = list(map(PV, self.heaterActPVs))
 
         self.valveParams = None
@@ -339,12 +340,12 @@ class Q0Cryomodule(Cryomodule, object):
         # Only create a new calibration data session if one doesn't already
         # exist with those exact parameters
         if sessionHash not in self.calibDataSessions:
-            cryomodulePVs = utils.CryomodulePVs(valvePV=self.jtValveReadbackPV,
-                                                dsLevelPV=self.dsLevelPV,
-                                                usLevelPV=self.usLevelPV,
-                                                dsPressurePV=self.dsPressurePV,
-                                                heaterDesPVs=self.heaterDesPVs,
-                                                heaterActPVs=self.heaterActPVs)
+            cryomodulePVs = utils.CryomodulePVs(valvePV=self.jtValveReadbackPVStr,
+                                                dsLevelPV=self.dsLevelPVStr,
+                                                usLevelPV=self.usLevelPVStr,
+                                                dsPressurePV=self.dsPressurePVStr,
+                                                heaterDesPVs=self.heaterDesPVStrings,
+                                                heaterActPVs=self.heaterActPVStrings)
 
             session = dataSession.CalibDataSession(timeParams=timeParams,
                                                    valveParams=valveParams,
@@ -395,10 +396,10 @@ class Q0Cryomodule(Cryomodule, object):
         try:
             archiverData = utils.getArchiverData(endTime=datetime.now(),
                                                  numPoints=utils.NUM_LL_POINTS_TO_AVG,
-                                                 signals=[self.dsLevelPV],
+                                                 signals=[self.dsLevelPVStr],
                                                  timeInt=utils.ARCHIVER_TIME_INTERVAL)
 
-            return nanmean(archiverData.values[self.dsLevelPV])
+            return nanmean(archiverData.values[self.dsLevelPVStr])
 
         # return the most recent value if we can't average for whatever reason
         except AttributeError:
@@ -472,9 +473,9 @@ class Q0Cryomodule(Cryomodule, object):
             print(formatter.format(START=startStr, END=endStr))
 
             archiverData = utils.getArchiverData(startTime=searchStart, numPoints=numPoints,
-                                                 signals=[self.dsLevelPV])
+                                                 signals=[self.dsLevelPVStr])
 
-            llVals = archiverData.values[self.dsLevelPV]
+            llVals = archiverData.values[self.dsLevelPVStr]
 
             # Fit a line to the liquid level over the last [numHours] hours
             m, b, _, _, _ = linregress(range(len(llVals)), llVals)
@@ -483,14 +484,14 @@ class Q0Cryomodule(Cryomodule, object):
             # which to get a reference valve position & heater params
             if log10(abs(m)) < -5:
 
-                signals = ([self.jtValveReadbackPV] + self.heaterDesPVs
-                           + self.heaterActPVs)
+                signals = ([self.jtValveReadbackPVStr] + self.heaterDesPVStrings
+                           + self.heaterActPVStrings)
 
                 data = utils.getArchiverData(startTime=searchStart,
                                              numPoints=numPoints, signals=signals)
-                valveVals = data.values[self.jtValveReadbackPV]
-                heaterDesVals = [sum(x) for x in zip(*itemgetter(*self.heaterDesPVs)(data.values))]
-                heaterActVals = [sum(x) for x in zip(*itemgetter(*self.heaterActPVs)(data.values))]
+                valveVals = data.values[self.jtValveReadbackPVStr]
+                heaterDesVals = [sum(x) for x in zip(*itemgetter(*self.heaterDesPVStrings)(data.values))]
+                heaterActVals = [sum(x) for x in zip(*itemgetter(*self.heaterActPVStrings)(data.values))]
 
                 desValSet = set(heaterDesVals)
 

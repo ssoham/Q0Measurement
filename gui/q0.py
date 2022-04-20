@@ -1,6 +1,5 @@
 import json
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial, reduce
 from os import pardir, path
@@ -17,8 +16,21 @@ from pydm import Display
 from pydm.widgets.embedded_display import PyDMEmbeddedDisplay
 from pydm.widgets.label import PyDMLabel
 from pydm.widgets.template_repeater import PyDMTemplateRepeater
-from pydm.widgets.timeplot import PyDMTimePlot
 from qtpy.QtCore import Slot
+
+TEMP_PLOT_KEY = "temperaturePlot"
+
+RADIATION_PLOT_KEY = "radiationPlot"
+
+RF_PLOT_KEY = "rfPlot"
+
+VALVE_PLOT_KEY = "valvePlot"
+
+HEATER_PLOT_KEY = "heaterPlot"
+
+PRESSURE_PLOT_KEY = "pressurePlot"
+
+LIQUID_LEVEL_PLOT_KEY = "liquidLevelPlot"
 
 sys.path.insert(0, '..')
 
@@ -27,6 +39,7 @@ from utils import (FULL_CALIBRATION_FILENAME_TEMPLATE,
                    CAVITY_CALIBRATION_FILENAME_TEMPLATE, redrawAxis)
 from q0Linac import Q0Cryomodule, Q0_CRYOMODULES
 from dataSession import CalibDataSession
+from lcls_tools.pydm_tools.timePlotUtil import TimePlotUpdater, TimePlotParams
 
 PLOT_WIDTH = 2
 PLOT_SYMBOL = "o"
@@ -46,64 +59,6 @@ def findWidget(accessibleName: str,
     for widget in widgetList:
         if widget.accessibleName() == accessibleName:
             return widget
-
-
-@dataclass()
-class TimePlotObjects:
-    liquidLevelPlot: PyDMTimePlot
-    pressurePlot: PyDMTimePlot
-    heaterPlot: PyDMTimePlot
-    valvePlot: PyDMTimePlot
-    rfPlot: PyDMTimePlot
-    radiationPlot: PyDMTimePlot
-    temperaturePlot: PyDMTimePlot
-
-    def clearCurves(self) -> None:
-        self.liquidLevelPlot.clearCurves()
-        self.pressurePlot.clearCurves()
-        self.heaterPlot.clearCurves()
-        self.valvePlot.clearCurves()
-        self.rfPlot.clearCurves()
-        self.radiationPlot.clearCurves()
-        self.temperaturePlot.clearCurves()
-
-    def updateChannels(self, cryomodule: Q0Cryomodule) -> None:
-        self.clearCurves()
-
-        self.liquidLevelPlot.addYChannel(cryomodule.dsLevelPV,
-                                         lineWidth=PLOT_WIDTH,
-                                         symbol=PLOT_SYMBOL,
-                                         symbolSize=PLOT_SYMBOL_SIZE)
-        self.liquidLevelPlot.addYChannel(cryomodule.usLevelPV,
-                                         lineWidth=PLOT_WIDTH,
-                                         symbol=PLOT_SYMBOL,
-                                         symbolSize=PLOT_SYMBOL_SIZE)
-
-        self.pressurePlot.addYChannel(cryomodule.dsPressurePV,
-                                      lineWidth=PLOT_WIDTH,
-                                      symbol=PLOT_SYMBOL,
-                                      symbolSize=PLOT_SYMBOL_SIZE)
-
-        for heaterPV in cryomodule.heaterActPVs:
-            self.heaterPlot.addYChannel(heaterPV, lineWidth=PLOT_WIDTH,
-                                        symbol=PLOT_SYMBOL,
-                                        symbolSize=PLOT_SYMBOL_SIZE)
-
-        self.valvePlot.addYChannel(cryomodule.jtValveReadbackPV,
-                                   lineWidth=PLOT_WIDTH,
-                                   symbol=PLOT_SYMBOL,
-                                   symbolSize=PLOT_SYMBOL_SIZE)
-
-        self.valvePlot.addYChannel(cryomodule.jtManPosSetpointPV,
-                                   lineWidth=PLOT_WIDTH,
-                                   symbol=PLOT_SYMBOL,
-                                   symbolSize=PLOT_SYMBOL_SIZE)
-
-        for cavity in cryomodule.cavities.values():
-            self.rfPlot.addYChannel(cavity.amplitudeActPVStr,
-                                    lineWidth=PLOT_WIDTH,
-                                    symbol=PLOT_SYMBOL,
-                                    symbolSize=PLOT_SYMBOL_SIZE)
 
 
 class Q0Measurement(Display):
@@ -135,17 +90,21 @@ class Q0Measurement(Display):
                                                                         heaterLineEdits)
         self.initialCalibrationHeatLoadLineEdit.setValidator(QIntValidator(8, 48))
 
+        self.selectedCryomoduleObject: Q0Cryomodule = None
+
         # TODO implement custom liveplot (archiver + append callback)
         self.liveSignalsWindow = Display(ui_filename=self.getPath("signals.ui"))
         self.ui.liveSignalsButton.clicked.connect(partial(self.showDisplay,
                                                           self.liveSignalsWindow))
-        self.plots = TimePlotObjects(liquidLevelPlot=self.liveSignalsWindow.ui.liquidLevelPlot,
-                                     pressurePlot=self.liveSignalsWindow.ui.pressurePlot,
-                                     heaterPlot=self.liveSignalsWindow.ui.heaterPlot,
-                                     valvePlot=self.liveSignalsWindow.ui.valvePlot,
-                                     rfPlot=self.liveSignalsWindow.ui.rfPlot,
-                                     radiationPlot=self.liveSignalsWindow.ui.radiationPlot,
-                                     temperaturePlot=self.liveSignalsWindow.ui.temperaturePlot)
+        timePlotParams = {LIQUID_LEVEL_PLOT_KEY: TimePlotParams(self.liveSignalsWindow.ui.liquidLevelPlot),
+                          PRESSURE_PLOT_KEY    : TimePlotParams(self.liveSignalsWindow.ui.pressurePlot),
+                          HEATER_PLOT_KEY      : TimePlotParams(self.liveSignalsWindow.ui.heaterPlot),
+                          VALVE_PLOT_KEY       : TimePlotParams(self.liveSignalsWindow.ui.valvePlot),
+                          RF_PLOT_KEY          : TimePlotParams(self.liveSignalsWindow.ui.rfPlot),
+                          RADIATION_PLOT_KEY   : TimePlotParams(self.liveSignalsWindow.ui.radiationPlot),
+                          TEMP_PLOT_KEY        : TimePlotParams(self.liveSignalsWindow.ui.temperaturePlot)}
+
+        self.timePlotUpdater = TimePlotUpdater(timePlotParams)
 
         self.calibrationOptionModel = QStandardItemModel(self)
 
@@ -221,8 +180,6 @@ class Q0Measurement(Display):
 
         self.valveParams = {}
 
-        self.selectedCryomoduleObject: Q0Cryomodule = None
-
     @Slot()
     # TODO needs to check all cavities
     def cavityToggled(self, cm):
@@ -288,8 +245,16 @@ class Q0Measurement(Display):
 
             self.selectedCryomoduleObject = Q0_CRYOMODULES[self.selectedCM]
 
-            cryomoduleObj = Q0_CRYOMODULES[cryomoduleName]
-            self.plots.updateChannels(cryomoduleObj)
+            updateMap = {LIQUID_LEVEL_PLOT_KEY: [self.selectedCryomoduleObject.dsLevelPVStr,
+                                                 self.selectedCryomoduleObject.usLevelPVStr],
+                         PRESSURE_PLOT_KEY    : [self.selectedCryomoduleObject.dsPressurePVStr],
+                         HEATER_PLOT_KEY      : self.selectedCryomoduleObject.heaterActPVStrings,
+                         VALVE_PLOT_KEY       : [self.selectedCryomoduleObject.jtValveReadbackPVStr,
+                                                 self.selectedCryomoduleObject.jtManPosSetpointPVStr],
+                         RF_PLOT_KEY          : [cavity.amplitudeActPVStr for cavity in
+                                                 self.selectedCryomoduleObject.cavities.values()]}
+
+            self.timePlotUpdater.updatePlots(updateMap)
 
         else:
             button.setEnabled(False)
@@ -560,10 +525,6 @@ class Q0Measurement(Display):
                         CM=self.calibrationSelection["CM"]))
 
         self.calibrationOptionsWindow.ui.loadButton.setEnabled(True)
-
-    def setupLiveSignals(self):
-        self.plots.clearCurves()
-        self.plots.valvePlot.addYChannel(self.selectedCryomoduleObject.valvePV)
 
     def setupCalibrationOptionsWindow(self):
         self.calibrationOptionsWindow.ui.cryomoduleComboBox.currentTextChanged.connect(
