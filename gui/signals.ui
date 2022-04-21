@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>620</width>
-    <height>487</height>
+    <width>732</width>
+    <height>712</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -26,7 +26,7 @@
       <enum>QTabWidget::Rounded</enum>
      </property>
      <property name="currentIndex">
-      <number>4</number>
+      <number>0</number>
      </property>
      <property name="movable">
       <bool>true</bool>
@@ -35,30 +35,34 @@
       <attribute name="title">
        <string>Liquid Levels</string>
       </attribute>
-      <layout class="QGridLayout" name="gridLayout_7">
-       <item row="0" column="0">
+      <layout class="QVBoxLayout" name="verticalLayout">
+       <item>
         <widget class="PyDMTimePlot" name="liquidLevelPlot">
-         <property name="toolTip">
-          <string/>
-         </property>
          <property name="showXGrid">
           <bool>true</bool>
          </property>
          <property name="showYGrid">
           <bool>true</bool>
          </property>
+         <property name="yAxes">
+          <stringlist/>
+         </property>
          <property name="showLegend">
           <bool>true</bool>
          </property>
+         <property name="mouseEnabledX" stdset="0">
+          <bool>true</bool>
+         </property>
          <property name="curves">
-          <stringlist>
-           <string>{&quot;channel&quot;: null, &quot;plot_style&quot;: null, &quot;name&quot;: &quot;&quot;, &quot;color&quot;: &quot;white&quot;, &quot;lineStyle&quot;: 1, &quot;lineWidth&quot;: 1, &quot;symbol&quot;: null, &quot;symbolSize&quot;: 10, &quot;yAxisName&quot;: &quot;Axis 1&quot;, &quot;barWidth&quot;: null, &quot;upperThreshold&quot;: null, &quot;lowerThreshold&quot;: null, &quot;thresholdColor&quot;: &quot;white&quot;}</string>
-          </stringlist>
+          <stringlist/>
          </property>
          <property name="timeSpan">
-          <double>3600.000000000000000</double>
+          <double>300.000000000000000</double>
          </property>
         </widget>
+       </item>
+       <item>
+        <layout class="QFormLayout" name="liquidLevelFormLayout"/>
        </item>
       </layout>
      </widget>
@@ -66,8 +70,8 @@
       <attribute name="title">
        <string>Pressure</string>
       </attribute>
-      <layout class="QGridLayout" name="gridLayout_2">
-       <item row="0" column="0">
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <item>
         <widget class="PyDMTimePlot" name="pressurePlot">
          <property name="toolTip">
           <string/>
@@ -86,14 +90,17 @@
          </property>
         </widget>
        </item>
+       <item>
+        <layout class="QFormLayout" name="pressureFormLayout"/>
+       </item>
       </layout>
      </widget>
      <widget class="QWidget" name="tab_16">
       <attribute name="title">
        <string>Heaters</string>
       </attribute>
-      <layout class="QGridLayout" name="gridLayout_3">
-       <item row="0" column="0">
+      <layout class="QVBoxLayout" name="verticalLayout_3">
+       <item>
         <widget class="PyDMTimePlot" name="heaterPlot">
          <property name="toolTip">
           <string/>
@@ -121,14 +128,17 @@
          </property>
         </widget>
        </item>
+       <item>
+        <layout class="QFormLayout" name="heaterFormLayout"/>
+       </item>
       </layout>
      </widget>
      <widget class="QWidget" name="tab_17">
       <attribute name="title">
        <string>JT Valve</string>
       </attribute>
-      <layout class="QGridLayout" name="gridLayout_4">
-       <item row="0" column="0">
+      <layout class="QVBoxLayout" name="verticalLayout_4">
+       <item>
         <widget class="PyDMTimePlot" name="valvePlot">
          <property name="toolTip">
           <string/>
@@ -147,23 +157,26 @@
          </property>
         </widget>
        </item>
+       <item>
+        <layout class="QFormLayout" name="valveFormLayout"/>
+       </item>
       </layout>
      </widget>
      <widget class="QWidget" name="tab_18">
       <attribute name="title">
        <string>RF</string>
       </attribute>
-      <layout class="QGridLayout" name="gridLayout_5">
-       <item row="0" column="0">
+      <layout class="QVBoxLayout" name="verticalLayout_5">
+       <item>
         <widget class="PyDMTimePlot" name="rfPlot">
-         <property name="toolTip">
-          <string/>
-         </property>
          <property name="showXGrid">
           <bool>true</bool>
          </property>
          <property name="showYGrid">
           <bool>true</bool>
+         </property>
+         <property name="showRightAxis">
+          <bool>false</bool>
          </property>
          <property name="showLegend">
           <bool>true</bool>
@@ -179,14 +192,17 @@
          </property>
         </widget>
        </item>
+       <item>
+        <layout class="QFormLayout" name="rfFormLayout"/>
+       </item>
       </layout>
      </widget>
      <widget class="QWidget" name="tab_19">
       <attribute name="title">
        <string>Radiation</string>
       </attribute>
-      <layout class="QGridLayout" name="gridLayout_6">
-       <item row="0" column="0">
+      <layout class="QVBoxLayout" name="verticalLayout_6">
+       <item>
         <widget class="PyDMTimePlot" name="radiationPlot">
          <property name="toolTip">
           <string/>
@@ -205,14 +221,17 @@
          </property>
         </widget>
        </item>
+       <item>
+        <layout class="QFormLayout" name="radFormLayout"/>
+       </item>
       </layout>
      </widget>
      <widget class="QWidget" name="tab_20">
       <attribute name="title">
        <string>Temperatures</string>
       </attribute>
-      <layout class="QGridLayout" name="gridLayout_8">
-       <item row="0" column="0">
+      <layout class="QVBoxLayout" name="verticalLayout_7">
+       <item>
         <widget class="PyDMTimePlot" name="temperaturePlot">
          <property name="toolTip">
           <string/>
@@ -233,6 +252,9 @@
           <double>3600.000000000000000</double>
          </property>
         </widget>
+       </item>
+       <item>
+        <layout class="QFormLayout" name="tempFormLayout"/>
        </item>
       </layout>
      </widget>

@@ -18,20 +18,6 @@ from pydm.widgets.label import PyDMLabel
 from pydm.widgets.template_repeater import PyDMTemplateRepeater
 from qtpy.QtCore import Slot
 
-TEMP_PLOT_KEY = "temperaturePlot"
-
-RADIATION_PLOT_KEY = "radiationPlot"
-
-RF_PLOT_KEY = "rfPlot"
-
-VALVE_PLOT_KEY = "valvePlot"
-
-HEATER_PLOT_KEY = "heaterPlot"
-
-PRESSURE_PLOT_KEY = "pressurePlot"
-
-LIQUID_LEVEL_PLOT_KEY = "liquidLevelPlot"
-
 sys.path.insert(0, '..')
 
 # This is down here because we need the sys path insert first to access this module
@@ -41,9 +27,13 @@ from q0Linac import Q0Cryomodule, Q0_CRYOMODULES
 from dataSession import CalibDataSession
 from lcls_tools.pydm_tools.timePlotUtil import TimePlotUpdater, TimePlotParams
 
-PLOT_WIDTH = 2
-PLOT_SYMBOL = "o"
-PLOT_SYMBOL_SIZE = 4
+TEMP_PLOT_KEY = "temperaturePlot"
+RADIATION_PLOT_KEY = "radiationPlot"
+RF_PLOT_KEY = "rfPlot"
+VALVE_PLOT_KEY = "valvePlot"
+HEATER_PLOT_KEY = "heaterPlot"
+PRESSURE_PLOT_KEY = "pressurePlot"
+LIQUID_LEVEL_PLOT_KEY = "liquidLevelPlot"
 
 
 class MplCanvas(FigureCanvasQTAgg):
@@ -96,13 +86,20 @@ class Q0Measurement(Display):
         self.liveSignalsWindow = Display(ui_filename=self.getPath("signals.ui"))
         self.ui.liveSignalsButton.clicked.connect(partial(self.showDisplay,
                                                           self.liveSignalsWindow))
-        timePlotParams = {LIQUID_LEVEL_PLOT_KEY: TimePlotParams(self.liveSignalsWindow.ui.liquidLevelPlot),
-                          PRESSURE_PLOT_KEY    : TimePlotParams(self.liveSignalsWindow.ui.pressurePlot),
-                          HEATER_PLOT_KEY      : TimePlotParams(self.liveSignalsWindow.ui.heaterPlot),
-                          VALVE_PLOT_KEY       : TimePlotParams(self.liveSignalsWindow.ui.valvePlot),
-                          RF_PLOT_KEY          : TimePlotParams(self.liveSignalsWindow.ui.rfPlot),
-                          RADIATION_PLOT_KEY   : TimePlotParams(self.liveSignalsWindow.ui.radiationPlot),
-                          TEMP_PLOT_KEY        : TimePlotParams(self.liveSignalsWindow.ui.temperaturePlot)}
+        timePlotParams = {LIQUID_LEVEL_PLOT_KEY: TimePlotParams(plot=self.liveSignalsWindow.ui.liquidLevelPlot,
+                                                                formLayout=self.liveSignalsWindow.ui.liquidLevelFormLayout),
+                          PRESSURE_PLOT_KEY    : TimePlotParams(plot=self.liveSignalsWindow.ui.pressurePlot,
+                                                                formLayout=self.liveSignalsWindow.ui.pressureFormLayout),
+                          HEATER_PLOT_KEY      : TimePlotParams(plot=self.liveSignalsWindow.ui.heaterPlot,
+                                                                formLayout=self.liveSignalsWindow.ui.heaterFormLayout),
+                          VALVE_PLOT_KEY       : TimePlotParams(plot=self.liveSignalsWindow.ui.valvePlot,
+                                                                formLayout=self.liveSignalsWindow.ui.valveFormLayout),
+                          RF_PLOT_KEY          : TimePlotParams(plot=self.liveSignalsWindow.ui.rfPlot,
+                                                                formLayout=self.liveSignalsWindow.ui.rfFormLayout),
+                          RADIATION_PLOT_KEY   : TimePlotParams(plot=self.liveSignalsWindow.ui.radiationPlot,
+                                                                formLayout=self.liveSignalsWindow.ui.radFormLayout),
+                          TEMP_PLOT_KEY        : TimePlotParams(plot=self.liveSignalsWindow.ui.temperaturePlot,
+                                                                formLayout=self.liveSignalsWindow.ui.tempFormLayout)}
 
         self.timePlotUpdater = TimePlotUpdater(timePlotParams)
 
