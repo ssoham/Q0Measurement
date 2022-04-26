@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 from numpy import linspace, mean, polyfit
 from scipy.signal import medfilt
 
-import utils
+import q0Utils as utils
 from dataRun import DataRun, HeaterDataRun, RFDataRun
 
 

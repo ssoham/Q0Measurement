@@ -4,21 +4,21 @@
 # Authors: Lisa Zacarias, Ben Ripman
 ################################################################################
 
-from __future__ import print_function, division
+from __future__ import division, print_function
 
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
 from csv import reader, writer
-from matplotlib import pyplot as plt
-from container import (Cryomodule, Cavity,
-                       Q0DataSession, CalibDataSession, DataSession)
-from utils import (getNumInputFromLst, isYes, TEST_MODE, printOptions,
-                   addOption, getSelection, drawAndShow, ValveParams,
-                   compatibleNext, compatibleMkdirs)
-from typing import Optional, List, Tuple, TextIO, Dict
-from os.path import isfile
-from numpy import mean
 from decimal import Decimal
+from os.path import isfile
+from typing import Dict, List, Optional, TextIO, Tuple
+
+from matplotlib import pyplot as plt
+from numpy import mean
+
+from container import (CalibDataSession, Cavity, Cryomodule, DataSession, Q0DataSession)
+from q0Utils import (TEST_MODE, ValveParams, addOption, compatibleMkdirs, compatibleNext, drawAndShow,
+                     getNumInputFromLst, getSelection, isYes, printOptions)
 
 
 class InputFileParser(object):
@@ -286,7 +286,7 @@ class BasicInputFileParser(InputFileParser):
                 prompt = ("Please select a calibration option"
                           " (hit enter for option 1): ")
                 reuseSelection = getNumInputFromLst(prompt, options.keys(), int,
-                                               True)
+                                                    True)
 
                 reuseCalibration = (reuseSelection != max(options))
 

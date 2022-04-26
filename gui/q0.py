@@ -21,8 +21,8 @@ from qtpy.QtCore import Slot
 sys.path.insert(0, '..')
 
 # This is down here because we need the sys path insert first to access this module
-from utils import (FULL_CALIBRATION_FILENAME_TEMPLATE,
-                   CAVITY_CALIBRATION_FILENAME_TEMPLATE, redrawAxis)
+from q0Utils import (FULL_CALIBRATION_FILENAME_TEMPLATE,
+                     CAVITY_CALIBRATION_FILENAME_TEMPLATE, redrawAxis)
 from q0Linac import Q0Cryomodule, Q0_CRYOMODULES
 from dataSession import CalibDataSession
 from lcls_tools.pydm_tools.timePlotUtil import TimePlotUpdater, TimePlotParams

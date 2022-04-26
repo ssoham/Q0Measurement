@@ -11,8 +11,9 @@ from numpy import log10, mean, nanmean, sign
 from scipy.stats import linregress
 
 import dataSession
-import utils
-from lcls_tools.devices.scLinac import Cavity, Cryomodule, LINAC_TUPLES, Linac, Rack
+import q0Utils as utils
+from lcls_tools.devices.scLinac.scLinac import (Cavity, Cryomodule, LINAC_TUPLES,
+                                                Linac, Rack)
 
 
 class Q0Cavity(Cavity, object):
@@ -21,27 +22,15 @@ class Q0Cavity(Cavity, object):
 
         self._fieldEmissionPVs = None
 
-        self.heaterDesPV = PV("CHTR:CM{CM}:1{CAV}55:HV:{SUFF}".format(CM=self.cryomodule.name,
-                                                                      SUFF="POWER_SETPT",
-                                                                      CAV=cavityNum))
-        self.heaterActPV = PV("CHTR:CM{CM}:1{CAV}55:HV:{SUFF}".format(SUFF="POWER",
-                                                                      CM=self.cryomodule.name,
-                                                                      CAV=cavityNum))
-
         self._idxFile = ("q0Measurements/cm{CM}/cav{CAV}/q0MeasurementsCM{CM}CAV{CAV}.csv"
                          .format(CM=self.cryomodule.name, CAV=cavityNum))
 
         self._calibIdxFile = ("calibrations/cm{CM}/cav{CAV}/calibrationsCM{CM}CAV{CAV}.csv"
                               .format(CM=self.cryomodule.name, CAV=cavityNum))
 
-        self.amplitudeDesPVStr: str = self.pvPrefix + "ADES"
-        self.amplitudeDesPVObject: PV = PV(self.amplitudeDesPVStr)
+        self.selAmplitudeActPV.add_callback(self.quenchCheckCallback)
 
-        self.amplitudeActPVStr: str = self.pvPrefix + "AACTMEAN"
-        self.amplitudeActPVObject = PV(self.amplitudeActPVStr)
-        self.amplitudeActPVObject.add_callback(self.quenchCheckCallback)
-
-        self.gradientActPVObject = PV(self.pvPrefix + "GACTMEAN")
+        self.gradientActPV = PV(self.pvPrefix + "GACTMEAN")
 
         self.llrfDataAcqEnablePVs: List[PV] = [PV(self.pvPrefix
                                                   + "{infix}:ENABLE".format(infix=infix))
@@ -53,77 +42,7 @@ class Q0Cavity(Cavity, object):
                                                          (PV(self.pvPrefix + "STAT_WIDTH"), 0.004),
                                                          (PV(self.pvPrefix + "DECIM"), 255)]
 
-        self.ssaStatusPV = PV(self.pvPrefix + "SSA:StatusMsg")
-        self.ssaTurnOnPV = PV(self.pvPrefix + "SSA:PowerOn")
-        self.ssaTurnOffPV = PV(self.pvPrefix + "SSA:PowerOff")
-        self.ssaResetPV = PV(self.pvPrefix + "SSA:FaultReset")
-
-        self.ssaCalibrationStartPV = PV(self.pvPrefix + "SSACAL:STRT")
-        self.ssaCalibrationStatusPV = PV(self.pvPrefix + "SSACAL:STS")
-
-        self.probeCalibrationStartPV = PV(self.pvPrefix + "PROBECAL:STRT")
-        self.probeCalibrationStatusPV = PV(self.pvPrefix + "PROBECAL:STS")
-
-        self.interlockResetPV = PV(self.pvPrefix + "INTLK_RESET_ALL")
-
-        self.savedSSASlopePV = PV(self.pvPrefix + "SSA:SLOPE")
-        self.measuredSSASlopePV = PV(self.pvPrefix + "SSA:SLOPE_NEW")
-        self.pushSSASlopePV = PV(self.pvPrefix + "PUSH_SSASLOPE.PROC")
-
-        self.savedQLoadedPV = PV(self.pvPrefix + "QLOADED")
-        self.measuredQLoadedPV = PV(self.pvPrefix + "QLOADED_NEW")
-        self.pushQLoadedPV = PV(self.pvPrefix + "PUSH_QLOADED.PROC")
-
-        self.savedCavityScale = PV(self.pvPrefix + "CAV:SCALER_SEL.B")
-        self.measuredCavityScalePV = PV(self.pvPrefix + "CAV:CAL_SCALEB_NEW")
-        self.pushCavityScalePV = PV(self.pvPrefix + "PUSH_CAV_SCALE.PROC")
-
-        self.pulseDriveLevelPV: PV = PV(self.pvPrefix + "SEL_ASET")
-        self.rfModePV = PV(self.pvPrefix + "RFMODECTRL")
-
-        self.rfStatePV = PV(self.pvPrefix + "RFSTATE")
-        self.rfControlPV = PV(self.pvPrefix + "RFCTRL")
-
-        self.pulseGoButtonPV = PV(self.pvPrefix + "PULSE_DIFF_SUM")
-        self.pulseStatusPV = PV(self.pvPrefix + "PULSE_STATUS")
-
         self.quenchBypassPVObject = PV(self.pvPrefix + "QUENCH_BYP_RBV")
-
-        self.pulseOnTimePVObject = PV(self.pvPrefix + "PULSE_ONTIME")
-
-    def characterize(self):
-        """
-        Characterize various cavity parameters.
-        * Runs the SSA through its range and constructs a polynomial describing
-        the relationship between requested SSA output and actual output
-        * Calibrates the cavity's RF probe so that the gradient readback will be
-        accurate.
-        :return:
-        """
-
-        self.runCalibration(startPV=self.ssaCalibrationStartPV,
-                            statusPV=self.ssaCalibrationStatusPV)
-
-        self.pushCalibrationChange(measuredPV=self.measuredSSASlopePV,
-                                   savedPV=self.savedSSASlopePV,
-                                   tolerance=utils.SSA_SLOPE_CHANGE_TOL,
-                                   pushPV=self.pushSSASlopePV)
-
-        self.interlockResetPV.put(1)
-        sleep(2)
-
-        self.runCalibration(startPV=self.probeCalibrationStartPV,
-                            statusPV=self.probeCalibrationStatusPV)
-
-        self.pushCalibrationChange(measuredPV=self.measuredQLoadedPV,
-                                   savedPV=self.savedQLoadedPV,
-                                   tolerance=utils.LOADED_Q_CHANGE_TOL,
-                                   pushPV=self.pushQLoadedPV)
-
-        self.pushCalibrationChange(measuredPV=self.measuredCavityScalePV,
-                                   savedPV=self.savedCavityScale,
-                                   tolerance=utils.CAVITY_SCALE_CHANGE_TOL,
-                                   pushPV=self.pushCavityScalePV)
 
     def checkAcqControl(self):
         """
@@ -142,40 +61,16 @@ class Q0Cavity(Cavity, object):
                 print("Setting {pv}".format(pv=pv.pvname))
                 pv.put(expectedValue)
 
-    def checkAndSetDrive(self):
-        """
-        Ramps the cavity's RF drive (only relevant in pulsed mode) up until the RF
-        gradient is high enough for phasing
-        :return:
-        """
-
-        print("Checking drive...")
-
-        while (self.gradientActPVObject.value < 1) or (self.pulseDriveLevelPV.value < 15):
-            print("Increasing drive...")
-            self.pulseDriveLevelPV.put(self.pulseDriveLevelPV.value + 1)
-            self.pushGoButton()
-
-        print("Drive set")
-
-    def checkAndSetOnTime(self):
-        """
-        In pulsed mode the cavity has a duty cycle determined by the on time and
-        off time. We want the on time to be 70 ms or else the various cavity
-        parameters calculated from the waveform (e.g. the RF gradient) won't be
-        accurate.
-        :return:
-        """
-        print("Checking RF Pulse On Time...")
-        if self.pulseOnTimePVObject.value != 70:
-            print("Setting RF Pulse On Time to 70 ms")
-            self.pulseOnTimePVObject.put(70)
-            self.pushGoButton()
-
     def quenchCheckCallback(self, **kw):
+        """
+        This is a really unsophisticated way of checking for a quench if the
+        interlock is bypassed (better to have something than nothing)
+        :param kw:
+        :return:
+        """
         sleep(0.1)
 
-        if self.amplitudeActPVObject.value < (self.amplitudeDesPVObject.value * 0.9):
+        if self.selAmplitudeActPV.value < (self.selAmplitudeDesPV.value * 0.9):
             # If the EPICs quench detection is disabled and we see a quench,
             # shut the cavity down
             if self.quenchBypassPVObject.value == 1:
@@ -185,103 +80,31 @@ class Q0Cavity(Cavity, object):
             else:
                 print(str(utils.QuenchError))
 
-    @staticmethod
-    def pushCalibrationChange(measuredPV: PV, savedPV: PV, tolerance: float,
-                              pushPV: PV):
-        if abs(measuredPV.value - savedPV.value) < tolerance:
-            pushPV.put(1)
-        else:
-            raise utils.RFError("Change to {pv} too large".format(pv=savedPV.pvname))
-
-    def pushGoButton(self):
-        """
-        Many of the changes made to a cavity don't actually take effect until the
-        go button is pressed
-        :return:
-        """
-        self.pulseGoButtonPV.put(1)
-        while self.pulseStatusPV.value < 2:
-            sleep(1)
-        if self.pulseStatusPV.value > 2:
-            raise utils.RFError("Unable to pulse cavity")
-
-    # Checks that the parameters associated with acquisition of the cavity RF
-    # waveforms are configured properly
-    @staticmethod
-    def runCalibration(startPV: PV, statusPV: PV):
-        startPV.put(1)
-
-        # 2 is running
-        while statusPV.value == 2:
-            sleep(1)
-
-        # 0 is crashed
-        if statusPV.value == 0:
-            # TODO break these up into separate GUI calls for handling
-            raise utils.RFError("{pv} crashed".format(pv=startPV))
-
-    def setStateRF(self, turnOn: bool):
-        """
-        Turn the cavity on or off
-        :param turnOn:
-        :return:
-        """
-
-        rfState = self.rfStatePV.value
-
-        desiredState = (1 if turnOn else 0)
-
-        if rfState != desiredState:
-            print("\nSetting RF State...")
-            self.rfControlPV.put(desiredState)
-
-        print("RF state set\n")
-
-    def setPowerStateSSA(self, turnOn: bool):
-
-        if turnOn:
-            stateMap = utils.SSAStateMap(desired=3, opposite=2, pv=self.ssaTurnOnPV)
-        else:
-            stateMap = utils.SSAStateMap(desired=2, opposite=3, pv=self.ssaTurnOffPV)
-
-        if self.ssaStatusPV.value != stateMap.desired:
-            if self.ssaStatusPV.value == stateMap.opposite:
-                print("\nSetting SSA power...")
-                stateMap.pv.put(1)
-
-                if self.ssaStatusPV.value != stateMap.desired:
-                    raise utils.RFError("Could not set SSA Power")
-
-            else:
-                print("\nResetting SSA...")
-                self.ssaResetPV.put(1)
-
-                if self.ssaStatusPV.value not in [2, 3]:
-                    raise utils.RFError("Could not reset SSA")
-
-                self.setPowerStateSSA(turnOn)
-
-        print("SSA power set\n")
-
-    # Walks the cavity to a given gradient in CW mode with exponential back-off
-    # in the step size (steps get smaller each time you cross over the desired
-    # gradient until the error is very low)
     def walkToAmplitude(self, desiredAmplitude: float, step: float = 0.5,
                         loopTime: timedelta = timedelta(seconds=2.5), gradTol: float = 0.05,
                         printStatus: bool = True):
+        """
+        Walks the cavity to a given gradient
+        :param desiredAmplitude:
+        :param step:
+        :param loopTime:
+        :param gradTol:
+        :param printStatus:
+        :return:
+        """
 
         if printStatus:
             utils.writeAndWait("\nWalking gradient...")
 
-        diff = desiredAmplitude - self.amplitudeActPVObject.value
+        diff = desiredAmplitude - self.selAmplitudeActPV.value
 
         if abs(diff) <= step:
-            self.amplitudeDesPVObject.put(self.amplitudeActPVObject.value + diff)
+            self.selAmplitudeDesPV.put(self.selAmplitudeActPV.value + diff)
             print("\nGradient at desired value")
             return
 
         else:
-            self.amplitudeDesPVObject.put(self.amplitudeActPVObject.value + sign(diff) * step)
+            self.selAmplitudeDesPV.put(self.selAmplitudeActPV.value + sign(diff) * step)
             utils.writeAndWait(".", loopTime.total_seconds())
             self.walkToAmplitude(desiredAmplitude, step, loopTime, gradTol, False)
 
@@ -293,37 +116,23 @@ class Q0Cryomodule(Cryomodule, object):
         self.cavities: Dict[int, Q0Cavity]
         self.dsPressurePVStr = "CPT:CM{CM}:2302:DS:PRESS".format(CM=cryoName)
 
-        jtPrefix = "CLIC:CM{CM}:3001:PVJT".format(CM=cryoName)
+        self.jtModePV = PV(self.jtPrefix + "MODE")
+        self.jtManualSelectPV = PV(self.jtPrefix + "MANUAL")
+        self.jtAutoSelectPV = PV(self.jtPrefix + "AUTO")
+        self.dsLiqLevSetpointPV = PV(self.jtPrefix + "SP_RQST")
 
-        self.jtModePVObject = PV(jtPrefix + ":MODE")
-        self.jtManualSelectPVObject = PV(jtPrefix + ":MANUAL")
-        self.jtAutoSelectPVObject = PV(jtPrefix + ":AUTO")
-        self.dsLiqLevSetpointPVObj = PV(jtPrefix + ":SP_RQST")
+        self.jtManPosSetpointPV = PV(self.jtPrefix + "MANPOS_RQST")
 
-        self.jtManPosSetpointPVStr = (jtPrefix + ":MANPOS_RQST")
-        self.jtManPosSetpointPVObject = PV(self.jtManPosSetpointPVStr)
-
-        self.jtValveReadbackPVStr = jtPrefix + ":ORBV"
-        self.jtValveReadbackPVObject = PV(self.jtValveReadbackPVStr)
-
-        lvlFormatStr = "CLL:CM{CM}:{{INFIX}}:{{LOC}}:LVL".format(CM=cryoName)
-        self.dsLevelPVStr = lvlFormatStr.format(INFIX="2301", LOC="DS")
-        self.dsLevelPVObject = PV(self.dsLevelPVStr)
-        self.usLevelPVStr = lvlFormatStr.format(INFIX="2601", LOC="US")
+        self.jtValveReadbackPV = PV(self.jtPrefix + "ORBV")
 
         self.q0DataSessions = {}
         self.calibDataSessions = {}
 
-        self.heaterDesPVObjects: List[PV] = []
-        self.heaterActPVObjects: List[PV] = []
+        self.heaterDesPVs: List[PV] = [q0Cavity.heater.powerDesPV for q0Cavity in self.cavities.values()]
+        self.heaterActPVs: List[PV] = [q0Cavity.heater.powerActPV for q0Cavity in self.cavities.values()]
 
-        for q0Cavity in self.cavities.values():
-            self.heaterActPVObjects.append(q0Cavity.heaterActPV)
-            self.heaterDesPVObjects.append(q0Cavity.heaterDesPV)
-
-        self.heaterDesPVStrings = [pv.pvname for pv in self.heaterDesPVObjects]
-        self.heaterActPVStrings = [pv.pvname for pv in self.heaterActPVObjects]
-        # self.heaterActPVObjects = list(map(PV, self.heaterActPVs))
+        self.heaterDesPVNames: List[str] = [pv.pvname for pv in self.heaterDesPVs]
+        self.heaterActPVNames: List[str] = [pv.pvname for pv in self.heaterActPVs]
 
         self.valveParams = None
 
@@ -331,6 +140,13 @@ class Q0Cryomodule(Cryomodule, object):
                               .format(CM=self.name))
         self._q0IdxFile = ("q0Measurements/cm{CM}/q0MeasurementsCM{CM}.json"
                            .format(CM=self.name))
+
+        self.cryomodulePVs = utils.CryomodulePVs(valvePV=self.jtValveReadbackPV.pvname,
+                                                 dsLevelPV=self.dsLevelPV.pvname,
+                                                 usLevelPV=self.usLevelPV.pvname,
+                                                 dsPressurePV=self.dsPressurePVStr,
+                                                 heaterDesPVs=self.heaterDesPVNames,
+                                                 heaterActPVs=self.heaterActPVNames)
 
     def addCalibDataSession(self, timeParams: utils.TimeParams,
                             valveParams: utils.ValveParams) -> dataSession.CalibDataSession:
@@ -340,16 +156,9 @@ class Q0Cryomodule(Cryomodule, object):
         # Only create a new calibration data session if one doesn't already
         # exist with those exact parameters
         if sessionHash not in self.calibDataSessions:
-            cryomodulePVs = utils.CryomodulePVs(valvePV=self.jtValveReadbackPVStr,
-                                                dsLevelPV=self.dsLevelPVStr,
-                                                usLevelPV=self.usLevelPVStr,
-                                                dsPressurePV=self.dsPressurePVStr,
-                                                heaterDesPVs=self.heaterDesPVStrings,
-                                                heaterActPVs=self.heaterActPVStrings)
-
             session = dataSession.CalibDataSession(timeParams=timeParams,
                                                    valveParams=valveParams,
-                                                   cryomodulePVs=cryomodulePVs,
+                                                   cryomodulePVs=self.cryomodulePVs,
                                                    cryoModuleName=self.name)
             self.calibDataSessions[sessionHash] = session
 
@@ -396,14 +205,14 @@ class Q0Cryomodule(Cryomodule, object):
         try:
             archiverData = utils.getArchiverData(endTime=datetime.now(),
                                                  numPoints=utils.NUM_LL_POINTS_TO_AVG,
-                                                 signals=[self.dsLevelPVStr],
+                                                 signals=[self.dsLevelPV.pvname],
                                                  timeInt=utils.ARCHIVER_TIME_INTERVAL)
 
-            return nanmean(archiverData.values[self.dsLevelPVStr])
+            return nanmean(archiverData.values[self.dsLevelPV.pvname])
 
         # return the most recent value if we can't average for whatever reason
         except AttributeError:
-            return self.dsLevelPVObject.value
+            return self.dsLevelPV.value
 
     @property
     def calibIdxFile(self) -> str:
@@ -416,28 +225,29 @@ class Q0Cryomodule(Cryomodule, object):
 
     def fillAndLock(self, desiredLevel=utils.MAX_DS_LL):
         # set the liquid level setpoint to its current readback
-        self.dsLiqLevSetpointPVObj.put(self.jtValveReadbackPVObject.value)
+        self.dsLiqLevSetpointPV.put(self.jtValveReadbackPV.value)
 
         # Allow the JT valve to regulate so that we fill (slowly)
-        self.jtAutoSelectPVObject.put(True)
+        self.jtAutoSelectPV.put(True)
 
         self.rampLiquidLevel(desiredLevel)
         self.waitForLL()
 
         # set to manual
-        self.jtManualSelectPVObject.put(True)
+        self.jtManualSelectPV.put(True)
 
-        if self.jtModePVObject.value != utils.JT_MANUAL_MODE_VALUE:
+        if self.jtModePV.value != utils.JT_MANUAL_MODE_VALUE:
             raise utils.CryoError("Unable to set JT to manual")
 
-        self.jtManPosSetpointPVObject.put(self.valveParams.refValvePos)
+        self.jtManPosSetpointPV.put(self.valveParams.refValvePos)
         self.waitForJT(self.valveParams.refValvePos)
 
     def genQ0DataSession(self, timeParams: utils.TimeParams,
                          valveParams: utils.ValveParams, refGradVal: float = None,
                          calibSession: dataSession.CalibDataSession = None) -> dataSession.Q0DataSession:
-        return dataSession.Q0DataSession(self, timeParams, valveParams, refGradVal,
-                                         calibSession)
+        return dataSession.Q0DataSession(timeParams=timeParams, valveParams=valveParams, refGradVal=refGradVal,
+                                         calibSession=calibSession, cryoModuleName=self.name,
+                                         cryomodulePVs=self.cryomodulePVs)
 
     def getRefValveParams(self, timeRange: float = utils.JT_SEARCH_TIME_RANGE) -> utils.ValveParams:
         """
@@ -473,9 +283,9 @@ class Q0Cryomodule(Cryomodule, object):
             print(formatter.format(START=startStr, END=endStr))
 
             archiverData = utils.getArchiverData(startTime=searchStart, numPoints=numPoints,
-                                                 signals=[self.dsLevelPVStr])
+                                                 signals=[self.dsLevelPV.pvname])
 
-            llVals = archiverData.values[self.dsLevelPVStr]
+            llVals = archiverData.values[self.dsLevelPV.pvname]
 
             # Fit a line to the liquid level over the last [numHours] hours
             m, b, _, _, _ = linregress(range(len(llVals)), llVals)
@@ -484,14 +294,14 @@ class Q0Cryomodule(Cryomodule, object):
             # which to get a reference valve position & heater params
             if log10(abs(m)) < -5:
 
-                signals = ([self.jtValveReadbackPVStr] + self.heaterDesPVStrings
-                           + self.heaterActPVStrings)
+                signals = ([self.jtValveReadbackPV.pvname] + self.heaterDesPVNames
+                           + self.heaterActPVNames)
 
                 data = utils.getArchiverData(startTime=searchStart,
                                              numPoints=numPoints, signals=signals)
-                valveVals = data.values[self.jtValveReadbackPVStr]
-                heaterDesVals = [sum(x) for x in zip(*itemgetter(*self.heaterDesPVStrings)(data.values))]
-                heaterActVals = [sum(x) for x in zip(*itemgetter(*self.heaterActPVStrings)(data.values))]
+                valveVals = data.values[self.jtValveReadbackPV.pvname]
+                heaterDesVals = [sum(x) for x in zip(*itemgetter(*self.heaterDesPVNames)(data.values))]
+                heaterActVals = [sum(x) for x in zip(*itemgetter(*self.heaterActPVNames)(data.values))]
 
                 desValSet = set(heaterDesVals)
 
@@ -617,14 +427,14 @@ class Q0Cryomodule(Cryomodule, object):
     @property
     def totalHeatAct(self) -> float:
         heatAct = 0
-        for pv in self.heaterActPVObjects:
+        for pv in self.heaterActPVs:
             heatAct += pv.value
         return heatAct
 
     @property
     def totalHeatDes(self) -> float:
         heatDes = 0
-        for pv in self.heaterDesPVObjects:
+        for pv in self.heaterDesPVs:
             heatDes += pv.value
         return heatDes
 
@@ -638,17 +448,17 @@ class Q0Cryomodule(Cryomodule, object):
         """
         utils.writeAndWait("\nWaiting for the liquid level setpoint to be {setpoint}"
                            .format(setpoint=desiredLevel))
-        fullDelta = desiredLevel - self.dsLiqLevSetpointPVObj.value
+        fullDelta = desiredLevel - self.dsLiqLevSetpointPV.value
         steps = abs(fullDelta / utils.JT_STEP_SIZE_PER_SECOND)
         stepDelta = fullDelta / steps
 
         for _ in range(steps):
-            self.dsLiqLevSetpointPVObj.put(self.dsLiqLevSetpointPVObj.value
-                                           + stepDelta)
+            self.dsLiqLevSetpointPV.put(self.dsLiqLevSetpointPV.value
+                                        + stepDelta)
             sleep(1)
             utils.writeAndWait(".")
 
-        if self.dsLiqLevSetpointPVObj.value != desiredLevel:
+        if self.dsLiqLevSetpointPV.value != desiredLevel:
             raise utils.CryoError("Liquid level setpoint was not set")
 
         utils.writeAndWait(" liquid level setpoint at required value.")
@@ -731,7 +541,8 @@ class Q0Cryomodule(Cryomodule, object):
                 cavity.setPowerStateSSA(True)
 
                 cavity.pulseDriveLevelPV.put(utils.SAFE_PULSED_DRIVE_LEVEL)
-                cavity.characterize()
+                cavity.ssa.runCalibration()
+                cavity.runCalibration()
 
                 cavity.rfModePV.put(utils.RF_MODE_PULSE)
 
@@ -824,14 +635,14 @@ class Q0Cryomodule(Cryomodule, object):
 
         # One way for the JT valve to be locked in the correct position is for
         # it to be in manual mode and at the desired value
-        while self.jtModePVObject.value != utils.JT_MANUAL_MODE_VALUE:
+        while self.jtModePV.value != utils.JT_MANUAL_MODE_VALUE:
             utils.writeAndWait(".", 5)
 
-        while self.jtManPosSetpointPVObject.value != refValvePos:
+        while self.jtManPosSetpointPV.value != refValvePos:
             utils.writeAndWait(".", 5)
 
         # Wait for the valve position to be within tolerance before continuing
-        while abs(self.jtValveReadbackPVObject.value - refValvePos) > utils.VALVE_POS_TOL:
+        while abs(self.jtValveReadbackPV.value - refValvePos) > utils.VALVE_POS_TOL:
             utils.writeAndWait(".", 5)
 
         utils.writeAndWait(" JT Valve locked.\n")
@@ -860,7 +671,7 @@ class Q0Cryomodule(Cryomodule, object):
         print(formatter)
 
         if abs(perHeaterDelta) <= 1:
-            for heaterSetpointPV in self.heaterDesPVObjects:
+            for heaterSetpointPV in self.heaterDesPVs:
                 currVal = heaterSetpointPV.value
                 heaterSetpointPV.put(currVal + perHeaterDelta)
 
@@ -876,13 +687,13 @@ class Q0Cryomodule(Cryomodule, object):
 
             for i in range(steps):
 
-                for heaterSetpointPV in self.heaterDesPVObjects:
+                for heaterSetpointPV in self.heaterDesPVs:
                     currVal = heaterSetpointPV.value
                     heaterSetpointPV.put(currVal + stepDelta)
 
                 sleep(60)
 
-            for heaterSetpointPV in self.heaterDesPVObjects:
+            for heaterSetpointPV in self.heaterDesPVs:
                 currVal = heaterSetpointPV.value
                 heaterSetpointPV.put(currVal + (finalDelta * stepDelta))
 
