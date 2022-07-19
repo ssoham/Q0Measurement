@@ -12,13 +12,12 @@ from time import sleep
 from typing import Any, Callable, Dict, KeysView, List, Optional, Tuple, Union
 
 from epics import PV
+from lcls_tools.common.data_analysis.archiver import Archiver, ArchiverData
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from requests.exceptions import ConnectTimeout
 from six import moves
-
-from lcls_tools.data_analysis.archiver import Archiver, ArchiverData
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
@@ -74,7 +73,7 @@ FULL_MODULE_CALIBRATION_LOAD = 80
 
 CAL_HEATER_DELTA = 1
 
-JT_SEARCH_TIME_RANGE = 24
+JT_SEARCH_TIME_RANGE: timedelta = timedelta(hours=24)
 JT_SEARCH_HOURS_PER_STEP = 0.5
 HOURS_NEEDED_FOR_FLATNESS = 2
 
@@ -103,12 +102,14 @@ RF_MODE_CHIRP = 5
 
 SAFE_PULSED_DRIVE_LEVEL = 15
 
+ARCHIVER = Archiver("lcls")
+
 
 class RFError(Exception):
     """
     Exception thrown during RF Execution for the GUI to catch
     """
-
+    
     def __init__(self, message):
         self.message = message
         super().__init__(self.message)
@@ -123,7 +124,7 @@ class CryoError(Exception):
     """
     Exception thrown during Cryo Execution for the GUI to catch
     """
-
+    
     def __init__(self, message):
         self.message = message
         super().__init__(self.message)
@@ -154,10 +155,10 @@ def q0Hash(argList: List[Any]):
     two data sessions so that we can avoid creating (and storing) duplicate
     data sessions.
     """
-
+    
     if len(argList) == 1:
         return hash(argList.pop())
-
+    
     for arg in argList:
         return hash(arg) ^ q0Hash(argList[1:])
 
@@ -192,7 +193,7 @@ class CryomodulePVs:
     usLevelPV: str
     dsPressurePV: str
     gradPVs: Optional[List[str]] = None
-
+    
     def asList(self) -> List[str]:
         return ([self.valvePV, self.dsLevelPV, self.usLevelPV,
                  self.dsPressurePV] + self.heaterDesPVs + self.heaterActPVs +
@@ -205,14 +206,14 @@ def isYes(prompt):
 
 def getStrLim(prompt, acceptable_strings):
     # type: (str, List[str]) -> str
-
+    
     response = get_input(prompt, str)
-
+    
     while response not in acceptable_strings:
         stderr.write(ERROR_MESSAGE + "\n")
         sleep(0.01)
         response = get_input(prompt, str)
-
+    
     return response
 
 
@@ -249,40 +250,40 @@ def getNumInputFromLst(prompt, lst, inputType, allowNoResponse=False):
             # shows up before the next prompt
             sleep(0.01)
             response = get_input(prompt, inputType, allowNoResponse)
-
+    
     return response
 
 
 def getNumericalInput(prompt, lowLim, highLim, inputType):
     # type: (str, Union[int, float], Union[int, float], Callable) -> Union[int, float]
     response = get_input(prompt, inputType)
-
+    
     while response < lowLim or response > highLim:
         stderr.write(ERROR_MESSAGE + "\n")
         sleep(0.01)
         response = get_input(prompt, inputType)
-
+    
     return response
 
 
 def get_input(prompt, desired_type, allowNoResponse=False):
     # type: (str, Callable, bool) -> Union[int, float, str]
-
+    
     response = moves.input(prompt)
-
+    
     # if allowNoResponse is True the user is permitted to just hit enter in
     # response to the prompt, giving us an empty string regardless of the
     # desired input type
     if allowNoResponse and response == "":
         return response
-
+    
     try:
         response = desired_type(response)
     except ValueError:
         stderr.write(str(desired_type) + " required\n")
         sleep(0.01)
         return get_input(prompt, desired_type, allowNoResponse)
-
+    
     return response
 
 
@@ -295,7 +296,7 @@ def get_int_lim(prompt, low_lim, high_lim):
 # noinspection PyArgumentList
 def cagetPV(pv, startIdx=1, attempt=1):
     # type: (str, int, int) -> [str]
-
+    
     if attempt < 4:
         try:
             out = check_output(["caget", pv, "-n"]).split()[startIdx:]
@@ -307,7 +308,7 @@ def cagetPV(pv, startIdx=1, attempt=1):
             sleep(2)
             print("Retrying caget")
             return cagetPV(pv, startIdx, attempt + 1)
-
+    
     else:
         raise CalledProcessError("caget failed too many times")
 
@@ -315,7 +316,7 @@ def cagetPV(pv, startIdx=1, attempt=1):
 # noinspection PyArgumentList
 def caputPV(pv, val, attempt=1):
     # type: (str, str, int) -> int
-
+    
     if attempt < 4:
         try:
             out = check_call(["caput", pv, val], stdout=FNULL)
@@ -338,13 +339,13 @@ def getTimeParams(row, indices):
     # type: (List[str], Dict[str, int]) -> TimeParams
     startTime = makeTimeFromStr(row, indices["startIdx"])
     endTime = makeTimeFromStr(row, indices["endIdx"])
-
+    
     timeIntervalStr = row[indices["timeIntIdx"]]
     timeInterval = (int(timeIntervalStr) if timeIntervalStr
                     else ARCHIVER_TIME_INTERVAL)
-
+    
     timeParams = TimeParams(startTime, endTime, timeInterval)
-
+    
     return timeParams
 
 
@@ -371,21 +372,21 @@ def getArchiverData(numPoints: int, signals: List[str],
     try:
         if startTime:
             endTime = startTime + timedelta(seconds=(numPoints * timeInt))
-
+        
         elif endTime:
             startTime = endTime - timedelta(seconds=(numPoints * timeInt))
-
+        
         else:
             writeAndFlushStdErr("No time boundaries supplied")
             return None
-
+        
         # timeInt is is seconds
         data = archiver.getDataWithTimeInterval(pvList=signals,
                                                 startTime=startTime,
                                                 endTime=endTime,
                                                 timeDelta=timedelta(seconds=timeInt))
         return data
-
+    
     except ConnectTimeout:
         writeAndFlushStdErr("Archiver timed out - are you VPNed in?")
         return None
@@ -420,9 +421,9 @@ def reformatDate(row):
         res = findall(regex, row)[0].replace(" ", "-")
         reformattedRow = regex.sub(res, row)
         return "\t".join(reformattedRow.strip().split())
-
+    
     except IndexError:
-
+        
         writeAndFlushStdErr("Could not reformat date for row: " + str(row)
                             + "\n")
         return "\t".join(row.strip().split())
@@ -468,11 +469,11 @@ def getSelection(duration, suffix, options, name=None):
     # type: (float, str, Dict[int, str], str) -> int
     # Running a new Q0 measurement or heater calibration is always
     # presented as the last option in the list
-
+    
     options[max(options) + 1
     if options else 1] = ("Launch new {TYPE} ({DUR} hours)"
                           .format(TYPE=suffix, DUR=duration))
-
+    
     # The keys in options are line numbers in a CSV file. We want to present
     # them to the user in a more friendly format, starting from 1 and counting
     # up.
@@ -483,12 +484,12 @@ def getSelection(duration, suffix, options, name=None):
         renumberedOptions[i] = options[key]
         optionMap[i] = key
         i += 1
-
+    
     printOptions(renumberedOptions)
     formatter = "Please select a {TYPE} option for {NAME} (hit enter for option 1): "
     selection = getNumInputFromLst(formatter.format(TYPE=suffix, NAME=name),
                                    renumberedOptions.keys(), int, True)
-
+    
     return optionMap[selection]
 
 
@@ -548,40 +549,40 @@ def drawAndShow():
 
 def collapseGradVals(row, gradCols):
     # type: (List[str], List[int]) -> Optional[float]
-
+    
     grad = 0
-
+    
     for col in gradCols:
         try:
             grad += float(row[col])
         except ValueError:
             grad = None
             break
-
+    
     return grad
 
 
 def collapseHeaterVals(row, heaterDesCols, heaterActCols):
     # type: (List[str], List[int], List[int]) -> Tuple[Optional[float], Optional[float]]
-
+    
     heatLoadSetpoint = 0
-
+    
     for col in heaterDesCols:
         try:
             heatLoadSetpoint += float(row[col])
         except ValueError:
             heatLoadSetpoint = None
             break
-
+    
     heatLoadAct = 0
-
+    
     for col in heaterActCols:
         try:
             heatLoadAct += float(row[col])
         except ValueError:
             heatLoadAct = None
             break
-
+    
     return heatLoadSetpoint, heatLoadAct
 
 
@@ -604,5 +605,5 @@ def compatibleMkdirs(filePath: Path) -> Path:
                     raise
     else:
         makedirs(filePath, exist_ok=True)
-
+    
     return filePath

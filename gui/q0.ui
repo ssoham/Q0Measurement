@@ -14,35 +14,7 @@
    <string>Q0 Measurement</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
-   <item row="3" column="0" colspan="5">
-    <widget class="PyDMTemplateRepeater" name="dialogues">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
-     </property>
-     <property name="frameShape">
-      <enum>QFrame::NoFrame</enum>
-     </property>
-     <property name="layoutType" stdset="0">
-      <enum>PyDMTemplateRepeater::Vertical</enum>
-     </property>
-     <property name="countShownInDesigner" stdset="0">
-      <number>20</number>
-     </property>
-     <property name="templateFilename" stdset="0">
-      <string>dialogueGroup.ui</string>
-     </property>
-     <property name="dataSource" stdset="0">
-      <string>dialogues.json</string>
-     </property>
-    </widget>
-   </item>
-   <item row="2" column="0" colspan="5">
+   <item row="2" column="0" colspan="3">
     <widget class="QFrame" name="frame">
      <property name="frameShape">
       <enum>QFrame::Box</enum>
@@ -199,6 +171,34 @@
      </layout>
     </widget>
    </item>
+   <item row="3" column="0" colspan="3">
+    <widget class="PyDMTemplateRepeater" name="dialogues">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::NoFrame</enum>
+     </property>
+     <property name="layoutType" stdset="0">
+      <enum>PyDMTemplateRepeater::Vertical</enum>
+     </property>
+     <property name="countShownInDesigner" stdset="0">
+      <number>20</number>
+     </property>
+     <property name="templateFilename" stdset="0">
+      <string>dialogueGroup.ui</string>
+     </property>
+     <property name="dataSource" stdset="0">
+      <string>dialogues.json</string>
+     </property>
+    </widget>
+   </item>
    <item row="4" column="1">
     <widget class="QPushButton" name="settingsButton">
      <property name="enabled">
@@ -215,19 +215,6 @@
      </property>
      <property name="text">
       <string>Open Measurement Settings Dialog</string>
-     </property>
-    </widget>
-   </item>
-   <item row="4" column="2" colspan="2">
-    <widget class="QPushButton" name="liveSignalsButton">
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
-     </property>
-     <property name="text">
-      <string>Show Live Signals</string>
      </property>
     </widget>
    </item>
