@@ -1,15 +1,14 @@
 import sys
-from datetime import datetime, timedelta
-from typing import Dict
-
 from PyQt5.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (QButtonGroup, QCheckBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                              QMessageBox,
                              QProgressBar, QPushButton, QVBoxLayout)
+from datetime import datetime, timedelta
 from epics import caget, camonitor, camonitor_clear
 from lcls_tools.common.pydm_tools.displayUtils import showDisplay
 from pydm import Display
 from requests import ConnectTimeout
+from typing import Dict
 from urllib3.exceptions import ConnectTimeoutError
 
 sys.path.insert(0, '..')
@@ -36,7 +35,7 @@ class CalibrationWorker(Worker):
     
     def __init__(self, cryomodule: Q0Cryomodule, start_heat: float,
                  jt_search_start: datetime, jt_search_end: datetime,
-                 desired_ll, heater_delta):
+                 desired_ll, heater_delta, num_cal_steps, ll_drop):
         super().__init__()
         self.cryomodule = cryomodule
         self.jt_search_end = jt_search_end
@@ -44,15 +43,19 @@ class CalibrationWorker(Worker):
         self.start_heat = start_heat
         self.desired_ll = desired_ll
         self.heater_delta = heater_delta
+        self.num_cal_steps = num_cal_steps
+        self.ll_drop = ll_drop
     
     def run(self) -> None:
         try:
             self.status.emit("Taking new calibration")
-            self.cryomodule.takeNewCalibration(self.start_heat,
-                                               self.jt_search_start,
-                                               self.jt_search_end,
-                                               self.desired_ll,
-                                               self.heater_delta)
+            self.cryomodule.takeNewCalibration(initial_heat_load=self.start_heat,
+                                               jt_search_start=self.jt_search_start,
+                                               jt_search_end=self.jt_search_end,
+                                               desired_ll=self.desired_ll,
+                                               heater_delta=self.heater_delta,
+                                               num_cal_steps=self.num_cal_steps,
+                                               ll_drop=self.ll_drop)
         except (ConnectTimeoutError, ConnectTimeout) as e:
             self.error.emit(str(e))
 

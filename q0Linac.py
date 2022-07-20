@@ -2,6 +2,7 @@ from os.path import isfile
 
 import json
 import numpy as np
+import os
 from datetime import datetime, timedelta
 from epics import PV, caget, caput
 from lcls_tools.superconducting.scLinac import (Cavity, CryoDict, Cryomodule,
@@ -260,6 +261,7 @@ class Q0Cryomodule(Cryomodule, object):
     def calibIdxFile(self) -> str:
         
         if not isfile(self._calibIdxFile):
+            os.makedirs(os.path.dirname(self._calibIdxFile), exist_ok=True)
             with open(self._calibIdxFile, "w+") as f:
                 json.dump([], f)
         
@@ -469,12 +471,14 @@ class Q0Cryomodule(Cryomodule, object):
         # utils.writeAndWait("\nWaiting for the liquid level setpoint to be {setpoint}"
         #                    .format(setpoint=desiredLevel))
         fullDelta = desiredLevel - caget(self.dsLiqLevSetpointPV)
-        if fullDelta != 0:
+        if abs(fullDelta) > 0.01:
             print(f"Liquid level setpoint needs to change by {fullDelta}")
             steps = int(abs(fullDelta / utils.JT_STEP_SIZE_PER_SECOND))
             stepDelta = fullDelta / steps
             
             for i in range(steps):
+                if abs(desiredLevel - caget(self.dsLiqLevSetpointPV)) <= 0.01:
+                    break
                 print(f"Step {i} out of {steps}")
                 new_val = caget(self.dsLiqLevSetpointPV) + stepDelta
                 print(f"Setting {self.dsLiqLevSetpointPV} to {new_val}")
@@ -489,11 +493,13 @@ class Q0Cryomodule(Cryomodule, object):
     def takeNewCalibration(self, initial_heat_load: int,
                            jt_search_start: datetime = None,
                            jt_search_end: datetime = None,
-                           desired_ll=utils.MAX_DS_LL,
-                           ll_drop=utils.TARGET_LL_DIFF,
-                           heater_delta=utils.CAL_HEATER_DELTA):
+                           desired_ll: float = utils.MAX_DS_LL,
+                           ll_drop: float = utils.TARGET_LL_DIFF,
+                           heater_delta: float = utils.CAL_HEATER_DELTA,
+                           num_cal_steps: int = utils.NUM_CAL_STEPS):
         """
         Launches a new cryomodule calibration. Expected to take ~4/5 hours
+        :param num_cal_steps:
         :param heater_delta:
         :param ll_drop:
         :param desired_ll:
@@ -522,7 +528,7 @@ class Q0Cryomodule(Cryomodule, object):
         self.launchHeaterRun(initial_heat_load / 8)
         self.current_calibration_run = None
         
-        for _ in range(utils.NUM_CAL_STEPS):
+        for _ in range(num_cal_steps):
             if (self.averagedLiquidLevelDS - utils.MIN_DS_LL) < ll_drop:
                 self.fillAndLock(desired_ll)
             self.launchHeaterRun(heater_delta)
@@ -536,11 +542,11 @@ class Q0Cryomodule(Cryomodule, object):
         duration = (datetime.now() - startTime).total_seconds() / 3600
         print("Duration in hours: {DUR}".format(DUR=duration))
         
-        self.walkHeaters(-((utils.NUM_CAL_STEPS * utils.CAL_HEATER_DELTA) + 1))
+        self.walkHeaters(-((num_cal_steps * heater_delta) + (initial_heat_load / 8)))
         
         timeParams = utils.TimeParams(startTime, endTime, utils.ARCHIVER_TIME_INTERVAL)
         
-        dataSession = self.addCalibDataSession(timeParams, self.valveParams)
+        # dataSession = self.addCalibDataSession(timeParams, self.valveParams)
         
         # Record this calibration dataSession's metadata
         
@@ -562,7 +568,7 @@ class Q0Cryomodule(Cryomodule, object):
             json.dump(data, f)
             f.truncate()
         
-        return dataSession, self.valveParams
+        # return dataSession, self.valveParams
     
     def takeNewQ0Measurement(self, desiredAmplitudes: Dict[int, float],
                              calibSession: dataSession.CalibDataSession = None,
@@ -727,7 +733,7 @@ class Q0Cryomodule(Cryomodule, object):
             stepDelta = perHeaterDelta / steps
             
             for i in range(steps):
-                print(f"Step {i} out of {steps}")
+                print(f"Step {i + 1} out of {steps}")
                 
                 for heaterSetpointPV in self.heaterDesPVs:
                     new_val = caget(heaterSetpointPV) + stepDelta

@@ -1,13 +1,12 @@
 import sys
-from datetime import datetime, timedelta
-from typing import Dict, Optional
-
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (QButtonGroup, QDateTimeEdit, QDoubleSpinBox, QGridLayout, QGroupBox,
                              QHBoxLayout, QLabel, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+from datetime import datetime, timedelta
 from lcls_tools.common.pydm_tools.displayUtils import showDisplay
 from lcls_tools.superconducting.scLinac import L1BHL, LINAC_TUPLES
 from pydm import Display
+from typing import Dict, Optional
 
 from q0_gui_utils import (CalibrationWorker, CryomoduleSelector,
                           DEFAULT_END_HEAT, DEFAULT_JT_START_DELTA,
@@ -87,12 +86,15 @@ class Q0GUI(Display):
             self.selectedCM.valveParams = ValveParams(refHeatLoadDes=self.ui.ref_heat_spinbox.value(),
                                                       refValvePos=self.ui.jt_pos_spinbox.value(),
                                                       refHeatLoadAct=None)
-            self.calibration_worker = CalibrationWorker(self.selectedCM,
-                                                        self.start_heat_spinbox.value(),
-                                                        self.jt_search_start,
-                                                        self.jt_search_end,
-                                                        self.min_start_ll_spinbox.value(),
-                                                        heater_delta)
+        
+        self.calibration_worker = CalibrationWorker(cryomodule=self.selectedCM,
+                                                    start_heat=self.start_heat_spinbox.value(),
+                                                    jt_search_start=self.jt_search_start,
+                                                    jt_search_end=self.jt_search_end,
+                                                    desired_ll=self.min_start_ll_spinbox.value(),
+                                                    heater_delta=heater_delta,
+                                                    num_cal_steps=self.num_cal_points_spinbox.value(),
+                                                    ll_drop=self.ll_drop_spinbox.value())
         self.calibration_worker.status.connect(self.calibrationSection.handle_status)
         self.calibration_worker.error.connect(self.calibrationSection.handle_error)
         self.calibration_worker.start()
