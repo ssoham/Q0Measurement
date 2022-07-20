@@ -6,10 +6,12 @@ from os import pardir, path
 from typing import Callable, Dict, List, Optional, Union
 
 from PyQt5.QtGui import (QDoubleValidator, QIntValidator, QStandardItem, QStandardItemModel)
-from PyQt5.QtWidgets import (QButtonGroup, QCheckBox, QGroupBox, QHBoxLayout,
+from PyQt5.QtWidgets import (QButtonGroup, QCheckBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout,
                              QLabel, QLineEdit, QMessageBox, QPushButton,
                              QRadioButton, QTableView, QVBoxLayout, QWidget,
                              QWidgetItem)
+from epics import caget
+from lcls_tools.common.pydm_tools.displayUtils import showDisplay
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from pydm import Display
@@ -25,6 +27,63 @@ from q0Utils import (FULL_CALIBRATION_FILENAME_TEMPLATE,
                      CAVITY_CALIBRATION_FILENAME_TEMPLATE, redrawAxis)
 from q0Linac import Q0Cryomodule, Q0_CRYOMODULES
 from dataSession import CalibDataSession
+
+
+class CavityAmplitudeControls:
+    def __init__(self, number, prefix):
+        self.groupbox: QGroupBox = QGroupBox()
+        self.groupbox.setCheckable(True)
+        self.groupbox.setTitle(f"Cavity {number}")
+        
+        horLayout = QHBoxLayout()
+        horLayout.addStretch()
+        
+        self.desAmpSpinbox: QDoubleSpinBox = QDoubleSpinBox()
+        amax = caget(prefix + "ADES_MAX")
+        self.desAmpSpinbox.setValue(amax)
+        self.desAmpSpinbox.setRange(0, amax)
+        horLayout.addWidget(self.desAmpSpinbox)
+        horLayout.addWidget(QLabel("MV"))
+        horLayout.addStretch()
+        
+        self.groupbox.setLayout(horLayout)
+
+
+class CryomoduleSelector:
+    def __init__(self, name: str, prefix: str):
+        self.name: str = name
+        self.prefix: str = prefix
+        self.cm_display: Display = None
+        
+        self.cavity_amp_controls: Dict[int, CavityAmplitudeControls] = {}
+        self.pushButton: QPushButton = QPushButton()
+        self.pushButton.setText(f"CM{name}")
+        self.checkbox: QCheckBox = QCheckBox()
+        self.pushButton.clicked.connect(self.open_cm_display)
+    
+    def open_cm_display(self):
+        if not self.cm_display:
+            self.cm_display = Display(ui_filename="amplitude.ui")
+            self.cm_display.setWindowTitle(f"CM {self.name} Measurement Amplitudes")
+            vlayout: QVBoxLayout = QVBoxLayout()
+            self.cm_display.setLayout(vlayout)
+            groupbox: QGroupBox = QGroupBox()
+            vlayout.addWidget(groupbox)
+            groupbox.setCheckable(True)
+            groupbox.setTitle("Select All")
+            
+            grid_layout = QGridLayout()
+            groupbox.setLayout(grid_layout)
+            
+            for cav_num in range(1, 9):
+                row = (cav_num - 1) % 4
+                column = (cav_num - 1) % 2
+                controls = CavityAmplitudeControls(cav_num, self.prefix
+                                                   + f"{cav_num}0:")
+                self.cavity_amp_controls[cav_num] = controls
+                grid_layout.addWidget(controls.groupbox, row, column)
+        
+        showDisplay(self.cm_display)
 
 
 class MplCanvas(FigureCanvasQTAgg):

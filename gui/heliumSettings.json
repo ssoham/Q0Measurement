@@ -1,4 +1,0 @@
-[{"label": "Desired Liquid Level Drop Per Measurement", "prefix": "", "value": "4", "unit": "%", "name": "desiredHeliumDrop"},
-  {"label": "Minimum Downstream Liquid Level", "prefix": "", "value": "90", "unit": "%", "name": "minDownstreamLiquidLevel"},
-  {"label": "Minimum Liquid Level to Start Measurement", "prefix": "", "value": "94", "unit": "%", "name": "minStartingLiquidLevel"},
-  {"label": "Minimum Upstream Liquid Level", "prefix": "", "value": "66", "unit": "%", "name": "minUpstreamLiquidLevel"}]

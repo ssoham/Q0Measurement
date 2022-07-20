@@ -1,0 +1,203 @@
+import sys
+from datetime import datetime, timedelta
+from typing import Dict, Optional
+
+from PyQt5.QtCore import pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import (QButtonGroup, QDateTimeEdit, QDoubleSpinBox, QGridLayout, QGroupBox,
+                             QHBoxLayout, QLabel, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+from lcls_tools.common.pydm_tools.displayUtils import showDisplay
+from lcls_tools.superconducting.scLinac import L1BHL, LINAC_TUPLES
+from pydm import Display
+
+from q0_gui_utils import (CalibrationWorker, CryomoduleSelector,
+                          DEFAULT_END_HEAT, DEFAULT_JT_START_DELTA,
+                          DEFAULT_LL_BUFFER_SIZE,
+                          DEFAULT_LL_DROP,
+                          DEFAULT_NUM_CAL_POINTS,
+                          DEFAULT_START_HEAT,
+                          MIN_STARTING_LL, MeasurementSettings)
+
+sys.path.insert(0, '..')
+from q0Linac import Q0Cryomodule
+from q0Utils import ValveParams
+
+
+class Q0GUI(Display):
+    calibration_error_signal = pyqtSignal(str)
+    calibration_status_signal = pyqtSignal(str)
+    
+    def ui_filename(self):
+        return "q0.ui"
+    
+    def __init__(self, parent=None, args=None):
+        super().__init__(parent=parent, args=args)
+        
+        self.selectedCM: Optional[Q0Cryomodule] = None
+        
+        self.button_group: QButtonGroup = QButtonGroup()
+        
+        # Note: if we don't save these, they get garbage collected
+        self.cm_selectors: Dict[str, CryomoduleSelector] = {}
+        
+        self.cm_selector_window: Display = None
+        self.ui.cmSelectButton.clicked.connect(self.open_cm_selector_window)
+        
+        self.settings_window: Display = None
+        self.ui.settingsButton.clicked.connect(self.open_settings_window)
+        
+        self.num_cal_points_spinbox: QSpinBox = QSpinBox()
+        self.end_heat_spinbox: QDoubleSpinBox = QDoubleSpinBox()
+        self.start_heat_spinbox: QDoubleSpinBox = QDoubleSpinBox()
+        self.min_start_ll_spinbox: QDoubleSpinBox = QDoubleSpinBox()
+        self.ll_drop_spinbox: QDoubleSpinBox = QDoubleSpinBox()
+        self.jt_search_start_edit: QDateTimeEdit = QDateTimeEdit()
+        self.jt_search_end_edit: QDateTimeEdit = QDateTimeEdit()
+        self.ll_buffer_spinbox: QSpinBox = QSpinBox()
+        self.ll_buffer_spinbox.valueChanged.connect(self.update_ll_buffer)
+        self.setup_settings()
+        
+        self.calibrationSection: MeasurementSettings = MeasurementSettings("Calibration")
+        self.calibrationSection.new_button.clicked.connect(self.takeNewCalibration)
+        
+        self.rfSection: MeasurementSettings = MeasurementSettings("RF Measurement")
+        self.ui.groupbox_layout.addWidget(self.calibrationSection.main_groupbox)
+        self.ui.groupbox_layout.addWidget(self.rfSection.main_groupbox)
+        
+        self.calibration_worker = None
+        self.rf_worker = None
+    
+    @pyqtSlot(int)
+    def update_ll_buffer(self, value):
+        if self.selectedCM:
+            self.selectedCM.ll_buffer_size = value
+    
+    @property
+    def jt_search_start(self):
+        return self.jt_search_start_edit.dateTime().toPyDateTime()
+    
+    @property
+    def jt_search_end(self):
+        return self.jt_search_end_edit.dateTime().toPyDateTime()
+    
+    @pyqtSlot()
+    def takeNewCalibration(self):
+        heater_delta = ((self.end_heat_spinbox.value()
+                         - self.start_heat_spinbox.value()) / self.num_cal_points_spinbox.value()) / 8
+        if self.ui.manual_cryo_groupbox.isChecked():
+            self.selectedCM.valveParams = ValveParams(refHeatLoadDes=self.ui.ref_heat_spinbox.value(),
+                                                      refValvePos=self.ui.jt_pos_spinbox.value(),
+                                                      refHeatLoadAct=None)
+            self.calibration_worker = CalibrationWorker(self.selectedCM,
+                                                        self.start_heat_spinbox.value(),
+                                                        self.jt_search_start,
+                                                        self.jt_search_end,
+                                                        self.min_start_ll_spinbox.value(),
+                                                        heater_delta)
+        self.calibration_worker.status.connect(self.calibrationSection.handle_status)
+        self.calibration_worker.error.connect(self.calibrationSection.handle_error)
+        self.calibration_worker.start()
+    
+    @pyqtSlot()
+    def takeNewQ0Measurement(self):
+        self.selectedCM.takeNewQ0Measurement(self.desiredCavityAmplitudes)
+    
+    @staticmethod
+    def make_setting_groupbox(title: str, widget: QWidget, unit: str = None):
+        hor_layout: QHBoxLayout = QHBoxLayout()
+        hor_layout.addWidget(widget)
+        if unit:
+            hor_layout.addWidget(QLabel(unit))
+        
+        groupbox: QGroupBox = QGroupBox(title)
+        groupbox.setLayout(hor_layout)
+        
+        return groupbox
+    
+    def setup_settings(self):
+        self.ll_drop_spinbox.setRange(1, 5)
+        self.ll_drop_spinbox.setValue(DEFAULT_LL_DROP)
+        
+        self.min_start_ll_spinbox.setRange(91, 95)
+        self.min_start_ll_spinbox.setValue(MIN_STARTING_LL)
+        
+        self.start_heat_spinbox.setRange(20, 160)
+        self.start_heat_spinbox.setValue(DEFAULT_START_HEAT)
+        
+        self.end_heat_spinbox.setRange(20, 160)
+        self.end_heat_spinbox.setValue(DEFAULT_END_HEAT)
+        
+        self.num_cal_points_spinbox.setRange(2, 20)
+        self.num_cal_points_spinbox.setValue(DEFAULT_NUM_CAL_POINTS)
+        
+        end_time: datetime = datetime.now() - timedelta(hours=12)
+        self.jt_search_end_edit.setDateTime(end_time)
+        self.jt_search_start_edit.setCalendarPopup(True)
+        self.jt_search_start_edit.setDateTime(end_time - DEFAULT_JT_START_DELTA)
+        self.jt_search_end_edit.setCalendarPopup(True)
+        
+        self.ll_buffer_spinbox.setRange(1, 25)
+        self.ll_buffer_spinbox.setValue(DEFAULT_LL_BUFFER_SIZE)
+    
+    def open_settings_window(self):
+        if not self.settings_window:
+            self.settings_window = Display()
+            self.settings_window.setWindowTitle("Q0 Measurement Settings")
+            vlayout: QVBoxLayout = QVBoxLayout()
+            vlayout.addWidget(self.make_setting_groupbox("Liquid Level Drop",
+                                                         self.ll_drop_spinbox, "%"))
+            vlayout.addWidget(self.make_setting_groupbox("Minimum LL to start",
+                                                         self.min_start_ll_spinbox, "%"))
+            vlayout.addWidget(self.make_setting_groupbox("Initial Calibration Heat Load",
+                                                         self.start_heat_spinbox, "W"))
+            vlayout.addWidget(self.make_setting_groupbox("Final Calibration Heat Load",
+                                                         self.end_heat_spinbox, "W"))
+            vlayout.addWidget(self.make_setting_groupbox("Number of Calibration Data Points",
+                                                         self.num_cal_points_spinbox))
+            vlayout.addWidget(self.make_setting_groupbox("JT Stability Search Start",
+                                                         self.jt_search_start_edit))
+            vlayout.addWidget(self.make_setting_groupbox("JT Stability Search End",
+                                                         self.jt_search_end_edit))
+            vlayout.addWidget(self.make_setting_groupbox("Liquid Level Buffer Size (for rolling average)",
+                                                         self.ll_buffer_spinbox))
+            self.settings_window.setLayout(vlayout)
+        
+        showDisplay(self.settings_window)
+    
+    def updateSelectedText(self):
+        if not self.selectedCM:
+            self.ui.cmSelectionLabel.setStyleSheet("color: red;")
+            self.ui.cmSelectionLabel.setText("No Cryomodules Selected")
+            self.calibrationSection.main_groupbox.setEnabled(False)
+            self.rfSection.main_groupbox.setEnabled(False)
+        
+        else:
+            self.ui.cmSelectionLabel.setStyleSheet("color: green;")
+            self.ui.cmSelectionLabel.setText(self.selectedCM.name)
+            self.calibrationSection.main_groupbox.setEnabled(True)
+    
+    def open_cm_selector_window(self):
+        if not self.cm_selector_window:
+            self.cm_selector_window: Display = Display()
+            self.cm_selector_window.setWindowTitle("Q0 Cryomodule Selector")
+            vlayout: QVBoxLayout = QVBoxLayout()
+            tab_widget: QTabWidget = QTabWidget()
+            vlayout.addWidget(tab_widget)
+            self.cm_selector_window.setLayout(vlayout)
+            
+            for linac_name, cm_list in LINAC_TUPLES:
+                if linac_name == "L1B":
+                    cm_list += L1BHL
+                page: QWidget = QWidget()
+                gridlayout: QGridLayout = QGridLayout()
+                page.setLayout(gridlayout)
+                tab_widget.addTab(page, linac_name)
+                
+                for idx, cm_name in enumerate(cm_list):
+                    cm_selector = CryomoduleSelector(cm_name, self.button_group,
+                                                     self)
+                    column = idx % 5
+                    row = int(idx / 5)
+                    gridlayout.addWidget(cm_selector.groupbox, row, column)
+                    self.cm_selectors[cm_name] = cm_selector
+        
+        showDisplay(self.cm_selector_window)

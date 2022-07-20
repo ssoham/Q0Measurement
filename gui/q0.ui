@@ -6,15 +6,15 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>689</width>
-    <height>664</height>
+    <width>336</width>
+    <height>379</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>Q0 Measurement</string>
   </property>
-  <layout class="QGridLayout" name="gridLayout">
-   <item row="2" column="0" colspan="3">
+  <layout class="QVBoxLayout" name="verticalLayout_2">
+   <item>
     <widget class="QFrame" name="frame">
      <property name="frameShape">
       <enum>QFrame::Box</enum>
@@ -25,8 +25,8 @@
      <property name="lineWidth">
       <number>2</number>
      </property>
-     <layout class="QGridLayout" name="gridLayout_2">
-      <item row="0" column="1" colspan="3">
+     <layout class="QVBoxLayout" name="verticalLayout">
+      <item>
        <widget class="QPushButton" name="cmSelectButton">
         <property name="enabled">
          <bool>true</bool>
@@ -48,7 +48,20 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="0" colspan="5">
+      <item>
+       <widget class="QPushButton" name="settingsButton">
+        <property name="enabled">
+         <bool>true</bool>
+        </property>
+        <property name="toolTip">
+         <string>Default settings will work fine in most use cases</string>
+        </property>
+        <property name="text">
+         <string>Open Measurement Settings Dialog</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QFrame" name="cmSelectionFrame">
         <property name="enabled">
          <bool>true</bool>
@@ -171,63 +184,60 @@
      </layout>
     </widget>
    </item>
-   <item row="3" column="0" colspan="3">
-    <widget class="PyDMTemplateRepeater" name="dialogues">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
+   <item>
+    <widget class="QGroupBox" name="manual_cryo_groupbox">
      <property name="sizePolicy">
-      <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+      <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
        <horstretch>0</horstretch>
        <verstretch>0</verstretch>
       </sizepolicy>
      </property>
-     <property name="frameShape">
-      <enum>QFrame::NoFrame</enum>
+     <property name="title">
+      <string>Use Manual Cryo Parameters</string>
      </property>
-     <property name="layoutType" stdset="0">
-      <enum>PyDMTemplateRepeater::Vertical</enum>
+     <property name="checkable">
+      <bool>true</bool>
      </property>
-     <property name="countShownInDesigner" stdset="0">
-      <number>20</number>
+     <property name="checked">
+      <bool>false</bool>
      </property>
-     <property name="templateFilename" stdset="0">
-      <string>dialogueGroup.ui</string>
-     </property>
-     <property name="dataSource" stdset="0">
-      <string>dialogues.json</string>
-     </property>
+     <layout class="QGridLayout" name="gridLayout">
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_2">
+        <property name="text">
+         <string>Reference Electric Heat Load</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QDoubleSpinBox" name="jt_pos_spinbox">
+        <property name="value">
+         <double>40.000000000000000</double>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>JT Valve Position</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QDoubleSpinBox" name="ref_heat_spinbox">
+        <property name="value">
+         <double>24.000000000000000</double>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </widget>
    </item>
-   <item row="4" column="1">
-    <widget class="QPushButton" name="settingsButton">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
-     </property>
-     <property name="toolTip">
-      <string>Default settings will work fine in most use cases</string>
-     </property>
-     <property name="text">
-      <string>Open Measurement Settings Dialog</string>
-     </property>
-    </widget>
+   <item>
+    <layout class="QVBoxLayout" name="groupbox_layout"/>
    </item>
   </layout>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>PyDMTemplateRepeater</class>
-   <extends>QFrame</extends>
-   <header>pydm.widgets.template_repeater</header>
-   <container>1</container>
-  </customwidget>
- </customwidgets>
  <resources/>
  <connections/>
 </ui>

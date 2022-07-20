@@ -1,2 +1,0 @@
-[{"label": "JT Valve Stability Search Overlap Per Step", "prefix": "", "value": "0.5", "unit": "Hours", "name": "jtSearchOverlap"},
-  {"label": "JT Valve Stability Rolling Search Window Size", "prefix": "", "value": "2", "unit": "Hours", "name": "jtSearchWindowSize"}]
