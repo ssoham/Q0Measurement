@@ -71,7 +71,7 @@ NUM_LL_POINTS_TO_AVG = 25
 CAV_HEATER_RUN_LOAD = 24
 FULL_MODULE_CALIBRATION_LOAD = 80
 
-CAL_HEATER_DELTA = 1
+CAL_HEATER_DELTA = 8
 
 JT_SEARCH_TIME_RANGE: timedelta = timedelta(hours=24)
 JT_SEARCH_OVERLAP_DELTA: timedelta = timedelta(minutes=30)
@@ -186,18 +186,18 @@ class TimeParams:
 
 @dataclass
 class CryomodulePVs:
-    heaterDesPVs: List[str]
-    heaterActPVs: List[str]
+    heaterDesPV: str
+    heaterActPV: str
     valvePV: str
     dsLevelPV: str
     usLevelPV: str
     dsPressurePV: str
-    gradPVs: Optional[List[str]] = None
+    ampPVs: Optional[List[str]] = None
     
     def asList(self) -> List[str]:
         return ([self.valvePV, self.dsLevelPV, self.usLevelPV,
-                 self.dsPressurePV] + self.heaterDesPVs + self.heaterActPVs +
-                (self.gradPVs if self.gradPVs else []))
+                 self.dsPressurePV] + self.heaterDesPV + self.heaterActPV +
+                (self.ampPVs if self.ampPVs else []))
 
 
 def isYes(prompt):
