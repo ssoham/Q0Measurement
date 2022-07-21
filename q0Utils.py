@@ -11,12 +11,14 @@ from sys import stderr, stdout, version_info
 from time import sleep
 from typing import Any, Callable, Dict, KeysView, List, Optional, Tuple, Union
 
+import numpy as np
 from epics import PV
 from lcls_tools.common.data_analysis.archiver import Archiver, ArchiverData
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from requests.exceptions import ConnectTimeout
+from scipy.stats import linregress
 from six import moves
 
 # Set True to use a known data set for debugging and/or demoing
@@ -105,29 +107,70 @@ SAFE_PULSED_DRIVE_LEVEL = 15
 ARCHIVER = Archiver("lcls")
 
 
+class CalibrationRun:
+    def __init__(self, heat_load: float):
+        self.ll_buffer: List[float] = []
+        self.heat_load: float = heat_load
+        self._dll_dt = None
+    
+    @property
+    def dll_dt(self):
+        if not self._dll_dt:
+            slope, intercept, r_val, p_val, std_err = linregress(
+                    range(len(self.ll_buffer)), self.ll_buffer)
+            self._dll_dt = slope
+        return self._dll_dt
+
+
+class Calibration:
+    def __init__(self):
+        self.data: List[CalibrationRun] = []
+        self._slope = None
+        self.adjustment = 0
+    
+    def clear(self):
+        self.data: List[CalibrationRun] = []
+        self._slope = None
+        self.adjustment = 0
+    
+    @property
+    def slope(self):
+        if not self._slope:
+            heat_loads = []
+            dll_dts = []
+            for run in self.data:
+                heat_loads.append(run.heat_load)
+                dll_dts.append(run.dll_dt)
+            
+            slope, intercept, r_val, p_val, std_err = linregress(
+                    heat_loads, dll_dts)
+            
+            if np.isnan(slope):
+                self._slope = None
+            else:
+                self.adjustment = intercept
+                self._slope = slope
+        
+        return self._slope
+
+
 class RFError(Exception):
     """
     Exception thrown during RF Execution for the GUI to catch
     """
-    
-    def __init__(self, message):
-        self.message = message
-        super().__init__(self.message)
+    pass
 
 
 class QuenchError(RFError):
     def __init__(self):
-        super(QuenchError, self).__init__("Quench Detected")
+        super().__init__("Quench Detected")
 
 
 class CryoError(Exception):
     """
     Exception thrown during Cryo Execution for the GUI to catch
     """
-    
-    def __init__(self, message):
-        self.message = message
-        super().__init__(self.message)
+    pass
 
 
 def q0Hash(argList: List[Any]):
