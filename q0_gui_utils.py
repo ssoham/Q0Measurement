@@ -53,6 +53,26 @@ class CryoParamWorker(Worker):
         self.finished.emit("New reference cryo params loaded")
 
 
+class Q0Worker(Worker):
+    def __init__(self, cryomodule: Q0Cryomodule,
+                 jt_search_start: datetime, jt_search_end: datetime,
+                 desired_ll, ll_drop, desired_amplitudes):
+        super().__init__()
+        self.cryomodule = cryomodule
+        self.jt_search_end = jt_search_end
+        self.jt_search_start = jt_search_start
+        self.desired_ll = desired_ll
+        self.ll_drop = ll_drop
+        self.desired_amplitudes = desired_amplitudes
+    
+    def run(self) -> None:
+        self.cryomodule.takeNewQ0Measurement(desiredAmplitudes=self.desired_amplitudes,
+                                             jt_search_start=self.jt_search_start,
+                                             jt_search_end=self.jt_search_end,
+                                             desired_ll=self.desired_ll,
+                                             ll_drop=self.ll_drop)
+
+
 class CalibrationWorker(Worker):
     
     def __init__(self, cryomodule: Q0Cryomodule, start_heat: float,

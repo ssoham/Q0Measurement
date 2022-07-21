@@ -107,10 +107,38 @@ SAFE_PULSED_DRIVE_LEVEL = 15
 ARCHIVER = Archiver("lcls")
 
 
-class CalibrationRun:
-    def __init__(self, heat_load: float):
+# The calculated Q0 value for this run. Formula from Mike Drury
+# (drury@jlab.org) to calculate Q0 from the measured heat load on a cavity,
+# the RF gradient used during the test, and the pressure of the incoming
+# 2 K helium.
+def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float):
+    # The initial Q0 calculation doesn't account for the temperature
+    # variation of the 2 K helium
+    rUponQ = 1012
+    
+    uncorrectedQ0 = (((amplitude * 1000000) ** 2)
+                     / (rUponQ * rfHeatLoad))
+    
+    # uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
+    
+    # We can correct Q0 for the helium temperature!
+    tempFromPress = (avgPressure * 0.0125) + 1.705
+    
+    C1 = 271
+    C2 = 0.0000726
+    C3 = 0.00000214
+    C4 = amplitude - 0.7
+    C5 = 0.000000043
+    C6 = -17.02
+    C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))
+    
+    return (C1 / ((C7 / 2) * np.exp(C6 / 2) + C1 / uncorrectedQ0
+                  - (C7 / tempFromPress) * np.exp(C6 / tempFromPress)))
+
+
+class DataRun:
+    def __init__(self):
         self.ll_buffer: List[float] = []
-        self.heat_load: float = heat_load
         self._dll_dt = None
     
     @property
@@ -122,19 +150,25 @@ class CalibrationRun:
         return self._dll_dt
 
 
+class HeaterRun(DataRun):
+    def __init__(self, heat_load: float):
+        super().__init__()
+        self.heat_load: float = heat_load
+
+
 class Calibration:
     def __init__(self):
-        self.data: List[CalibrationRun] = []
+        self.data: List[HeaterRun] = []
         self._slope = None
         self.adjustment = 0
     
     def clear(self):
-        self.data: List[CalibrationRun] = []
+        self.data: List[HeaterRun] = []
         self._slope = None
         self.adjustment = 0
     
     @property
-    def slope(self):
+    def dLLdt_dheat(self):
         if not self._slope:
             heat_loads = []
             dll_dts = []
@@ -152,6 +186,55 @@ class Calibration:
                 self._slope = slope
         
         return self._slope
+    
+    def get_heat(self, dll_dt: float):
+        return (dll_dt - self.adjustment) / self.dLLdt_dheat
+
+
+class RFRun(DataRun):
+    def __init__(self, amplitude: float):
+        super().__init__()
+        self.amplitude = amplitude
+        self.pressure_buffer = []
+
+
+class Q0Measurement:
+    def __init__(self, heater_run_heatload: float, amplitude: float,
+                 calibration: Calibration):
+        self.heater_run: HeaterRun = HeaterRun(heater_run_heatload)
+        self.rf_run: RFRun = RFRun(amplitude)
+        self.calibration: Calibration = calibration
+        self._raw_heat: float = None
+        self._adjustment: float = None
+        self._heat_load: float = None
+        self._q0: float = None
+    
+    @property
+    def raw_heat(self):
+        if not self._raw_heat:
+            self._raw_heat = self.calibration.get_heat(self.rf_run.dll_dt)
+        return self._raw_heat
+    
+    @property
+    def adjustment(self):
+        if not self._adjustment:
+            heater_run_raw_heat = self.calibration.get_heat(self.heater_run.dll_dt)
+            self._adjustment = self.heater_run.heat_load - heater_run_raw_heat
+        return self._adjustment
+    
+    @property
+    def heat_load(self):
+        if not self._heat_load:
+            self._heat_load = self.raw_heat + self.adjustment
+        return self._heat_load
+    
+    @property
+    def q0(self):
+        if not self._q0:
+            self._q0 = calcQ0(amplitude=self.rf_run.amplitude,
+                              rfHeatLoad=self.heat_load,
+                              avgPressure=np.mean(self.rf_run.pressure_buffer))
+        return self._q0
 
 
 class RFError(Exception):

@@ -6,7 +6,7 @@ from time import sleep
 from typing import Dict, List
 
 import numpy as np
-from epics import caget, caput
+from epics import caget, camonitor, camonitor_clear, caput
 from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Magnet, Piezo, Rack, SSA, StepperTuner
 from scipy.signal import medfilt
 from scipy.stats import linregress
@@ -38,10 +38,10 @@ class Q0Cryomodule(Cryomodule):
         
         self.valveParams: q0Utils.ValveParams = None
         
-        self._calibIdxFile = ("calibrations/cm{CM}/calibrationsCM{CM}.json"
-                              .format(CM=self.name))
-        self._q0IdxFile = ("q0Measurements/cm{CM}/q0MeasurementsCM{CM}.json"
-                           .format(CM=self.name))
+        self._calib_idx_file = ("calibrations/cm{CM}/calibrationsCM{CM}.json"
+                                .format(CM=self.name))
+        self._q0_idx_file = ("q0Measurements/cm{CM}/q0MeasurementsCM{CM}.json"
+                             .format(CM=self.name))
         
         self.ll_buffer: np.array = np.empty(q0Utils.NUM_LL_POINTS_TO_AVG)
         self.ll_buffer[:] = np.nan
@@ -50,7 +50,8 @@ class Q0Cryomodule(Cryomodule):
         
         self.measurement_buffer = []
         self.calibration: q0Utils.Calibration = q0Utils.Calibration()
-        self.current_calibration_run = None
+        self.q0_measurement: q0Utils.Q0Measurement = None
+        self.current_data_run: q0Utils.DataRun = None
         self.cavity_amplitudes = {}
     
     @property
@@ -70,8 +71,8 @@ class Q0Cryomodule(Cryomodule):
     def monitor_ll(self, value, **kwargs):
         self.ll_buffer[self.ll_buffer_idx] = value
         self.ll_buffer_idx = (self.ll_buffer_idx + 1) % self.ll_buffer_size
-        if self.current_calibration_run:
-            self.current_calibration_run.ll_buffer.append(value)
+        if self.current_data_run:
+            self.current_data_run.ll_buffer.append(value)
     
     @property
     def averagedLiquidLevelDS(self) -> float:
@@ -84,14 +85,24 @@ class Q0Cryomodule(Cryomodule):
             return avg_ll
     
     @property
-    def calibIdxFile(self) -> str:
+    def q0_idx_file(self) -> str:
         
-        if not isfile(self._calibIdxFile):
-            os.makedirs(os.path.dirname(self._calibIdxFile), exist_ok=True)
-            with open(self._calibIdxFile, "w+") as f:
+        if not isfile(self._q0_idx_file):
+            os.makedirs(os.path.dirname(self._q0_idx_file), exist_ok=True)
+            with open(self._q0_idx_file, "w+") as f:
                 json.dump([], f)
         
-        return self._calibIdxFile
+        return self._q0_idx_file
+    
+    @property
+    def calib_idx_file(self) -> str:
+        
+        if not isfile(self._calib_idx_file):
+            os.makedirs(os.path.dirname(self._calib_idx_file), exist_ok=True)
+            with open(self._calib_idx_file, "w+") as f:
+                json.dump([], f)
+        
+        return self._calib_idx_file
     
     def fillAndLock(self, desiredLevel=q0Utils.MAX_DS_LL):
         
@@ -115,7 +126,7 @@ class Q0Cryomodule(Cryomodule):
         window_start = start_time
         window_end = start_time + q0Utils.DELTA_NEEDED_FOR_FLATNESS
         while window_end <= end_time:
-            print(f"Checking window {window_start} to {window_end}")
+            print(f"\nChecking window {window_start} to {window_end}")
             
             data = q0Utils.ARCHIVER.getValuesOverTimeRange(pvList=[self.dsLevelPV],
                                                            startTime=window_start,
@@ -125,8 +136,6 @@ class Q0Cryomodule(Cryomodule):
             # Fit a line to the liquid level over the last [numHours] hours
             m, b, r, _, _ = linregress(range(len(llVals)), llVals)
             print(f"r^2 of linear fit: {r ** 2}")
-            # if r ** 2 >= 0.9:
-            #     print(llVals)
             print(f"Slope: {m}")
             
             # If the LL slope is small enough, this may be a good period from
@@ -188,8 +197,8 @@ class Q0Cryomodule(Cryomodule):
         
         print(q0Utils.RUN_STATUS_MSSG)
         
-        self.current_calibration_run: q0Utils.CalibrationRun = q0Utils.CalibrationRun(delta)
-        self.calibration.data.append(self.current_calibration_run)
+        self.current_data_run: q0Utils.HeaterRun = q0Utils.HeaterRun(delta)
+        self.calibration.data.append(self.current_data_run)
         
         self.wait_for_ll_drop(target_ll_diff)
         
@@ -204,10 +213,21 @@ class Q0Cryomodule(Cryomodule):
             print(f"Averaged level is {avgLevel}; waiting 10s")
             sleep(10)
     
+    def fill_pressure_buffer(self, value, **kwargs):
+        if self.q0_measurement:
+            self.q0_measurement.rf_run.pressure_buffer.append(value)
+    
     def takeNewQ0Measurement(self, desiredAmplitudes: Dict[int, float],
                              jt_search_start: datetime, jt_search_end: datetime,
                              desired_ll: float = q0Utils.MAX_DS_LL,
                              ll_drop: float = q0Utils.TARGET_LL_DIFF):
+        
+        self.q0_measurement = q0Utils.Q0Measurement(heater_run_heatload=q0Utils.FULL_MODULE_CALIBRATION_LOAD,
+                                                    amplitude=sum(desiredAmplitudes.values()),
+                                                    calibration=self.calibration)
+        
+        camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
+        
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
@@ -222,13 +242,19 @@ class Q0Cryomodule(Cryomodule):
                 print("\nRunning up Cavity {CAV}...".format(CAV=cavity.cavNum))
                 cavity.setup_SELA(desiredAmplitudes[cavity.number])
         
+        self.current_data_run: q0Utils.RFRun = self.q0_measurement.rf_run
         start_time = datetime.now()
         
         self.wait_for_ll_drop(ll_drop)
+        self.current_data_run = None
         
         self.fillAndLock(desired_ll)
+        self.current_data_run: q0Utils.HeaterRun = self.q0_measurement.heater_run
         self.launchHeaterRun(q0Utils.FULL_MODULE_CALIBRATION_LOAD,
                              target_ll_diff=ll_drop)
+        
+        camonitor_clear(self.dsPressurePV)
+        self.current_data_run = None
         
         end_time = datetime.now()
         caput(self.heater_setpoint_pv,
@@ -246,8 +272,19 @@ class Q0Cryomodule(Cryomodule):
                    "Start Time"                     : start_time.strftime("%m/%d/%y %H:%M:%S"),
                    "End Time"                       : end_time.strftime("%m/%d/%y %H:%M:%S"),
                    "Cavity Amplitudes"              : desiredAmplitudes,
-                   "Calculated Heat vs dll/dt Slope": self.calibration.slope,
-                   "Calculated Adjustment"          : self.calibration.adjustment}
+                   "Calculated Adjusted Heat Load"  : self.q0_measurement.heat_load,
+                   "Calculated Raw Heat Load"       : self.q0_measurement.raw_heat,
+                   "Calculated Adjustment"          : self.q0_measurement.adjustment,
+                   "Calculated Q0"                  : self.q0_measurement.q0}
+        
+        with open(self.q0_idx_file, 'r+') as f:
+            data: List = json.load(f)
+            data.append(newData)
+            
+            # go to the beginning of the file to overwrite the existing data structure
+            f.seek(0)
+            json.dump(data, f)
+            f.truncate()
     
     def takeNewCalibration(self, initial_heat_load: int,
                            jt_search_start: datetime = None,
@@ -278,13 +315,13 @@ class Q0Cryomodule(Cryomodule):
         self.fillAndLock(desired_ll)
         
         self.launchHeaterRun(initial_heat_load, target_ll_diff=ll_drop)
-        self.current_calibration_run = None
+        self.current_data_run = None
         
         for _ in range(num_cal_steps):
             if (self.averagedLiquidLevelDS - q0Utils.MIN_DS_LL) < ll_drop:
                 self.fillAndLock(desired_ll)
             self.launchHeaterRun(heater_delta, target_ll_diff=ll_drop)
-            self.current_calibration_run = None
+            self.current_data_run = None
         
         endTime = datetime.now().replace(microsecond=0)
         
@@ -313,10 +350,10 @@ class Q0Cryomodule(Cryomodule):
                    "Number of Points"               : num_cal_steps,
                    "Initial Heat Load"              : initial_heat_load,
                    "Heater Delta"                   : heater_delta,
-                   "Calculated Heat vs dll/dt Slope": self.calibration.slope,
+                   "Calculated Heat vs dll/dt Slope": self.calibration.dLLdt_dheat,
                    "Calculated Adjustment"          : self.calibration.adjustment}
         
-        with open(self.calibIdxFile, 'r+') as f:
+        with open(self.calib_idx_file, 'r+') as f:
             data: List = json.load(f)
             data.append(newData)
             

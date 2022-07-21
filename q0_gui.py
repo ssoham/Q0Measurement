@@ -16,7 +16,7 @@ from q0_gui_utils import (CalibrationWorker, CryoParamWorker, CryomoduleSelector
                           DEFAULT_LL_DROP,
                           DEFAULT_NUM_CAL_POINTS,
                           DEFAULT_START_HEAT,
-                          MIN_STARTING_LL, MeasurementSettings)
+                          MIN_STARTING_LL, MeasurementSettings, Q0Worker)
 from q0_linac import Q0Cryomodule
 
 
@@ -58,6 +58,8 @@ class Q0GUI(Display):
         self.calibrationSection.new_button.clicked.connect(self.takeNewCalibration)
         
         self.rfSection: MeasurementSettings = MeasurementSettings("RF Measurement")
+        self.rfSection.new_button.clicked.connect(self.takeNewQ0Measurement)
+        
         self.ui.groupbox_layout.addWidget(self.calibrationSection.main_groupbox)
         self.ui.groupbox_layout.addWidget(self.rfSection.main_groupbox)
         
@@ -130,7 +132,21 @@ class Q0GUI(Display):
     
     @pyqtSlot()
     def takeNewQ0Measurement(self):
-        self.selectedCM.takeNewQ0Measurement(self.desiredCavityAmplitudes)
+        if self.ui.manual_cryo_groupbox.isChecked():
+            self.selectedCM.valveParams = ValveParams(refHeatLoadDes=self.ui.ref_heat_spinbox.value(),
+                                                      refValvePos=self.ui.jt_pos_spinbox.value(),
+                                                      refHeatLoadAct=None)
+        
+        self.rf_worker = Q0Worker(cryomodule=self.selectedCM,
+                                  jt_search_start=self.jt_search_start,
+                                  jt_search_end=self.jt_search_end,
+                                  desired_ll=self.min_start_ll_spinbox.value(),
+                                  ll_drop=self.ll_drop_spinbox.value(),
+                                  desired_amplitudes=self.desiredCavityAmplitudes)
+        self.rf_worker.status.connect(self.rfSection.handle_status)
+        self.rf_worker.finished.connect(self.rfSection.handle_status)
+        self.rf_worker.error.connect(self.rfSection.handle_error)
+        self.rf_worker.start()
     
     @staticmethod
     def make_setting_groupbox(title: str, widget: QWidget, unit: str = None):
