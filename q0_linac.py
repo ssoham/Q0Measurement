@@ -154,7 +154,8 @@ class Q0Cryomodule(Cryomodule):
                     print(f"Desired JT valve position: {desPos}")
                     print(f"Total heater des setting: {heaterDes}")
                     
-                    return q0Utils.ValveParams(desPos, heaterDes, heaterAct)
+                    self.valveParams = q0Utils.ValveParams(desPos, heaterDes, heaterAct)
+                    return self.valveParams
             
             window_end += q0Utils.JT_SEARCH_OVERLAP_DELTA
             window_start += q0Utils.JT_SEARCH_OVERLAP_DELTA
