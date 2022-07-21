@@ -198,7 +198,7 @@ class Q0Cryomodule(Cryomodule):
         print(q0Utils.RUN_STATUS_MSSG)
         
         self.current_data_run: q0Utils.HeaterRun = q0Utils.HeaterRun(delta)
-        self.calibration.data.append(self.current_data_run)
+        self.calibration.heater_runs.append(self.current_data_run)
         
         self.wait_for_ll_drop(target_ll_diff)
         
@@ -254,6 +254,7 @@ class Q0Cryomodule(Cryomodule):
                              target_ll_diff=ll_drop)
         
         camonitor_clear(self.dsPressurePV)
+        self.q0_measurement.save_data(timestamp=start_time, cm_name=self.name)
         self.current_data_run = None
         
         end_time = datetime.now()
@@ -322,6 +323,8 @@ class Q0Cryomodule(Cryomodule):
                 self.fillAndLock(desired_ll)
             self.launchHeaterRun(heater_delta, target_ll_diff=ll_drop)
             self.current_data_run = None
+        
+        self.calibration.save_data(timestamp=startTime, cm_name=self.name)
         
         endTime = datetime.now().replace(microsecond=0)
         

@@ -1,9 +1,12 @@
+import json
+import os
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from errno import EEXIST
 from json import dumps
 from os import devnull, makedirs, path
+from os.path import isfile
 from pathlib import Path
 from re import compile, findall
 from subprocess import CalledProcessError, check_call, check_output
@@ -156,23 +159,47 @@ class HeaterRun(DataRun):
         self.heat_load: float = heat_load
 
 
+def make_json_file(filepath):
+    if not isfile(filepath):
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, "w+") as f:
+            json.dump([], f)
+
+
 class Calibration:
     def __init__(self):
-        self.data: List[HeaterRun] = []
+        self.heater_runs: List[HeaterRun] = []
         self._slope = None
         self.adjustment = 0
     
     def clear(self):
-        self.data: List[HeaterRun] = []
+        self.heater_runs: List[HeaterRun] = []
         self._slope = None
         self.adjustment = 0
+    
+    def save_data(self, timestamp: datetime, cm_name: str):
+        filepath = f"data/calibrations/cm{cm_name}.json"
+        make_json_file(filepath)
+        new_data = {"Start Time": timestamp.strftime("%m/%d/%y %H:%M:%S")}
+        
+        for heater_run in self.heater_runs:
+            new_data[heater_run.heat_load] = heater_run.ll_buffer
+        
+        with open(filepath, 'r+') as f:
+            data: List = json.load(f)
+            data.append(new_data)
+            
+            # go to the beginning of the file to overwrite the existing data structure
+            f.seek(0)
+            json.dump(data, f)
+            f.truncate()
     
     @property
     def dLLdt_dheat(self):
         if not self._slope:
             heat_loads = []
             dll_dts = []
-            for run in self.data:
+            for run in self.heater_runs:
                 heat_loads.append(run.heat_load)
                 dll_dts.append(run.dll_dt)
             
@@ -208,6 +235,23 @@ class Q0Measurement:
         self._adjustment: float = None
         self._heat_load: float = None
         self._q0: float = None
+    
+    def save_data(self, timestamp: datetime, cm_name: str):
+        filepath = f"data/q0_measurements/cm{cm_name}.json"
+        make_json_file(filepath)
+        new_data = {"Start Time"            : timestamp.strftime("%m/%d/%y %H:%M:%S"),
+                    "Heater Run LL Buffer"  : self.heater_run.ll_buffer,
+                    "RF Run LL Buffer"      : self.rf_run.ll_buffer,
+                    "RF Run Pressure Buffer": self.rf_run.pressure_buffer}
+        
+        with open(filepath, 'r+') as f:
+            data: List = json.load(f)
+            data.append(new_data)
+            
+            # go to the beginning of the file to overwrite the existing data structure
+            f.seek(0)
+            json.dump(data, f)
+            f.truncate()
     
     @property
     def raw_heat(self):
