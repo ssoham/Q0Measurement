@@ -13,7 +13,7 @@ from pydm import Display
 from requests import ConnectTimeout
 from urllib3.exceptions import ConnectTimeoutError
 
-import q0Utils
+import q0_utils
 from q0_linac import Q0Cryomodule, Q0_CRYOMODULES
 
 DEFAULT_LL_DROP = 4
@@ -47,13 +47,13 @@ class CryoParamSetupWorker(Worker):
     
     def run(self) -> None:
         self.status.emit("Checking for required cryo permissions")
-        if caget(self.cryomodule.cryo_access_pv) != q0Utils.CRYO_ACCESS_VALUE:
+        if caget(self.cryomodule.cryo_access_pv) != q0_utils.CRYO_ACCESS_VALUE:
             self.error.emit("Required cryo permissions not granted - call cryo ops")
             return
         
         caput(self.cryomodule.heater_manual_pv, 1, wait=True)
         sleep(3)
-        caput(self.cryomodule.heater_setpoint_pv, q0Utils.MINIMUM_HEATLOAD)
+        caput(self.cryomodule.heater_setpoint_pv, q0_utils.MINIMUM_HEATLOAD)
         caput(self.cryomodule.jtAutoSelectPV, 1, wait=True)
         caput(self.cryomodule.dsLiqLevSetpointPV, 93, wait=True)
         self.finished.emit("Cryo setup for new reference parameters in ~3 hours")
@@ -92,19 +92,22 @@ class RFWorker(Worker):
 class Q0Worker(RFWorker):
     
     def run(self) -> None:
-        if caget(self.cryomodule.cryo_access_pv) != q0Utils.CRYO_ACCESS_VALUE:
+        if caget(self.cryomodule.cryo_access_pv) != q0_utils.CRYO_ACCESS_VALUE:
             self.error.emit("Required cryo permissions not granted - call cryo ops")
             return
         
-        self.cryomodule.takeNewQ0Measurement(desiredAmplitudes=self.desired_amplitudes,
-                                             desired_ll=self.desired_ll,
-                                             ll_drop=self.ll_drop)
+        try:
+            self.cryomodule.takeNewQ0Measurement(desiredAmplitudes=self.desired_amplitudes,
+                                                 desired_ll=self.desired_ll,
+                                                 ll_drop=self.ll_drop)
+        except TypeError as e:
+            self.error.emit(str(e))
 
 
 class Q0SetupWorker(RFWorker):
     
     def run(self) -> None:
-        if caget(self.cryomodule.cryo_access_pv) != q0Utils.CRYO_ACCESS_VALUE:
+        if caget(self.cryomodule.cryo_access_pv) != q0_utils.CRYO_ACCESS_VALUE:
             self.error.emit("Required cryo permissions not granted - call cryo ops")
             return
         self.cryomodule.setup_for_q0(desiredAmplitudes=self.desired_amplitudes,
@@ -142,7 +145,7 @@ class CalibrationWorker(Worker):
         self.ll_drop = ll_drop
     
     def run(self) -> None:
-        if caget(self.cryomodule.cryo_access_pv) != q0Utils.CRYO_ACCESS_VALUE:
+        if caget(self.cryomodule.cryo_access_pv) != q0_utils.CRYO_ACCESS_VALUE:
             self.error.emit("Required cryo permissions not granted - call cryo ops")
             return
         try:
@@ -155,7 +158,7 @@ class CalibrationWorker(Worker):
                                                num_cal_steps=self.num_cal_steps,
                                                ll_drop=self.ll_drop)
             self.finished.emit("Calibration Loaded")
-        except (ConnectTimeoutError, ConnectTimeout) as e:
+        except (ConnectTimeoutError, ConnectTimeout, q0_utils.CryoError) as e:
             self.error.emit(str(e))
 
 
@@ -181,7 +184,7 @@ class CavityAmplitudeControls(QObject):
         
         self.desAmpSpinbox: QDoubleSpinBox = QDoubleSpinBox()
         amax = caget(prefix + "ADES_MAX")
-        self.desAmpSpinbox.setValue(amax)
+        self.desAmpSpinbox.setValue(min(16.6, amax))
         self.desAmpSpinbox.setRange(0, amax)
         horLayout.addWidget(self.desAmpSpinbox)
         horLayout.addWidget(QLabel("MV"))

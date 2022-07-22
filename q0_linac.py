@@ -11,7 +11,7 @@ from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Mag
 from scipy.signal import medfilt
 from scipy.stats import linregress
 
-import q0Utils
+import q0_utils
 
 
 class Q0Cavity(Cavity):
@@ -49,22 +49,22 @@ class Q0Cryomodule(Cryomodule):
         self.q0DataSessions = {}
         self.calibDataSessions = {}
         
-        self.valveParams: q0Utils.ValveParams = None
+        self.valveParams: q0_utils.ValveParams = None
         
         self._calib_idx_file = ("calibrations/cm{CM}/calibrationsCM{CM}.json"
                                 .format(CM=self.name))
         self._q0_idx_file = ("q0Measurements/cm{CM}/q0MeasurementsCM{CM}.json"
                              .format(CM=self.name))
         
-        self.ll_buffer: np.array = np.empty(q0Utils.NUM_LL_POINTS_TO_AVG)
+        self.ll_buffer: np.array = np.empty(q0_utils.NUM_LL_POINTS_TO_AVG)
         self.ll_buffer[:] = np.nan
-        self._ll_buffer_size = q0Utils.NUM_LL_POINTS_TO_AVG
+        self._ll_buffer_size = q0_utils.NUM_LL_POINTS_TO_AVG
         self.ll_buffer_idx = 0
         
         self.measurement_buffer = []
-        self.calibration: q0Utils.Calibration = q0Utils.Calibration()
-        self.q0_measurement: q0Utils.Q0Measurement = None
-        self.current_data_run: q0Utils.DataRun = None
+        self.calibration: q0_utils.Calibration = q0_utils.Calibration()
+        self.q0_measurement: q0_utils.Q0Measurement = None
+        self.current_data_run: q0_utils.DataRun = None
         self.cavity_amplitudes = {}
     
     @property
@@ -117,33 +117,27 @@ class Q0Cryomodule(Cryomodule):
         
         return self._calib_idx_file
     
-    def fillAndLock(self, desiredLevel=q0Utils.MAX_DS_LL):
+    def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL):
         
         caput(self.dsLiqLevSetpointPV, desiredLevel, wait=True)
         
-        # Allow the JT valve to regulate so that we fill (slowly)
+        print(f"Setting JT to auto for refill to {desiredLevel}")
         caput(self.jtAutoSelectPV, 1, wait=True)
         self.waitForLL(desiredLevel)
         
-        # set to manual
-        caput(self.jtManualSelectPV, 1, wait=True)
-        
-        if caget(self.jtModePV) != q0Utils.JT_MANUAL_MODE_VALUE:
-            raise q0Utils.CryoError("Unable to set JT to manual")
-        
         caput(self.jtManPosSetpointPV, self.valveParams.refValvePos, wait=True)
-        self.waitForJT(self.valveParams.refValvePos)
+        self.lock_jt(self.valveParams.refValvePos)
     
     def getRefValveParams(self, start_time: datetime, end_time: datetime):
         print(f"\nSearching {start_time} to {end_time} for period of JT stability")
         window_start = start_time
-        window_end = start_time + q0Utils.DELTA_NEEDED_FOR_FLATNESS
+        window_end = start_time + q0_utils.DELTA_NEEDED_FOR_FLATNESS
         while window_end <= end_time:
             print(f"\nChecking window {window_start} to {window_end}")
             
-            data = q0Utils.ARCHIVER.getValuesOverTimeRange(pvList=[self.dsLevelPV],
-                                                           startTime=window_start,
-                                                           endTime=window_end)
+            data = q0_utils.ARCHIVER.getValuesOverTimeRange(pvList=[self.dsLevelPV],
+                                                            startTime=window_start,
+                                                            endTime=window_end)
             llVals = medfilt(data.values[self.dsLevelPV])
             
             # Fit a line to the liquid level over the last [numHours] hours
@@ -158,9 +152,9 @@ class Q0Cryomodule(Cryomodule):
                 signals = [self.jtValveReadbackPV, self.heater_setpoint_pv,
                            self.heater_readback_pv]
                 
-                data = q0Utils.ARCHIVER.getValuesOverTimeRange(startTime=window_start,
-                                                               endTime=window_end,
-                                                               pvList=signals)
+                data = q0_utils.ARCHIVER.getValuesOverTimeRange(startTime=window_start,
+                                                                endTime=window_end,
+                                                                pvList=signals)
                 
                 desValSet = set(data.values[self.heater_setpoint_pv])
                 print(f"number of heater setpoints during this time: {len(desValSet)}")
@@ -176,11 +170,11 @@ class Q0Cryomodule(Cryomodule):
                     print(f"Desired JT valve position: {desPos}")
                     print(f"Total heater des setting: {heaterDes}")
                     
-                    self.valveParams = q0Utils.ValveParams(desPos, heaterDes, heaterAct)
+                    self.valveParams = q0_utils.ValveParams(desPos, heaterDes, heaterAct)
                     return self.valveParams
             
-            window_end += q0Utils.JT_SEARCH_OVERLAP_DELTA
-            window_start += q0Utils.JT_SEARCH_OVERLAP_DELTA
+            window_end += q0_utils.JT_SEARCH_OVERLAP_DELTA
+            window_start += q0_utils.JT_SEARCH_OVERLAP_DELTA
         
         # If we broke out of the while loop without returning anything, that
         # means that the LL hasn't been stable enough recently. Wait a while for
@@ -201,19 +195,21 @@ class Q0Cryomodule(Cryomodule):
         return self.getRefValveParams(start_time=start_time + timedelta(minutes=30),
                                       end_time=end_time + timedelta(minutes=30))
     
-    def launchHeaterRun(self, delta: float = q0Utils.CAL_HEATER_DELTA,
-                        target_ll_diff: float = q0Utils.TARGET_LL_DIFF) -> None:
+    def launchHeaterRun(self, delta: float = q0_utils.CAL_HEATER_DELTA,
+                        target_ll_diff: float = q0_utils.TARGET_LL_DIFF) -> None:
         
         print(f"Changing heater by {delta}")
         
         caput(self.heater_setpoint_pv, caget(self.heater_readback_pv) + delta, wait=True)
         
-        print(q0Utils.RUN_STATUS_MSSG)
+        print(q0_utils.RUN_STATUS_MSSG)
         
-        self.current_data_run: q0Utils.HeaterRun = q0Utils.HeaterRun(delta)
+        self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(delta)
         self.calibration.heater_runs.append(self.current_data_run)
         
+        self.current_data_run.start_time = datetime.now()
         self.wait_for_ll_drop(target_ll_diff)
+        self.current_data_run.end_time = datetime.now()
         
         print("Heater run done")
     
@@ -221,9 +217,9 @@ class Q0Cryomodule(Cryomodule):
         startingLevel = self.averagedLiquidLevelDS
         avgLevel = startingLevel
         while ((startingLevel - avgLevel) < target_ll_diff
-               and (avgLevel > q0Utils.MIN_DS_LL)):
-            avgLevel = self.averagedLiquidLevelDS
+               and (avgLevel > q0_utils.MIN_DS_LL)):
             print(f"Averaged level is {avgLevel}; waiting 10s")
+            avgLevel = self.averagedLiquidLevelDS
             sleep(10)
     
     def fill_pressure_buffer(self, value, **kwargs):
@@ -231,24 +227,27 @@ class Q0Cryomodule(Cryomodule):
             self.q0_measurement.rf_run.pressure_buffer.append(value)
     
     def takeNewQ0Measurement(self, desiredAmplitudes: Dict[int, float],
-                             desired_ll: float = q0Utils.MAX_DS_LL,
-                             ll_drop: float = q0Utils.TARGET_LL_DIFF):
+                             desired_ll: float = q0_utils.MAX_DS_LL,
+                             ll_drop: float = q0_utils.TARGET_LL_DIFF):
         
         for cav_num in desiredAmplitudes.keys():
             while not self.cavities[cav_num].ready_for_q0:
                 print(f"Waiting for cavity {cav_num} to be ready")
                 sleep(5)
         
-        self.current_data_run: q0Utils.RFRun = self.q0_measurement.rf_run
+        self.current_data_run: q0_utils.RFRun = self.q0_measurement.rf_run
         start_time = datetime.now()
         
+        self.current_data_run.start_time = datetime.now()
         self.wait_for_ll_drop(ll_drop)
+        self.current_data_run.end_time = datetime.now()
+        
         self.current_data_run = None
         
         self.fillAndLock(desired_ll)
-        self.current_data_run: q0Utils.HeaterRun = self.q0_measurement.heater_run
-        self.launchHeaterRun(q0Utils.FULL_MODULE_CALIBRATION_LOAD,
+        self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD,
                              target_ll_diff=ll_drop)
+        self.q0_measurement.heater_run = self.current_data_run
         
         camonitor_clear(self.dsPressurePV)
         self.q0_measurement.save_data(timestamp=start_time, cm_name=self.name)
@@ -256,7 +255,7 @@ class Q0Cryomodule(Cryomodule):
         
         end_time = datetime.now()
         caput(self.heater_setpoint_pv,
-              caget(self.heater_readback_pv) - q0Utils.FULL_MODULE_CALIBRATION_LOAD)
+              caget(self.heater_readback_pv) - q0_utils.FULL_MODULE_CALIBRATION_LOAD)
         
         print("\nStart Time: {START}".format(START=start_time))
         print("End Time: {END}".format(END=end_time))
@@ -285,9 +284,9 @@ class Q0Cryomodule(Cryomodule):
             f.truncate()
     
     def setup_for_q0(self, desiredAmplitudes, desired_ll, jt_search_end, jt_search_start):
-        self.q0_measurement = q0Utils.Q0Measurement(heater_run_heatload=q0Utils.FULL_MODULE_CALIBRATION_LOAD,
-                                                    amplitude=sum(desiredAmplitudes.values()),
-                                                    calibration=self.calibration)
+        self.q0_measurement = q0_utils.Q0Measurement(heater_run_heatload=q0_utils.FULL_MODULE_CALIBRATION_LOAD,
+                                                     amplitude=sum(desiredAmplitudes.values()),
+                                                     calibration=self.calibration)
         camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
@@ -299,10 +298,10 @@ class Q0Cryomodule(Cryomodule):
     def takeNewCalibration(self, initial_heat_load: int,
                            jt_search_start: datetime = None,
                            jt_search_end: datetime = None,
-                           desired_ll: float = q0Utils.MAX_DS_LL,
-                           ll_drop: float = q0Utils.TARGET_LL_DIFF,
-                           heater_delta: float = q0Utils.CAL_HEATER_DELTA,
-                           num_cal_steps: int = q0Utils.NUM_CAL_STEPS):
+                           desired_ll: float = q0_utils.MAX_DS_LL,
+                           ll_drop: float = q0_utils.TARGET_LL_DIFF,
+                           heater_delta: float = q0_utils.CAL_HEATER_DELTA,
+                           num_cal_steps: int = q0_utils.NUM_CAL_STEPS):
         
         self.calibration.clear()
         
@@ -328,7 +327,7 @@ class Q0Cryomodule(Cryomodule):
         self.current_data_run = None
         
         for _ in range(num_cal_steps):
-            if (self.averagedLiquidLevelDS - q0Utils.MIN_DS_LL) < ll_drop:
+            if (self.averagedLiquidLevelDS - q0_utils.MIN_DS_LL) < ll_drop:
                 self.fillAndLock(desired_ll)
             self.launchHeaterRun(heater_delta, target_ll_diff=ll_drop)
             self.current_data_run = None
@@ -352,7 +351,7 @@ class Q0Cryomodule(Cryomodule):
         caput(self.dsLiqLevSetpointPV, starting_ll_setpoint, wait=True)
         caput(self.heater_sequencer_pv, 1, wait=True)
         
-        # Record this calibration dataSession's metadata
+        # Save a record of this calibration
         
         newData = {"Total Reference Heater Setpoint": self.valveParams.refHeatLoadDes,
                    "Total Reference Heater Readback": self.valveParams.refHeatLoadAct,
@@ -374,14 +373,15 @@ class Q0Cryomodule(Cryomodule):
             json.dump(data, f)
             f.truncate()
     
-    def waitForJT(self, refValvePos):
+    def lock_jt(self, refValvePos):
         # type: (float) -> None
         
-        print("Waiting for JT Valve to be in manual")
+        print("Setting JT to manual and waiting for readback to change")
+        caput(self.jtManualSelectPV, 1, wait=True)
         
         # One way for the JT valve to be locked in the correct position is for
         # it to be in manual mode and at the desired value
-        while caget(self.jtModePV) != q0Utils.JT_MANUAL_MODE_VALUE:
+        while caget(self.jtModePV) != q0_utils.JT_MANUAL_MODE_VALUE:
             sleep(1)
         
         print(f"Waiting for JT Valve to be locked at {refValvePos}")
@@ -390,12 +390,12 @@ class Q0Cryomodule(Cryomodule):
         
         print("Waiting for JT Valve position to be in tolerance")
         # Wait for the valve position to be within tolerance before continuing
-        while abs(caget(self.jtValveReadbackPV) - refValvePos) > q0Utils.VALVE_POS_TOL:
+        while abs(caget(self.jtValveReadbackPV) - refValvePos) > q0_utils.VALVE_POS_TOL:
             sleep(1)
         
         print("JT Valve locked.")
     
-    def waitForLL(self, desiredLiquidLevel=q0Utils.MAX_DS_LL):
+    def waitForLL(self, desiredLiquidLevel=q0_utils.MAX_DS_LL):
         print(f"Waiting for downstream liquid level to be {desiredLiquidLevel}%")
         
         while (desiredLiquidLevel - self.averagedLiquidLevelDS) > 0.01:

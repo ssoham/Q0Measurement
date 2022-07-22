@@ -146,6 +146,28 @@ class DataRun:
     def __init__(self):
         self.ll_buffer: List[float] = []
         self._dll_dt = None
+        self._start_time: datetime = None
+        self._end_time: datetime = None
+    
+    @property
+    def start_time(self):
+        if not self._start_time:
+            return None
+        return self._start_time.strftime("%m/%d/%y %H:%M:%S")
+    
+    @start_time.setter
+    def start_time(self, value: datetime):
+        self._start_time = value
+    
+    @property
+    def end_time(self):
+        if not self._end_time:
+            return None
+        return self._end_time.strftime("%m/%d/%y %H:%M:%S")
+    
+    @end_time.setter
+    def end_time(self, value: datetime):
+        self._end_time = value
     
     @property
     def dll_dt(self):
@@ -166,7 +188,7 @@ def make_json_file(filepath):
     if not isfile(filepath):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w+") as f:
-            json.dump([], f)
+            json.dump({}, f)
 
 
 class Calibration:
@@ -183,14 +205,18 @@ class Calibration:
     def save_data(self, timestamp: datetime, cm_name: str):
         filepath = f"data/calibrations/cm{cm_name}.json"
         make_json_file(filepath)
-        new_data = {"Start Time": timestamp.strftime("%m/%d/%y %H:%M:%S")}
+        new_data = {}
         
-        for heater_run in self.heater_runs:
-            new_data[heater_run.heat_load] = heater_run.ll_buffer
+        for idx, heater_run in enumerate(self.heater_runs):
+            key = f"Heater Run {idx} "
+            new_data[key + "Start Time"] = heater_run.start_time
+            new_data[key + "End Time"] = heater_run.end_time
+            new_data[key + "Head Load"] = heater_run.heat_load
+            new_data[key + "Liquid Level Data"] = heater_run.ll_buffer
         
         with open(filepath, 'r+') as f:
-            data: List = json.load(f)
-            data.append(new_data)
+            data: Dict = json.load(f)
+            data[timestamp.strftime("%m/%d/%y %H:%M:%S")] = new_data
             
             # go to the beginning of the file to overwrite the existing data structure
             f.seek(0)
@@ -242,14 +268,17 @@ class Q0Measurement:
     def save_data(self, timestamp: datetime, cm_name: str):
         filepath = f"data/q0_measurements/cm{cm_name}.json"
         make_json_file(filepath)
-        new_data = {"Start Time"            : timestamp.strftime("%m/%d/%y %H:%M:%S"),
+        new_data = {"Heater Run Start Time" : self.heater_run.start_time,
+                    "Heater Run End Time"   : self.heater_run.end_time,
                     "Heater Run LL Buffer"  : self.heater_run.ll_buffer,
+                    "RF Run Start Time"     : self.rf_run.start_time,
+                    "RF Run End Time"       : self.rf_run.end_time,
                     "RF Run LL Buffer"      : self.rf_run.ll_buffer,
                     "RF Run Pressure Buffer": self.rf_run.pressure_buffer}
         
         with open(filepath, 'r+') as f:
-            data: List = json.load(f)
-            data.append(new_data)
+            data: Dict = json.load(f)
+            data[timestamp.strftime("%m/%d/%y %H:%M:%S")] = new_data
             
             # go to the beginning of the file to overwrite the existing data structure
             f.seek(0)

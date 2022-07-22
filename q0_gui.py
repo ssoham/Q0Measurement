@@ -10,7 +10,6 @@ from lcls_tools.superconducting.scLinac import L1BHL, LINAC_TUPLES
 from pydm import Display
 
 import q0_gui_utils
-from q0Utils import ValveParams
 from q0_gui_utils import (CalibrationWorker, CryoParamWorker, CryomoduleSelector,
                           DEFAULT_END_HEAT, DEFAULT_JT_START_DELTA,
                           DEFAULT_LL_BUFFER_SIZE,
@@ -19,6 +18,7 @@ from q0_gui_utils import (CalibrationWorker, CryoParamWorker, CryomoduleSelector
                           DEFAULT_START_HEAT,
                           MIN_STARTING_LL, MeasurementSettings)
 from q0_linac import Q0Cryomodule
+from q0_utils import ValveParams
 
 
 class Q0GUI(Display):
@@ -159,6 +159,7 @@ class Q0GUI(Display):
                                                     desired_ll=self.min_start_ll_spinbox.value(),
                                                     ll_drop=self.ll_drop_spinbox.value(),
                                                     desired_amplitudes=self.desiredCavityAmplitudes)
+        self.q0_meas_worker.error.connect(partial(q0_gui_utils.make_error_popup, "Q0 Measurement Error"))
         self.q0_meas_worker.start()
     
     @pyqtSlot()
