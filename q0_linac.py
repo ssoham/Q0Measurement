@@ -14,13 +14,24 @@ from scipy.stats import linregress
 import q0Utils
 
 
+class Q0Cavity(Cavity):
+    def __init__(self, cavityNum, rackObject, ssaClass=SSA,
+                 stepperClass=StepperTuner, piezoClass=Piezo):
+        super().__init__(cavityNum, rackObject)
+        self.ready_for_q0 = False
+    
+    def mark_ready(self):
+        self.ready_for_q0 = True
+
+
 class Q0Cryomodule(Cryomodule):
     def __init__(self, cryoName, linacObject, isHarmonicLinearizer,
-                 cavityClass=Cavity, magnetClass=Magnet,
+                 cavityClass=Q0Cavity, magnetClass=Magnet,
                  stepperClass=StepperTuner, piezoClass=Piezo,
                  rackClass=Rack, ssaClass=SSA):
         super().__init__(cryoName, linacObject,
-                         isHarmonicLinearizer=isHarmonicLinearizer)
+                         isHarmonicLinearizer=isHarmonicLinearizer,
+                         cavityClass=Q0Cavity)
         
         self.jtModePV: str = self.jtPrefix + "MODE"
         self.jtManualSelectPV: str = self.jtPrefix + "MANUAL"
@@ -32,6 +43,8 @@ class Q0Cryomodule(Cryomodule):
         self.heater_setpoint_pv: str = self.heater_prefix + "MANPOS_RQST"
         self.heater_manual_pv: str = self.heater_prefix + "MANUAL"
         self.heater_sequencer_pv: str = self.heater_prefix + "SEQUENCER"
+        
+        self.cryo_access_pv: str = f"CRYO:CM{self.name}:0:CAS_ACCESS"
         
         self.q0DataSessions = {}
         self.calibDataSessions = {}
@@ -218,29 +231,13 @@ class Q0Cryomodule(Cryomodule):
             self.q0_measurement.rf_run.pressure_buffer.append(value)
     
     def takeNewQ0Measurement(self, desiredAmplitudes: Dict[int, float],
-                             jt_search_start: datetime, jt_search_end: datetime,
                              desired_ll: float = q0Utils.MAX_DS_LL,
                              ll_drop: float = q0Utils.TARGET_LL_DIFF):
         
-        self.q0_measurement = q0Utils.Q0Measurement(heater_run_heatload=q0Utils.FULL_MODULE_CALIBRATION_LOAD,
-                                                    amplitude=sum(desiredAmplitudes.values()),
-                                                    calibration=self.calibration)
-        
-        camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
-        
-        if not self.valveParams:
-            self.valveParams = self.getRefValveParams(start_time=jt_search_start,
-                                                      end_time=jt_search_end)
-        
-        print(f"setting heater to {self.valveParams.refHeatLoadDes}")
-        caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
-        
-        self.fillAndLock(desired_ll)
-        
-        for cavity in self.cavities.values():
-            if cavity.number in desiredAmplitudes:
-                print("\nRunning up Cavity {CAV}...".format(CAV=cavity.cavNum))
-                cavity.setup_SELA(desiredAmplitudes[cavity.number])
+        for cav_num in desiredAmplitudes.keys():
+            while not self.cavities[cav_num].ready_for_q0:
+                print(f"Waiting for cavity {cav_num} to be ready")
+                sleep(5)
         
         self.current_data_run: q0Utils.RFRun = self.q0_measurement.rf_run
         start_time = datetime.now()
@@ -286,6 +283,18 @@ class Q0Cryomodule(Cryomodule):
             f.seek(0)
             json.dump(data, f)
             f.truncate()
+    
+    def setup_for_q0(self, desiredAmplitudes, desired_ll, jt_search_end, jt_search_start):
+        self.q0_measurement = q0Utils.Q0Measurement(heater_run_heatload=q0Utils.FULL_MODULE_CALIBRATION_LOAD,
+                                                    amplitude=sum(desiredAmplitudes.values()),
+                                                    calibration=self.calibration)
+        camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
+        if not self.valveParams:
+            self.valveParams = self.getRefValveParams(start_time=jt_search_start,
+                                                      end_time=jt_search_end)
+        print(f"setting heater to {self.valveParams.refHeatLoadDes}")
+        caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
+        self.fillAndLock(desired_ll)
     
     def takeNewCalibration(self, initial_heat_load: int,
                            jt_search_start: datetime = None,
@@ -396,4 +405,5 @@ class Q0Cryomodule(Cryomodule):
         print("downstream liquid level at required value.")
 
 
-Q0_CRYOMODULES: Dict[str, Q0Cryomodule] = CryoDict(cryomoduleClass=Q0Cryomodule)
+Q0_CRYOMODULES: Dict[str, Q0Cryomodule] = CryoDict(cryomoduleClass=Q0Cryomodule,
+                                                   cavityClass=Q0Cavity)

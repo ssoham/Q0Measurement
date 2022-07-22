@@ -32,7 +32,7 @@
      <item>
       <widget class="QGroupBox" name="groupBox_2">
        <property name="title">
-        <string>GroupBox</string>
+        <string/>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_4">
         <item>
@@ -199,6 +199,16 @@
         <string>Cryo Parameters</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_3">
+        <item>
+         <widget class="QPushButton" name="setup_param_button">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="text">
+           <string>Set Up for New Parameters</string>
+          </property>
+         </widget>
+        </item>
         <item>
          <widget class="QGroupBox" name="manual_cryo_groupbox">
           <property name="sizePolicy">

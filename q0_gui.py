@@ -9,6 +9,7 @@ from lcls_tools.common.pydm_tools.displayUtils import showDisplay
 from lcls_tools.superconducting.scLinac import L1BHL, LINAC_TUPLES
 from pydm import Display
 
+import q0_gui_utils
 from q0Utils import ValveParams
 from q0_gui_utils import (CalibrationWorker, CryoParamWorker, CryomoduleSelector,
                           DEFAULT_END_HEAT, DEFAULT_JT_START_DELTA,
@@ -16,7 +17,7 @@ from q0_gui_utils import (CalibrationWorker, CryoParamWorker, CryomoduleSelector
                           DEFAULT_LL_DROP,
                           DEFAULT_NUM_CAL_POINTS,
                           DEFAULT_START_HEAT,
-                          MIN_STARTING_LL, MeasurementSettings, Q0Worker)
+                          MIN_STARTING_LL, MeasurementSettings)
 from q0_linac import Q0Cryomodule
 
 
@@ -65,9 +66,13 @@ class Q0GUI(Display):
         
         self.calibration_worker = None
         self.cryo_param_worker = None
-        self.rf_worker = None
+        self.q0_setup_worker = None
+        self.q0_ramp_workers = {i: None for i in range(1, 9)}
+        self.q0_meas_worker = None
+        self.cryo_param_setup_worker: q0_gui_utils.CryoParamSetupWorker = None
         
         self.ui.new_cryo_params_button.clicked.connect(self.getNewCryoParams)
+        self.ui.setup_param_button.clicked.connect(self.setup_for_cryo_params)
     
     @pyqtSlot(int)
     def update_ll_buffer(self, value):
@@ -96,6 +101,13 @@ class Q0GUI(Display):
     def update_cryo_params(self):
         self.ui.ref_heat_spinbox.setValue(self.selectedCM.valveParams.refHeatLoadDes)
         self.ui.jt_pos_spinbox.setValue(self.selectedCM.valveParams.refValvePos)
+    
+    @pyqtSlot()
+    def setup_for_cryo_params(self):
+        self.cryo_param_setup_worker = q0_gui_utils.CryoParamSetupWorker(self.selectedCM)
+        self.cryo_param_setup_worker.error.connect(partial(q0_gui_utils.make_error_popup,
+                                                           "Cryo Setup Error"))
+        self.cryo_param_setup_worker.start()
     
     @pyqtSlot()
     def takeNewCalibration(self):
@@ -127,8 +139,27 @@ class Q0GUI(Display):
         for cav_amp_control in cm_selector.cavity_amp_controls.values():
             if cav_amp_control.groupbox.isChecked():
                 amplitudes[cav_amp_control.number] = cav_amp_control.desAmpSpinbox.value()
-        print(amplitudes)
+        print(f"Cavity amplitudes: {amplitudes}")
         return amplitudes
+    
+    @pyqtSlot()
+    def ramp_cavities(self):
+        des_amps = self.desiredCavityAmplitudes
+        
+        for cav_num, des_amp in des_amps.items():
+            cavity = self.selectedCM.cavities[cav_num]
+            ramp_worker = q0_gui_utils.CavityRampWorker(cavity, des_amp)
+            self.q0_ramp_workers[cav_num] = ramp_worker
+            ramp_worker.finished.connect(cavity.mark_ready)
+            ramp_worker.start()
+        
+        self.q0_meas_worker = q0_gui_utils.Q0Worker(cryomodule=self.selectedCM,
+                                                    jt_search_start=self.jt_search_start,
+                                                    jt_search_end=self.jt_search_end,
+                                                    desired_ll=self.min_start_ll_spinbox.value(),
+                                                    ll_drop=self.ll_drop_spinbox.value(),
+                                                    desired_amplitudes=self.desiredCavityAmplitudes)
+        self.q0_meas_worker.start()
     
     @pyqtSlot()
     def takeNewQ0Measurement(self):
@@ -137,16 +168,17 @@ class Q0GUI(Display):
                                                       refValvePos=self.ui.jt_pos_spinbox.value(),
                                                       refHeatLoadAct=None)
         
-        self.rf_worker = Q0Worker(cryomodule=self.selectedCM,
-                                  jt_search_start=self.jt_search_start,
-                                  jt_search_end=self.jt_search_end,
-                                  desired_ll=self.min_start_ll_spinbox.value(),
-                                  ll_drop=self.ll_drop_spinbox.value(),
-                                  desired_amplitudes=self.desiredCavityAmplitudes)
-        self.rf_worker.status.connect(self.rfSection.handle_status)
-        self.rf_worker.finished.connect(self.rfSection.handle_status)
-        self.rf_worker.error.connect(self.rfSection.handle_error)
-        self.rf_worker.start()
+        self.q0_setup_worker = q0_gui_utils.Q0SetupWorker(cryomodule=self.selectedCM,
+                                                          jt_search_start=self.jt_search_start,
+                                                          jt_search_end=self.jt_search_end,
+                                                          desired_ll=self.min_start_ll_spinbox.value(),
+                                                          ll_drop=self.ll_drop_spinbox.value(),
+                                                          desired_amplitudes=self.desiredCavityAmplitudes)
+        self.q0_setup_worker.status.connect(self.rfSection.handle_status)
+        self.q0_setup_worker.finished.connect(self.rfSection.handle_status)
+        self.q0_setup_worker.finished.connect(self.ramp_cavities)
+        self.q0_setup_worker.error.connect(self.rfSection.handle_error)
+        self.q0_setup_worker.start()
     
     @staticmethod
     def make_setting_groupbox(title: str, widget: QWidget, unit: str = None):
@@ -217,12 +249,14 @@ class Q0GUI(Display):
             self.calibrationSection.main_groupbox.setEnabled(False)
             self.rfSection.main_groupbox.setEnabled(False)
             self.ui.new_cryo_params_button.setEnabled(False)
+            self.ui.setup_param_button.setEnabled(False)
         
         else:
             self.ui.cmSelectionLabel.setStyleSheet("color: green;")
             self.ui.cmSelectionLabel.setText(self.selectedCM.name)
             self.calibrationSection.main_groupbox.setEnabled(True)
             self.ui.new_cryo_params_button.setEnabled(True)
+            self.ui.setup_param_button.setEnabled(True)
     
     def open_cm_selector_window(self):
         if not self.cm_selector_window:
