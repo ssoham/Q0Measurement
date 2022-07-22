@@ -145,9 +145,14 @@ def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float):
 class DataRun:
     def __init__(self):
         self.ll_buffer: List[float] = []
+        self.heater_readback_buffer: List[float] = []
         self._dll_dt = None
         self._start_time: datetime = None
         self._end_time: datetime = None
+    
+    @property
+    def heater_load(self):
+        return np.mean(self.heater_readback_buffer)
     
     @property
     def start_time(self):
@@ -181,7 +186,7 @@ class DataRun:
 class HeaterRun(DataRun):
     def __init__(self, heat_load: float):
         super().__init__()
-        self.heat_load: float = heat_load
+        self.heat_load_des: float = heat_load
 
 
 def make_json_file(filepath):
@@ -211,7 +216,7 @@ class Calibration:
             key = f"Heater Run {idx} "
             new_data[key + "Start Time"] = heater_run.start_time
             new_data[key + "End Time"] = heater_run.end_time
-            new_data[key + "Head Load"] = heater_run.heat_load
+            new_data[key + "Desired Head Load"] = heater_run.heat_load_des
             new_data[key + "Liquid Level Data"] = heater_run.ll_buffer
         
         with open(filepath, 'r+') as f:
@@ -229,7 +234,7 @@ class Calibration:
             heat_loads = []
             dll_dts = []
             for run in self.heater_runs:
-                heat_loads.append(run.heat_load)
+                heat_loads.append(run.heater_load)
                 dll_dts.append(run.dll_dt)
             
             slope, intercept, r_val, p_val, std_err = linregress(
@@ -268,13 +273,15 @@ class Q0Measurement:
     def save_data(self, timestamp: datetime, cm_name: str):
         filepath = f"data/q0_measurements/cm{cm_name}.json"
         make_json_file(filepath)
-        new_data = {"Heater Run Start Time" : self.heater_run.start_time,
-                    "Heater Run End Time"   : self.heater_run.end_time,
-                    "Heater Run LL Buffer"  : self.heater_run.ll_buffer,
-                    "RF Run Start Time"     : self.rf_run.start_time,
-                    "RF Run End Time"       : self.rf_run.end_time,
-                    "RF Run LL Buffer"      : self.rf_run.ll_buffer,
-                    "RF Run Pressure Buffer": self.rf_run.pressure_buffer}
+        new_data = {"Heater Run Start Time"            : self.heater_run.start_time,
+                    "Heater Run End Time"              : self.heater_run.end_time,
+                    "Heater Run LL Buffer"             : self.heater_run.ll_buffer,
+                    "Heater Run Heater Readback Buffer": self.heater_run.heater_readback_buffer,
+                    "RF Run Start Time"                : self.rf_run.start_time,
+                    "RF Run End Time"                  : self.rf_run.end_time,
+                    "RF Run LL Buffer"                 : self.rf_run.ll_buffer,
+                    "RF Run Heater Readback Buffer"    : self.rf_run.heater_readback_buffer,
+                    "RF Run Pressure Buffer"           : self.rf_run.pressure_buffer}
         
         with open(filepath, 'r+') as f:
             data: Dict = json.load(f)
@@ -295,7 +302,7 @@ class Q0Measurement:
     def adjustment(self):
         if not self._adjustment:
             heater_run_raw_heat = self.calibration.get_heat(self.heater_run.dll_dt)
-            self._adjustment = self.heater_run.heat_load - heater_run_raw_heat
+            self._adjustment = self.heater_run.heater_load - heater_run_raw_heat
         return self._adjustment
     
     @property

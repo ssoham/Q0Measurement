@@ -119,6 +119,11 @@ class Q0Cryomodule(Cryomodule):
     
     def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL):
         
+        starting_heat = caget(self.heater_setpoint_pv)
+        
+        print("Setting heaters to 0 to assist fill")
+        caput(self.heater_setpoint_pv, 0, wait=True)
+        
         caput(self.dsLiqLevSetpointPV, desiredLevel, wait=True)
         
         print(f"Setting JT to auto for refill to {desiredLevel}")
@@ -126,6 +131,10 @@ class Q0Cryomodule(Cryomodule):
         self.waitForLL(desiredLevel)
         
         caput(self.jtManPosSetpointPV, self.valveParams.refValvePos, wait=True)
+        
+        print(f"Setting heat back to {starting_heat}")
+        caput(self.heater_setpoint_pv, starting_heat, wait=True)
+        
         self.lock_jt(self.valveParams.refValvePos)
     
     def getRefValveParams(self, start_time: datetime, end_time: datetime):
@@ -208,7 +217,11 @@ class Q0Cryomodule(Cryomodule):
         self.calibration.heater_runs.append(self.current_data_run)
         
         self.current_data_run.start_time = datetime.now()
+        
+        camonitor(self.heater_readback_pv, callback=self.fill_heater_readback_buffer)
         self.wait_for_ll_drop(target_ll_diff)
+        camonitor_clear(self.heater_readback_pv)
+        
         self.current_data_run.end_time = datetime.now()
         
         print("Heater run done")
@@ -226,6 +239,10 @@ class Q0Cryomodule(Cryomodule):
         if self.q0_measurement:
             self.q0_measurement.rf_run.pressure_buffer.append(value)
     
+    def fill_heater_readback_buffer(self, value, **kwargs):
+        if self.current_data_run:
+            self.current_data_run.heater_readback_buffer.append(value)
+    
     def takeNewQ0Measurement(self, desiredAmplitudes: Dict[int, float],
                              desired_ll: float = q0_utils.MAX_DS_LL,
                              ll_drop: float = q0_utils.TARGET_LL_DIFF):
@@ -236,10 +253,12 @@ class Q0Cryomodule(Cryomodule):
                 sleep(5)
         
         self.current_data_run: q0_utils.RFRun = self.q0_measurement.rf_run
+        camonitor(self.heater_readback_pv, callback=self.fill_heater_readback_buffer)
         start_time = datetime.now()
         
         self.current_data_run.start_time = datetime.now()
         self.wait_for_ll_drop(ll_drop)
+        camonitor_clear(self.heater_readback_pv)
         self.current_data_run.end_time = datetime.now()
         
         self.current_data_run = None
@@ -313,7 +332,6 @@ class Q0Cryomodule(Cryomodule):
         
         startTime = datetime.now().replace(microsecond=0)
         
-        # Lumping in the initial
         caput(self.heater_manual_pv, 1, wait=True)
         print(f"Changing heater by {deltaTot}")
         caput(self.heater_setpoint_pv, caget(self.heater_readback_pv) + deltaTot, wait=True)
