@@ -57,6 +57,9 @@ class Q0GUI(Display):
         
         self.calibrationSection: MeasurementSettings = MeasurementSettings("Calibration")
         self.calibrationSection.new_button.clicked.connect(self.takeNewCalibration)
+        self.calibrationSection.load_button.clicked.connect(self.load_calibration)
+        self.cal_select_windows: Dict[str, Display] = {}
+        self.cal_select_options: Dict[str, q0_gui_utils.CalibrationOptions] = {}
         
         self.rfSection: MeasurementSettings = MeasurementSettings("RF Measurement")
         self.rfSection.new_button.clicked.connect(self.takeNewQ0Measurement)
@@ -73,6 +76,11 @@ class Q0GUI(Display):
         
         self.ui.new_cryo_params_button.clicked.connect(self.getNewCryoParams)
         self.ui.setup_param_button.clicked.connect(self.setup_for_cryo_params)
+    
+    @pyqtSlot()
+    def load_calibration(self):
+        if self.selectedCM.name not in self.cal_select_windows:
+            self.selectedCM.calibration.load_data()
     
     @pyqtSlot(int)
     def update_ll_buffer(self, value):

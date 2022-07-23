@@ -1,11 +1,14 @@
+import json
 from datetime import datetime, timedelta
+from functools import partial
 from time import sleep
 from typing import Dict
 
+import numpy as np
 from PyQt5.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (QButtonGroup, QCheckBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                              QMessageBox,
-                             QProgressBar, QPushButton, QVBoxLayout)
+                             QProgressBar, QPushButton, QRadioButton, QVBoxLayout)
 from epics import caget, camonitor, camonitor_clear, caput
 from lcls_tools.common.pydm_tools.displayUtils import showDisplay
 from lcls_tools.superconducting.scLinac import Cavity
@@ -19,7 +22,7 @@ from q0_linac import Q0Cryomodule, Q0_CRYOMODULES
 DEFAULT_LL_DROP = 4
 MIN_STARTING_LL = 94
 DEFAULT_START_HEAT = 40
-DEFAULT_END_HEAT = 128
+DEFAULT_END_HEAT = 112
 DEFAULT_NUM_CAL_POINTS = 5
 DEFAULT_POST_RF_HEAT = 24
 DEFAULT_JT_START_DELTA = timedelta(hours=24)
@@ -252,6 +255,28 @@ class CryomoduleSelector(QObject):
                 grid_layout.addWidget(controls.groupbox, row, column)
         
         showDisplay(self.cm_display)
+
+
+class CalibrationOptions:
+    def __init__(self, cryomodule: Q0Cryomodule):
+        self.main_groupbox: QGroupBox = QGroupBox(f"Calibrations for CM{cryomodule.name}")
+        self.grid_layout: QGridLayout = QGridLayout
+        self.main_groupbox.setLayout(self.grid_layout)
+        
+        with open(cryomodule.calib_idx_file, 'r+') as f:
+            calibrations: Dict = json.load(f)
+            num_calibrations = len(calibrations.keys())
+            row_count = int(np.sqrt(num_calibrations))
+            col_count = int(np.ceil(np.sqrt(num_calibrations)))
+            if row_count * col_count != num_calibrations:
+                col_count += 1
+            
+            for idx, time_stamp in enumerate(calibrations.keys()):
+                radio_button: QRadioButton = QRadioButton(time_stamp)
+                self.grid_layout.addWidget(radio_button, int(idx / col_count),
+                                           idx % col_count)
+                radio_button.clicked.connect(partial(cryomodule.load_calibration,
+                                                     time_stamp))
 
 
 class MeasurementSettings(QObject):

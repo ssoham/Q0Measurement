@@ -144,7 +144,7 @@ def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float):
 
 class DataRun:
     def __init__(self):
-        self.ll_buffer: List[float] = []
+        self.ll_data: Dict[float, float] = {}
         self.heater_readback_buffer: List[float] = []
         self._dll_dt = None
         self._start_time: datetime = None
@@ -178,7 +178,7 @@ class DataRun:
     def dll_dt(self):
         if not self._dll_dt:
             slope, intercept, r_val, p_val, std_err = linregress(
-                    range(len(self.ll_buffer)), self.ll_buffer)
+                    self.ll_data.keys(), self.ll_data.values())
             self._dll_dt = slope
         return self._dll_dt
 
@@ -197,31 +197,52 @@ def make_json_file(filepath):
 
 
 class Calibration:
-    def __init__(self):
+    def __init__(self, time_stamp):
         self.heater_runs: List[HeaterRun] = []
         self._slope = None
         self.adjustment = 0
+        self.time_stamp = time_stamp
     
     def clear(self):
         self.heater_runs: List[HeaterRun] = []
         self._slope = None
         self.adjustment = 0
     
-    def save_data(self, timestamp: datetime, cm_name: str):
+    def load_data(self, cm_name: str):
+        self.clear()
+        
+        filepath = f"data/calibrations/cm{cm_name}.json"
+        with open(filepath, 'r+') as f:
+            all_data: Dict = json.load(f)
+            data: Dict = all_data[self.time_stamp]
+            
+            for heater_run_data in data.values():
+                run = HeaterRun(heater_run_data["Desired Head Load"])
+                run._start_time = datetime.strptime(heater_run_data["Start Time"],
+                                                    "%m/%d/%y %H:%M:%S")
+                run._end_time = datetime.strptime(heater_run_data["End Time"],
+                                                  "%m/%d/%y %H:%M:%S")
+                run.ll_data = heater_run_data["Liquid Level Data"]
+                
+                self.heater_runs.append(run)
+    
+    def save_data(self, cm_name: str):
         filepath = f"data/calibrations/cm{cm_name}.json"
         make_json_file(filepath)
-        new_data = {}
         
+        new_data = {}
         for idx, heater_run in enumerate(self.heater_runs):
             key = f"Heater Run {idx} "
-            new_data[key + "Start Time"] = heater_run.start_time
-            new_data[key + "End Time"] = heater_run.end_time
-            new_data[key + "Desired Head Load"] = heater_run.heat_load_des
-            new_data[key + "Liquid Level Data"] = heater_run.ll_buffer
+            heater_data = {"Start Time"       : heater_run.start_time,
+                           "End Time"         : heater_run.end_time,
+                           "Desired Heat Load": heater_run.heat_load_des,
+                           "Liquid Level Data": heater_run.ll_data}
+            
+            new_data[key] = heater_data
         
         with open(filepath, 'r+') as f:
             data: Dict = json.load(f)
-            data[timestamp.strftime("%m/%d/%y %H:%M:%S")] = new_data
+            data[self.time_stamp.strftime("%m/%d/%y %H:%M:%S")] = new_data
             
             # go to the beginning of the file to overwrite the existing data structure
             f.seek(0)
@@ -253,35 +274,61 @@ class Calibration:
 
 
 class RFRun(DataRun):
-    def __init__(self, amplitude: float):
+    def __init__(self, amplitudes: Dict[int, float]):
         super().__init__()
-        self.amplitude = amplitude
+        self.amplitudes = amplitudes
+        self._amplitude = None
         self.pressure_buffer = []
+    
+    @property
+    def amplitude(self):
+        if not self._amplitude:
+            self._amplitude = sum(self.amplitudes.values())
+        return self._amplitude
 
 
 class Q0Measurement:
-    def __init__(self, heater_run_heatload: float, amplitude: float,
+    def __init__(self, heater_run_heatload: float, amplitudes: Dict[int, float],
                  calibration: Calibration):
         self.heater_run: HeaterRun = HeaterRun(heater_run_heatload)
-        self.rf_run: RFRun = RFRun(amplitude)
+        self.rf_run: RFRun = RFRun(amplitudes)
         self.calibration: Calibration = calibration
         self._raw_heat: float = None
         self._adjustment: float = None
         self._heat_load: float = None
         self._q0: float = None
     
+    def load_data(self, time_stamp: str, cm_name: str):
+        # TODO need to load the other parameters
+        
+        filepath = f"data/q0_measurements/cm{cm_name}.json"
+        with open(filepath, 'r+') as f:
+            all_data: Dict = json.load(f)
+            data: Dict = all_data[time_stamp]
+            
+            heater_readback_data = data["Heater Run Heater Readback Buffer"]
+            heat_load = np.mean(heater_readback_data)
+            self.heater_run = HeaterRun(heat_load)
+            self.heater_run.ll_data = data["Heater Run LL Buffer"]
+            self.heater_run.heater_readback_buffer = heater_readback_data
+            self.heater_run.start_time = datetime.strptime(data["Heater Run Start Time"],
+                                                           "%m/%d/%y %H:%M:%S")
+            self.heater_run.end_time = datetime.strptime(data["Heater Run End Time"],
+                                                         "%m/%d/%y %H:%M:%S")
+    
     def save_data(self, timestamp: datetime, cm_name: str):
         filepath = f"data/q0_measurements/cm{cm_name}.json"
         make_json_file(filepath)
         new_data = {"Heater Run Start Time"            : self.heater_run.start_time,
                     "Heater Run End Time"              : self.heater_run.end_time,
-                    "Heater Run LL Buffer"             : self.heater_run.ll_buffer,
+                    "Heater Run LL Buffer"             : self.heater_run.ll_data,
                     "Heater Run Heater Readback Buffer": self.heater_run.heater_readback_buffer,
                     "RF Run Start Time"                : self.rf_run.start_time,
                     "RF Run End Time"                  : self.rf_run.end_time,
-                    "RF Run LL Buffer"                 : self.rf_run.ll_buffer,
+                    "RF Run LL Buffer"                 : self.rf_run.ll_data,
                     "RF Run Heater Readback Buffer"    : self.rf_run.heater_readback_buffer,
-                    "RF Run Pressure Buffer"           : self.rf_run.pressure_buffer}
+                    "RF Run Pressure Buffer"           : self.rf_run.pressure_buffer,
+                    "Cavity Amplitudes"                : self.rf_run.amplitudes}
         
         with open(filepath, 'r+') as f:
             data: Dict = json.load(f)
