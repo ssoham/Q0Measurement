@@ -403,6 +403,7 @@ class Q0Cryomodule(Cryomodule):
             sleep(1)
         
         print(f"Waiting for JT Valve to be locked at {refValvePos}")
+        caput(self.jtManPosSetpointPV, refValvePos, wait=True)
         while (caget(self.jtManPosSetpointPV) - refValvePos) > 0.01:
             sleep(1)
         
@@ -417,8 +418,8 @@ class Q0Cryomodule(Cryomodule):
         print(f"Waiting for downstream liquid level to be {desiredLiquidLevel}%")
         
         while (desiredLiquidLevel - self.averagedLiquidLevelDS) > 0.01:
-            print(f"Current averaged level is {self.averagedLiquidLevelDS}; waiting 5 seconds for more data.")
-            sleep(5)
+            print(f"Current averaged level is {self.averagedLiquidLevelDS}; waiting 10 seconds for more data.")
+            sleep(10)
         
         print("downstream liquid level at required value.")
 
