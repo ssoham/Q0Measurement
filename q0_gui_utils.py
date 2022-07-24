@@ -260,8 +260,8 @@ class CryomoduleSelector(QObject):
 class CalibrationOptions:
     def __init__(self, cryomodule: Q0Cryomodule):
         self.main_groupbox: QGroupBox = QGroupBox(f"Calibrations for CM{cryomodule.name}")
-        self.grid_layout: QGridLayout = QGridLayout
-        self.main_groupbox.setLayout(self.grid_layout)
+        grid_layout: QGridLayout = QGridLayout()
+        self.main_groupbox.setLayout(grid_layout)
         
         with open(cryomodule.calib_idx_file, 'r+') as f:
             calibrations: Dict = json.load(f)
@@ -273,8 +273,8 @@ class CalibrationOptions:
             
             for idx, time_stamp in enumerate(calibrations.keys()):
                 radio_button: QRadioButton = QRadioButton(time_stamp)
-                self.grid_layout.addWidget(radio_button, int(idx / col_count),
-                                           idx % col_count)
+                grid_layout.addWidget(radio_button, int(idx / col_count),
+                                      idx % col_count)
                 radio_button.clicked.connect(partial(cryomodule.load_calibration,
                                                      time_stamp))
 
@@ -290,7 +290,6 @@ class MeasurementSettings(QObject):
         button_layout: QHBoxLayout = QHBoxLayout()
         self.new_button: QPushButton = QPushButton(f"Take New {label}")
         self.load_button: QPushButton = QPushButton(f"Load Existing {label}")
-        self.load_button.setEnabled(False)
         self.data_button: QPushButton = QPushButton(f"Open {label} Data Analysis Dialog")
         self.status_label: QLabel = QLabel()
         self.status_label.setWordWrap(True)

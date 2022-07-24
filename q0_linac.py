@@ -13,65 +13,14 @@ from scipy.stats import linregress
 import q0_utils
 
 
-class DataRun:
-    def __init__(self):
-        self.ll_data: Dict[float, float] = {}
-        self.heater_readback_buffer: List[float] = []
-        self._dll_dt = None
-        self._start_time: datetime = None
-        self._end_time: datetime = None
-        self._average_heat = None
-        self.reference_heat = 0
-    
-    @property
-    def average_heat(self) -> float:
-        if not self._average_heat:
-            self._average_heat = np.mean(self.heater_readback_buffer) - self.reference_heat
-        return self._average_heat
-    
-    @property
-    def start_time(self) -> str:
-        if not self._start_time:
-            return None
-        return self._start_time.strftime(q0_utils.DATETIME_FORMATTER)
-    
-    @start_time.setter
-    def start_time(self, value: datetime):
-        self._start_time = value
-    
-    @property
-    def end_time(self) -> str:
-        if not self._end_time:
-            return None
-        return self._end_time.strftime(q0_utils.DATETIME_FORMATTER)
-    
-    @end_time.setter
-    def end_time(self, value: datetime):
-        self._end_time = value
-    
-    @property
-    def dll_dt(self) -> float:
-        if not self._dll_dt:
-            slope, intercept, r_val, p_val, std_err = linregress(
-                    list(self.ll_data.keys()), list(self.ll_data.values()))
-            self._dll_dt = slope
-        return self._dll_dt
-
-
-class HeaterRun(DataRun):
-    def __init__(self, heat_load: float):
-        super().__init__()
-        self.heat_load_des: float = heat_load
-
-
 class Calibration:
     def __init__(self, time_stamp, cryomodule):
         # type: (str, Q0Cryomodule) -> None
         
-        self.time_stamp = time_stamp
+        self.time_stamp: str = time_stamp
         self.cryomodule: Q0Cryomodule = cryomodule
         
-        self.heater_runs: List[HeaterRun] = []
+        self.heater_runs: List[q0_utils.HeaterRun] = []
         self._slope = None
         self.adjustment = 0
     
@@ -82,12 +31,13 @@ class Calibration:
             data: Dict = all_data[self.time_stamp]
             
             for heater_run_data in data.values():
-                run = HeaterRun(heater_run_data["Desired Head Load"])
+                run = q0_utils.HeaterRun(heater_run_data["Desired Heat Load"])
                 run._start_time = datetime.strptime(heater_run_data[q0_utils.JSON_START_KEY],
                                                     q0_utils.DATETIME_FORMATTER)
                 run._end_time = datetime.strptime(heater_run_data[q0_utils.JSON_END_KEY],
                                                   q0_utils.DATETIME_FORMATTER)
                 run.ll_data = heater_run_data[q0_utils.JSON_LL_KEY]
+                run.average_heat
                 
                 self.heater_runs.append(run)
     
@@ -100,12 +50,19 @@ class Calibration:
                            q0_utils.JSON_END_KEY  : heater_run.end_time,
                            "Desired Heat Load"    : heater_run.heat_load_des,
                            "Average Heat Load"    : heater_run.average_heat,
-                           "dLL/dt"               : heater_run.dll_dt,
+                           q0_utils.JSON_DLL_KEY  : heater_run.dll_dt,
                            q0_utils.JSON_LL_KEY   : heater_run.ll_data}
             
             new_data[key] = heater_data
         
         q0_utils.update_json_data(self.cryomodule.calib_data_file, self.time_stamp, new_data)
+    
+    def save_results(self):
+        newData = {q0_utils.JSON_START_KEY          : self.time_stamp,
+                   "Calculated Heat vs dll/dt Slope": self.dLLdt_dheat,
+                   "Calculated Adjustment"          : self.adjustment}
+        q0_utils.update_json_data(self.cryomodule.calib_idx_file,
+                                  self.time_stamp, newData)
     
     @property
     def dLLdt_dheat(self):
@@ -131,82 +88,141 @@ class Calibration:
         return (dll_dt - self.adjustment) / self.dLLdt_dheat
 
 
-class RFRun(DataRun):
+class RFRun(q0_utils.DataRun):
     def __init__(self, amplitudes: Dict[int, float]):
         super().__init__()
         self.amplitudes = amplitudes
-        self._amplitude = None
         self.pressure_buffer = []
+        self._avg_pressure = None
     
     @property
-    def amplitude(self):
-        if not self._amplitude:
-            self._amplitude = sum(self.amplitudes.values())
-        return self._amplitude
+    def avg_pressure(self):
+        if not self._avg_pressure:
+            self._avg_pressure = np.mean(self.pressure_buffer)
+        return self._avg_pressure
 
 
 class Q0Measurement:
-    def __init__(self, heater_run_heatload, amplitudes, calibration, cryomodule):
-        # type: (float, Dict[int, float], Calibration, Q0Cryomodule) -> None
-        self.heater_run: HeaterRun = HeaterRun(heater_run_heatload)
-        self.rf_run: RFRun = RFRun(amplitudes)
-        self.calibration: Calibration = calibration
+    def __init__(self, cryomodule):
+        # type: (Q0Cryomodule) -> None
+        self.cryomodule: Q0Cryomodule = cryomodule
+        self.heater_run: q0_utils.HeaterRun = None
+        self.rf_run: RFRun = None
         self._raw_heat: float = None
         self._adjustment: float = None
         self._heat_load: float = None
         self._q0: float = None
-        self.cryomodule: Q0Cryomodule = cryomodule
+        self._start_time: str = None
+        self._amplitudes: Dict[int, float] = None
+        self._heater_run_heatload: float = None
+    
+    @property
+    def amplitudes(self):
+        return self._amplitudes
+    
+    @amplitudes.setter
+    def amplitudes(self, amplitudes: Dict[int, float]):
+        self._amplitudes = amplitudes
+        self.rf_run = RFRun(amplitudes)
+    
+    @property
+    def heater_run_heatload(self):
+        return self._heater_run_heatload
+    
+    @heater_run_heatload.setter
+    def heater_run_heatload(self, heat_load: float):
+        self._heater_run_heatload = heat_load
+        self.heater_run = q0_utils.HeaterRun(heat_load)
+    
+    @property
+    def start_time(self):
+        return self._start_time
+    
+    @start_time.setter
+    def start_time(self, start_time: datetime):
+        if not self._start_time:
+            self._start_time = start_time.strftime(q0_utils.DATETIME_FORMATTER)
     
     def load_data(self, time_stamp: str):
         # TODO need to load the other parameters
+        self.start_time = datetime.strptime(time_stamp, q0_utils.DATETIME_FORMATTER)
         
         with open(self.cryomodule.q0_data_file, 'r+') as f:
             all_data: Dict = json.load(f)
-            data: Dict = all_data[time_stamp]
+            q0_meas_data: Dict = all_data[time_stamp]
             
-            heater_readback_data = data["Heater Run Heater Readback Buffer"]
-            heat_load = np.mean(heater_readback_data)
-            self.heater_run = HeaterRun(heat_load)
-            self.heater_run.ll_data = data["Heater Run LL Buffer"]
-            self.heater_run.heater_readback_buffer = heater_readback_data
-            self.heater_run.start_time = datetime.strptime(data["Heater Run Start Time"],
+            heater_run_data: Dict = q0_meas_data[q0_utils.JSON_HEATER_RUN_KEY]
+            
+            self.heater_run_heatload = heater_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
+            self.heater_run.start_time = datetime.strptime(heater_run_data[q0_utils.JSON_START_KEY],
                                                            q0_utils.DATETIME_FORMATTER)
-            self.heater_run.end_time = datetime.strptime(data["Heater Run End Time"],
+            self.heater_run.end_time = datetime.strptime(heater_run_data[q0_utils.JSON_END_KEY],
                                                          q0_utils.DATETIME_FORMATTER)
+            ll_data = {}
+            for time_str, val in heater_run_data[q0_utils.JSON_LL_KEY].items():
+                ll_data[float(time_str)] = val
+            self.heater_run.ll_data = ll_data
+            
+            rf_run_data: Dict = q0_meas_data[q0_utils.JSON_RF_RUN_KEY]
+            cav_amps = {}
+            for cav_num_str, amp in rf_run_data[q0_utils.JSON_CAV_AMPS_KEY]:
+                cav_amps[int(cav_num_str)] = amp
+            
+            self.amplitudes = cav_amps
+            self.rf_run.start_time = datetime.strptime(rf_run_data[q0_utils.JSON_START_KEY],
+                                                       q0_utils.DATETIME_FORMATTER)
+            self.rf_run.end_time = datetime.strptime(rf_run_data[q0_utils.JSON_END_KEY],
+                                                     q0_utils.DATETIME_FORMATTER)
+            
+            ll_data = {}
+            for time_str, val in rf_run_data[q0_utils.JSON_LL_KEY].items():
+                ll_data[float(time_str)] = val
+            self.rf_run.ll_data = ll_data
     
-    def save_data(self, timestamp: datetime, cm_name: str):
+    def save_data(self):
         q0_utils.make_json_file(self.cryomodule.q0_data_file)
-        heater_data = {"Start Time"         : self.heater_run.start_time,
-                       "End Time"           : self.heater_run.end_time,
-                       "Liquid Level Buffer": self.heater_run.ll_data,
-                       "Heater Readback"    : self.heater_run.average_heat,
-                       "dLL/dt"             : self.heater_run.dll_dt}
+        heater_data = {q0_utils.JSON_START_KEY          : self.heater_run.start_time,
+                       q0_utils.JSON_END_KEY            : self.heater_run.end_time,
+                       q0_utils.JSON_LL_KEY             : self.heater_run.ll_data,
+                       q0_utils.JSON_HEATER_READBACK_KEY: self.heater_run.average_heat,
+                       q0_utils.JSON_DLL_KEY            : self.heater_run.dll_dt}
         
-        rf_data = {"Start Time"         : self.rf_run.start_time,
-                   "End Time"           : self.rf_run.end_time,
-                   "Liquid Level Buffer": self.rf_run.ll_data,
-                   "Heater Readback"    : self.rf_run.average_heat,
-                   "Average Pressure"   : np.mean(self.rf_run.pressure_buffer),
-                   "dLL/dt"             : self.rf_run.dll_dt}
+        rf_data = {q0_utils.JSON_START_KEY          : self.rf_run.start_time,
+                   q0_utils.JSON_END_KEY            : self.rf_run.end_time,
+                   q0_utils.JSON_LL_KEY             : self.rf_run.ll_data,
+                   q0_utils.JSON_HEATER_READBACK_KEY: self.rf_run.average_heat,
+                   q0_utils.JSON_AVG_PRESS_KEY      : self.rf_run.avg_pressure,
+                   q0_utils.JSON_DLL_KEY            : self.rf_run.dll_dt,
+                   q0_utils.JSON_CAV_AMPS_KEY       : self.rf_run.amplitudes}
         
-        new_data = {"Heater Run"       : heater_data,
-                    "RF Run"           : rf_data,
-                    "Cavity Amplitudes": self.rf_run.amplitudes}
+        new_data = {q0_utils.JSON_HEATER_RUN_KEY: heater_data,
+                    q0_utils.JSON_RF_RUN_KEY    : rf_data}
         
-        q0_utils.update_json_data(self.cryomodule.q0_data_file,
-                                  timestamp.strftime(q0_utils.DATETIME_FORMATTER),
+        q0_utils.update_json_data(self.cryomodule.q0_data_file, self.start_time,
                                   new_data)
+    
+    def save_results(self):
+        newData = {q0_utils.JSON_START_KEY        : self.start_time,
+                   q0_utils.JSON_CAV_AMPS_KEY     : self.rf_run.amplitudes,
+                   "Calculated Adjusted Heat Load": self.heat_load,
+                   "Calculated Raw Heat Load"     : self.raw_heat,
+                   "Calculated Adjustment"        : self.adjustment,
+                   "Calculated Q0"                : self.q0,
+                   "Calibration Used"             : self.cryomodule.calibration.time_stamp}
+        
+        q0_utils.update_json_data(self.cryomodule.q0_idx_file, self.start_time,
+                                  newData)
     
     @property
     def raw_heat(self):
         if not self._raw_heat:
-            self._raw_heat = self.calibration.get_heat(self.rf_run.dll_dt)
+            self._raw_heat = self.cryomodule.calibration.get_heat(self.rf_run.dll_dt)
         return self._raw_heat
     
     @property
     def adjustment(self):
         if not self._adjustment:
-            heater_run_raw_heat = self.calibration.get_heat(self.heater_run.dll_dt)
+            heater_run_raw_heat = self.cryomodule.calibration.get_heat(self.heater_run.dll_dt)
             self._adjustment = self.heater_run.average_heat - heater_run_raw_heat
         return self._adjustment
     
@@ -266,8 +282,8 @@ class Q0Cryomodule(Cryomodule):
         
         self.cryo_access_pv: str = f"CRYO:CM{self.name}:0:CAS_ACCESS"
         
-        self.q0DataSessions = {}
-        self.calibDataSessions = {}
+        self.q0_measurements: Dict[str, Q0Measurement] = {}
+        self.calibrations: Dict[str, Calibration] = {}
         
         self.valveParams: q0_utils.ValveParams = None
         
@@ -286,7 +302,7 @@ class Q0Cryomodule(Cryomodule):
         self.measurement_buffer = []
         self.calibration: Calibration = None
         self.q0_measurement: Q0Measurement = None
-        self.current_data_run: DataRun = None
+        self.current_data_run: q0_utils.DataRun = None
         self.cavity_amplitudes = {}
     
     @property
@@ -322,7 +338,7 @@ class Q0Cryomodule(Cryomodule):
             self.current_data_run.ll_data[datetime.now().timestamp()] = value
     
     @property
-    def averagedLiquidLevelDS(self) -> float:
+    def averaged_liquid_level(self) -> float:
         # try to do averaging of the last NUM_LL_POINTS_TO_AVG points to account
         # for signal noise
         avg_ll = np.nanmean(self.ll_buffer)
@@ -444,7 +460,7 @@ class Q0Cryomodule(Cryomodule):
         
         print(q0_utils.RUN_STATUS_MSSG)
         
-        self.current_data_run: HeaterRun = HeaterRun(new_val)
+        self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(new_val)
         self.calibration.heater_runs.append(self.current_data_run)
         
         self.current_data_run.start_time = datetime.now()
@@ -458,12 +474,12 @@ class Q0Cryomodule(Cryomodule):
         print("Heater run done")
     
     def wait_for_ll_drop(self, target_ll_diff):
-        startingLevel = self.averagedLiquidLevelDS
+        startingLevel = self.averaged_liquid_level
         avgLevel = startingLevel
         while ((startingLevel - avgLevel) < target_ll_diff
                and (avgLevel > q0_utils.MIN_DS_LL)):
             print(f"Averaged level is {avgLevel}; waiting 10s")
-            avgLevel = self.averagedLiquidLevelDS
+            avgLevel = self.averaged_liquid_level
             sleep(10)
     
     def fill_pressure_buffer(self, value, **kwargs):
@@ -474,6 +490,7 @@ class Q0Cryomodule(Cryomodule):
         if self.current_data_run:
             self.current_data_run.heater_readback_buffer.append(value)
     
+    # to be called after setup_for_q0 and each cavity's setup_SELA
     def takeNewQ0Measurement(self, desiredAmplitudes: Dict[int, float],
                              desired_ll: float = q0_utils.MAX_DS_LL,
                              ll_drop: float = q0_utils.TARGET_LL_DIFF):
@@ -485,9 +502,11 @@ class Q0Cryomodule(Cryomodule):
         
         self.current_data_run: RFRun = self.q0_measurement.rf_run
         camonitor(self.heater_readback_pv, callback=self.fill_heater_readback_buffer)
-        start_time = datetime.now()
         
-        self.current_data_run.start_time = datetime.now()
+        start_time = datetime.now()
+        self.q0_measurement.start_time = start_time
+        self.current_data_run.start_time = start_time
+        
         self.wait_for_ll_drop(ll_drop)
         camonitor_clear(self.heater_readback_pv)
         self.current_data_run.end_time = datetime.now()
@@ -503,7 +522,7 @@ class Q0Cryomodule(Cryomodule):
         self.q0_measurement.heater_run = self.current_data_run
         
         camonitor_clear(self.dsPressurePV)
-        self.q0_measurement.save_data(timestamp=start_time, cm_name=self.name)
+        self.q0_measurement.save_data()
         self.current_data_run = None
         
         end_time = datetime.now()
@@ -516,44 +535,35 @@ class Q0Cryomodule(Cryomodule):
         duration = (end_time - start_time).total_seconds() / 3600
         print("Duration in hours: {DUR}".format(DUR=duration))
         
-        self.save_q0_results(start_time)
-    
-    def save_q0_results(self, time_stamp: datetime):
-        newData = {"Start Time"                   : time_stamp.strftime(q0_utils.DATETIME_FORMATTER),
-                   "Cavity Amplitudes"            : self.q0_measurement.rf_run.amplitudes,
-                   "Calculated Adjusted Heat Load": self.q0_measurement.heat_load,
-                   "Calculated Raw Heat Load"     : self.q0_measurement.raw_heat,
-                   "Calculated Adjustment"        : self.q0_measurement.adjustment,
-                   "Calculated Q0"                : "{:e}".format(self.q0_measurement.q0),
-                   "Calibration Used"             : self.calibration.time_stamp}
-        
-        q0_utils.update_json_data(self.q0_idx_file,
-                                  time_stamp.strftime(q0_utils.DATETIME_FORMATTER),
-                                  newData)
+        print("Caluclated Q0: ", self.q0_measurement.q0)
+        self.q0_measurement.save_results()
     
     def setup_for_q0(self, desiredAmplitudes, desired_ll, jt_search_end, jt_search_start):
-        self.q0_measurement = Q0Measurement(heater_run_heatload=q0_utils.FULL_MODULE_CALIBRATION_LOAD,
-                                            amplitudes=desiredAmplitudes,
-                                            calibration=self.calibration)
-        camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
+        self.q0_measurement = Q0Measurement(cryomodule=self)
+        self.q0_measurement.amplitudes = desiredAmplitudes
+        self.q0_measurement.heater_run_heatload = q0_utils.FULL_MODULE_CALIBRATION_LOAD
+        
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
         print(f"setting heater to {self.valveParams.refHeatLoadDes}")
+        
         caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
         self.fillAndLock(desired_ll)
+        camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
     
     def load_calibration(self, time_stamp: str):
         self.calibration: Calibration = Calibration(time_stamp=time_stamp,
                                                     cryomodule=self)
         self.calibration.load_data()
-        self.save_calibration_results(time_stamp)
+        self.calibration.save_results()
     
     def load_q0_measurement(self, time_stamp):
         # TODO figure out how to fill the constructor
-        self.q0_measurement: q0_utils.Q0Measurement = q0_utils.Q0Measurement()
-        self.q0_measurement.load_data(time_stamp, self.name)
+        self.q0_measurement: Q0Measurement = Q0Measurement(self)
+        self.q0_measurement.load_data(time_stamp)
         self.q0_measurement.calibration = self.calibration
+        self.q0_measurement.save_results()
     
     def takeNewCalibration(self, initial_heat_load: int,
                            jt_search_start: datetime = None,
@@ -570,7 +580,8 @@ class Q0Cryomodule(Cryomodule):
         deltaTot = self.valveParams.refHeatLoadDes - caget(self.heater_readback_pv)
         
         startTime = datetime.now().replace(microsecond=0)
-        self.calibration = q0_utils.Calibration(startTime.strftime(q0_utils.DATETIME_FORMATTER))
+        self.calibration = Calibration(time_stamp=startTime.strftime(q0_utils.DATETIME_FORMATTER),
+                                       cryomodule=self)
         
         caput(self.heater_manual_pv, 1, wait=True)
         print(f"Changing heater by {deltaTot}")
@@ -585,14 +596,12 @@ class Q0Cryomodule(Cryomodule):
         self.current_data_run = None
         
         for _ in range(num_cal_steps):
-            if (self.averagedLiquidLevelDS - q0_utils.MIN_DS_LL) < ll_drop:
+            if (self.averaged_liquid_level - q0_utils.MIN_DS_LL) < ll_drop:
                 self.fillAndLock(desired_ll)
             self.launchHeaterRun(heater_delta, target_ll_diff=ll_drop)
             self.current_data_run = None
         
-        self.calibration.save_data(cm_name=self.name)
-        
-        endTime = datetime.now().replace(microsecond=0)
+        self.calibration.save_data()
         
         print("\nStart Time: {START}".format(START=startTime))
         print("End Time: {END}".format(END=datetime.now()))
@@ -609,15 +618,7 @@ class Q0Cryomodule(Cryomodule):
         caput(self.dsLiqLevSetpointPV, starting_ll_setpoint, wait=True)
         caput(self.heater_sequencer_pv, 1, wait=True)
         
-        self.save_calibration_results(startTime)
-    
-    def save_calibration_results(self, start_time: datetime):
-        newData = {q0_utils.JSON_START_KEY          : start_time.strftime(q0_utils.DATETIME_FORMATTER),
-                   "Calculated Heat vs dll/dt Slope": self.calibration.dLLdt_dheat,
-                   "Calculated Adjustment"          : self.calibration.adjustment}
-        q0_utils.update_json_data(self.calib_idx_file,
-                                  start_time.strftime(q0_utils.DATETIME_FORMATTER),
-                                  newData)
+        self.calibration.save_results()
     
     def lock_jt(self, refValvePos):
         # type: (float) -> None
@@ -645,8 +646,8 @@ class Q0Cryomodule(Cryomodule):
     def waitForLL(self, desiredLiquidLevel=q0_utils.MAX_DS_LL):
         print(f"Waiting for downstream liquid level to be {desiredLiquidLevel}%")
         
-        while (desiredLiquidLevel - self.averagedLiquidLevelDS) > 0.01:
-            print(f"Current averaged level is {self.averagedLiquidLevelDS}; waiting 10 seconds for more data.")
+        while (desiredLiquidLevel - self.averaged_liquid_level) > 0.01:
+            print(f"Current averaged level is {self.averaged_liquid_level}; waiting 10 seconds for more data.")
             sleep(10)
         
         print("downstream liquid level at required value.")

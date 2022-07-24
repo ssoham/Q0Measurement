@@ -1,7 +1,7 @@
 import json
 import os
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from os import devnull
 from os.path import isfile
 from typing import Any, Dict, List
@@ -11,9 +11,10 @@ from lcls_tools.common.data_analysis.archiver import Archiver
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
+from scipy.stats import linregress
+
 DATETIME_FORMATTER = "%m/%d/%y %H:%M:%S"
 TEST_MODE = False
 
@@ -85,6 +86,67 @@ ARCHIVER = Archiver("lcls")
 JSON_START_KEY = "Start Time"
 JSON_END_KEY = "End Time"
 JSON_LL_KEY = "Liquid Level Data"
+JSON_HEATER_RUN_KEY = "Heater Run"
+JSON_RF_RUN_KEY = "RF Run"
+JSON_HEATER_READBACK_KEY = "Heater Readback"
+JSON_DLL_KEY = "dLL/dt"
+JSON_CAV_AMPS_KEY = "Cavity Amplitudes"
+JSON_AVG_PRESS_KEY = "Average Pressure"
+
+
+class DataError(Exception):
+    pass
+
+
+class DataRun:
+    def __init__(self):
+        self.ll_data: Dict[float, float] = {}
+        self.heater_readback_buffer: List[float] = []
+        self._dll_dt = None
+        self._start_time: datetime = None
+        self._end_time: datetime = None
+        self._average_heat = None
+        self.reference_heat = 0
+    
+    @property
+    def average_heat(self) -> float:
+        if not self._average_heat:
+            self._average_heat = np.mean(self.heater_readback_buffer) - self.reference_heat
+        return self._average_heat
+    
+    @property
+    def start_time(self) -> str:
+        if not self._start_time:
+            return None
+        return self._start_time.strftime(DATETIME_FORMATTER)
+    
+    @start_time.setter
+    def start_time(self, value: datetime):
+        self._start_time = value
+    
+    @property
+    def end_time(self) -> str:
+        if not self._end_time:
+            return None
+        return self._end_time.strftime(DATETIME_FORMATTER)
+    
+    @end_time.setter
+    def end_time(self, value: datetime):
+        self._end_time = value
+    
+    @property
+    def dll_dt(self) -> float:
+        if not self._dll_dt:
+            slope, intercept, r_val, p_val, std_err = linregress(
+                    list(self.ll_data.keys()), list(self.ll_data.values()))
+            self._dll_dt = slope
+        return self._dll_dt
+
+
+class HeaterRun(DataRun):
+    def __init__(self, heat_load: float):
+        super().__init__()
+        self.heat_load_des: float = heat_load
 
 
 def update_json_data(filepath, time_stamp, new_data):

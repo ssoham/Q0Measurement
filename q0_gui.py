@@ -58,7 +58,7 @@ class Q0GUI(Display):
         self.calibrationSection: MeasurementSettings = MeasurementSettings("Calibration")
         self.calibrationSection.new_button.clicked.connect(self.takeNewCalibration)
         self.calibrationSection.load_button.clicked.connect(self.load_calibration)
-        self.cal_select_windows: Dict[str, Display] = {}
+        self.cal_option_windows: Dict[str, Display] = {}
         self.cal_select_options: Dict[str, q0_gui_utils.CalibrationOptions] = {}
         
         self.rfSection: MeasurementSettings = MeasurementSettings("RF Measurement")
@@ -79,10 +79,15 @@ class Q0GUI(Display):
     
     @pyqtSlot()
     def load_calibration(self):
-        if self.selectedCM.name not in self.cal_select_windows:
-            select_window: Display = Display()
-            self.cal_select_windows[self.selectedCM.name] =
-            self.selectedCM.calibration.load_data()
+        if self.selectedCM.name not in self.cal_option_windows:
+            option_window: Display = Display()
+            cal_options = q0_gui_utils.CalibrationOptions(self.selectedCM)
+            window_layout = QVBoxLayout()
+            window_layout.addWidget(cal_options.main_groupbox)
+            option_window.setLayout(window_layout)
+            self.cal_option_windows[self.selectedCM.name] = option_window
+            # self.selectedCM.calibration.load_data()
+        showDisplay(self.cal_option_windows[self.selectedCM.name])
     
     @pyqtSlot(int)
     def update_ll_buffer(self, value):
