@@ -220,12 +220,17 @@ class Q0Measurement:
     def q0(self):
         if not self._q0:
             cav_length = self.cryomodule.cavities[0].length
-            num_cavs = len(self.rf_run.amplitudes.keys())
-            total_length = cav_length * num_cavs
-            self._q0 = q0_utils.calcQ0(amplitude=self.rf_run.amplitude,
+            grads = [amp / cav_length for amp in self.rf_run.amplitudes.values()]
+            sum_square_grad = 0
+            
+            for grad in grads:
+                sum_square_grad += grad ** 2
+            
+            effective_gradient = np.sqrt(sum_square_grad)
+            
+            self._q0 = q0_utils.calcQ0(gradient=effective_gradient,
                                        rfHeatLoad=self.heat_load,
-                                       avgPressure=np.mean(self.rf_run.pressure_buffer),
-                                       cav_length=total_length)
+                                       avgPressure=np.mean(self.rf_run.pressure_buffer))
         return self._q0
 
 

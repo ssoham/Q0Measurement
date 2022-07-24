@@ -103,13 +103,12 @@ def update_json_data(filepath, time_stamp, new_data):
 # (drury@jlab.org) to calculate Q0 from the measured heat load on a cavity,
 # the RF gradient used during the test, and the pressure of the incoming
 # 2 K helium.
-def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float, cav_length: float):
+def calcQ0(gradient: float, rfHeatLoad: float, avgPressure: float):
     # The initial Q0 calculation doesn't account for the temperature
     # variation of the 2 K helium
     rUponQ = 1012
     
-    gradient = ((amplitude * 1e6) / cav_length)
-    uncorrectedQ0 = (((amplitude * 1e6) ** 2) / (rUponQ * rfHeatLoad))
+    uncorrectedQ0 = (((gradient * 1e6) ** 2) / (rUponQ * rfHeatLoad))
     print(f"Uncorrected Q0: {uncorrectedQ0}")
     
     # uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
