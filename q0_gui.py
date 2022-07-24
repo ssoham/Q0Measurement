@@ -80,6 +80,8 @@ class Q0GUI(Display):
     @pyqtSlot()
     def load_calibration(self):
         if self.selectedCM.name not in self.cal_select_windows:
+            select_window: Display = Display()
+            self.cal_select_windows[self.selectedCM.name] =
             self.selectedCM.calibration.load_data()
     
     @pyqtSlot(int)

@@ -1,31 +1,20 @@
 import json
 import os
-from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from errno import EEXIST
-from json import dumps
-from os import devnull, makedirs, path
+from datetime import timedelta
+from os import devnull
 from os.path import isfile
-from pathlib import Path
-from re import compile, findall
-from subprocess import CalledProcessError, check_call, check_output
-from sys import stderr, stdout, version_info
-from time import sleep
-from typing import Any, Callable, Dict, KeysView, List, Optional, Tuple, Union
+from typing import Any, Dict, List
 
 import numpy as np
-from epics import PV
-from lcls_tools.common.data_analysis.archiver import Archiver, ArchiverData
+from lcls_tools.common.data_analysis.archiver import Archiver
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-from requests.exceptions import ConnectTimeout
-from scipy.stats import linregress
-from six import moves
 
 # Set True to use a known data set for debugging and/or demoing
 # Set False to prompt the user for real data
+DATETIME_FORMATTER = "%m/%d/%y %H:%M:%S"
 TEST_MODE = False
 
 # The relationship between the LHE content of a cryomodule and the readback from
@@ -82,35 +71,32 @@ JT_SEARCH_TIME_RANGE: timedelta = timedelta(hours=24)
 JT_SEARCH_OVERLAP_DELTA: timedelta = timedelta(minutes=30)
 DELTA_NEEDED_FOR_FLATNESS: timedelta = timedelta(hours=2)
 
-FULL_CALIBRATION_FILENAME_TEMPLATE = "calibrationsCM{CM}.json"
-CAVITY_CALIBRATION_FILENAME_TEMPLATE = "cav{CAV}/calibrationsCM{CM}CAV{CAV}.json"
-
 RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
                    "or below {MIN}%...".format(MIN=MIN_DS_LL, DIFF=TARGET_LL_DIFF))
 
-SSA_SLOPE_CHANGE_TOL = 0.15
-LOADED_Q_CHANGE_TOL = 0.15e7
-CAVITY_SCALE_CHANGE_TOL = 0.2
-
-# Swapnil requests 1%/min
-JT_STEP_SIZE_PER_SECOND = 1 / 60
-
 JT_MANUAL_MODE_VALUE = 0
 JT_AUTO_MODE_VALUE = 1
-
-RF_MODE_SELAP = 0
-RF_MODE_SELA = 1
-RF_MODE_SEL = 2
-RF_MODE_SEL_RAW = 3
-RF_MODE_PULSE = 4
-RF_MODE_CHIRP = 5
-
-SAFE_PULSED_DRIVE_LEVEL = 15
 
 CRYO_ACCESS_VALUE = 1
 MINIMUM_HEATLOAD = 48
 
 ARCHIVER = Archiver("lcls")
+
+JSON_START_KEY = "Start Time"
+JSON_END_KEY = "End Time"
+JSON_LL_KEY = "Liquid Level Data"
+
+
+def update_json_data(filepath, time_stamp, new_data):
+    make_json_file(filepath)
+    with open(filepath, 'r+') as f:
+        data: Dict = json.load(f)
+        data[time_stamp] = new_data
+        
+        # go to the beginning of the file to overwrite the existing data structure
+        f.seek(0)
+        json.dump(data, f, indent=4)
+        f.truncate()
 
 
 # The calculated Q0 value for this run. Formula from Mike Drury
@@ -124,6 +110,7 @@ def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float):
     
     uncorrectedQ0 = (((amplitude * 1000000) ** 2)
                      / (rUponQ * rfHeatLoad))
+    print(f"Uncorrected Q0: {uncorrectedQ0}")
     
     # uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
     
@@ -142,229 +129,11 @@ def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float):
                   - (C7 / tempFromPress) * np.exp(C6 / tempFromPress)))
 
 
-class DataRun:
-    def __init__(self):
-        self.ll_data: Dict[float, float] = {}
-        self.heater_readback_buffer: List[float] = []
-        self._dll_dt = None
-        self._start_time: datetime = None
-        self._end_time: datetime = None
-    
-    @property
-    def heater_load(self):
-        return np.mean(self.heater_readback_buffer)
-    
-    @property
-    def start_time(self):
-        if not self._start_time:
-            return None
-        return self._start_time.strftime("%m/%d/%y %H:%M:%S")
-    
-    @start_time.setter
-    def start_time(self, value: datetime):
-        self._start_time = value
-    
-    @property
-    def end_time(self):
-        if not self._end_time:
-            return None
-        return self._end_time.strftime("%m/%d/%y %H:%M:%S")
-    
-    @end_time.setter
-    def end_time(self, value: datetime):
-        self._end_time = value
-    
-    @property
-    def dll_dt(self):
-        if not self._dll_dt:
-            slope, intercept, r_val, p_val, std_err = linregress(
-                    self.ll_data.keys(), self.ll_data.values())
-            self._dll_dt = slope
-        return self._dll_dt
-
-
-class HeaterRun(DataRun):
-    def __init__(self, heat_load: float):
-        super().__init__()
-        self.heat_load_des: float = heat_load
-
-
 def make_json_file(filepath):
     if not isfile(filepath):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w+") as f:
             json.dump({}, f)
-
-
-class Calibration:
-    def __init__(self, time_stamp):
-        self.heater_runs: List[HeaterRun] = []
-        self._slope = None
-        self.adjustment = 0
-        self.time_stamp = time_stamp
-    
-    def clear(self):
-        self.heater_runs: List[HeaterRun] = []
-        self._slope = None
-        self.adjustment = 0
-    
-    def load_data(self, cm_name: str):
-        self.clear()
-        
-        filepath = f"data/calibrations/cm{cm_name}.json"
-        with open(filepath, 'r+') as f:
-            all_data: Dict = json.load(f)
-            data: Dict = all_data[self.time_stamp]
-            
-            for heater_run_data in data.values():
-                run = HeaterRun(heater_run_data["Desired Head Load"])
-                run._start_time = datetime.strptime(heater_run_data["Start Time"],
-                                                    "%m/%d/%y %H:%M:%S")
-                run._end_time = datetime.strptime(heater_run_data["End Time"],
-                                                  "%m/%d/%y %H:%M:%S")
-                run.ll_data = heater_run_data["Liquid Level Data"]
-                
-                self.heater_runs.append(run)
-    
-    def save_data(self, cm_name: str):
-        filepath = f"data/calibrations/cm{cm_name}.json"
-        make_json_file(filepath)
-        
-        new_data = {}
-        for idx, heater_run in enumerate(self.heater_runs):
-            key = f"Heater Run {idx} "
-            heater_data = {"Start Time"       : heater_run.start_time,
-                           "End Time"         : heater_run.end_time,
-                           "Desired Heat Load": heater_run.heat_load_des,
-                           "Liquid Level Data": heater_run.ll_data}
-            
-            new_data[key] = heater_data
-        
-        with open(filepath, 'r+') as f:
-            data: Dict = json.load(f)
-            data[self.time_stamp.strftime("%m/%d/%y %H:%M:%S")] = new_data
-            
-            # go to the beginning of the file to overwrite the existing data structure
-            f.seek(0)
-            json.dump(data, f)
-            f.truncate()
-    
-    @property
-    def dLLdt_dheat(self):
-        if not self._slope:
-            heat_loads = []
-            dll_dts = []
-            for run in self.heater_runs:
-                heat_loads.append(run.heater_load)
-                dll_dts.append(run.dll_dt)
-            
-            slope, intercept, r_val, p_val, std_err = linregress(
-                    heat_loads, dll_dts)
-            
-            if np.isnan(slope):
-                self._slope = None
-            else:
-                self.adjustment = intercept
-                self._slope = slope
-        
-        return self._slope
-    
-    def get_heat(self, dll_dt: float):
-        return (dll_dt - self.adjustment) / self.dLLdt_dheat
-
-
-class RFRun(DataRun):
-    def __init__(self, amplitudes: Dict[int, float]):
-        super().__init__()
-        self.amplitudes = amplitudes
-        self._amplitude = None
-        self.pressure_buffer = []
-    
-    @property
-    def amplitude(self):
-        if not self._amplitude:
-            self._amplitude = sum(self.amplitudes.values())
-        return self._amplitude
-
-
-class Q0Measurement:
-    def __init__(self, heater_run_heatload: float, amplitudes: Dict[int, float],
-                 calibration: Calibration):
-        self.heater_run: HeaterRun = HeaterRun(heater_run_heatload)
-        self.rf_run: RFRun = RFRun(amplitudes)
-        self.calibration: Calibration = calibration
-        self._raw_heat: float = None
-        self._adjustment: float = None
-        self._heat_load: float = None
-        self._q0: float = None
-    
-    def load_data(self, time_stamp: str, cm_name: str):
-        # TODO need to load the other parameters
-        
-        filepath = f"data/q0_measurements/cm{cm_name}.json"
-        with open(filepath, 'r+') as f:
-            all_data: Dict = json.load(f)
-            data: Dict = all_data[time_stamp]
-            
-            heater_readback_data = data["Heater Run Heater Readback Buffer"]
-            heat_load = np.mean(heater_readback_data)
-            self.heater_run = HeaterRun(heat_load)
-            self.heater_run.ll_data = data["Heater Run LL Buffer"]
-            self.heater_run.heater_readback_buffer = heater_readback_data
-            self.heater_run.start_time = datetime.strptime(data["Heater Run Start Time"],
-                                                           "%m/%d/%y %H:%M:%S")
-            self.heater_run.end_time = datetime.strptime(data["Heater Run End Time"],
-                                                         "%m/%d/%y %H:%M:%S")
-    
-    def save_data(self, timestamp: datetime, cm_name: str):
-        filepath = f"data/q0_measurements/cm{cm_name}.json"
-        make_json_file(filepath)
-        new_data = {"Heater Run Start Time"            : self.heater_run.start_time,
-                    "Heater Run End Time"              : self.heater_run.end_time,
-                    "Heater Run LL Buffer"             : self.heater_run.ll_data,
-                    "Heater Run Heater Readback Buffer": self.heater_run.heater_readback_buffer,
-                    "RF Run Start Time"                : self.rf_run.start_time,
-                    "RF Run End Time"                  : self.rf_run.end_time,
-                    "RF Run LL Buffer"                 : self.rf_run.ll_data,
-                    "RF Run Heater Readback Buffer"    : self.rf_run.heater_readback_buffer,
-                    "RF Run Pressure Buffer"           : self.rf_run.pressure_buffer,
-                    "Cavity Amplitudes"                : self.rf_run.amplitudes}
-        
-        with open(filepath, 'r+') as f:
-            data: Dict = json.load(f)
-            data[timestamp.strftime("%m/%d/%y %H:%M:%S")] = new_data
-            
-            # go to the beginning of the file to overwrite the existing data structure
-            f.seek(0)
-            json.dump(data, f)
-            f.truncate()
-    
-    @property
-    def raw_heat(self):
-        if not self._raw_heat:
-            self._raw_heat = self.calibration.get_heat(self.rf_run.dll_dt)
-        return self._raw_heat
-    
-    @property
-    def adjustment(self):
-        if not self._adjustment:
-            heater_run_raw_heat = self.calibration.get_heat(self.heater_run.dll_dt)
-            self._adjustment = self.heater_run.heater_load - heater_run_raw_heat
-        return self._adjustment
-    
-    @property
-    def heat_load(self):
-        if not self._heat_load:
-            self._heat_load = self.raw_heat + self.adjustment
-        return self._heat_load
-    
-    @property
-    def q0(self):
-        if not self._q0:
-            self._q0 = calcQ0(amplitude=self.rf_run.amplitude,
-                              rfHeatLoad=self.heat_load,
-                              avgPressure=np.mean(self.rf_run.pressure_buffer))
-        return self._q0
 
 
 class RFError(Exception):
@@ -420,269 +189,10 @@ def q0Hash(argList: List[Any]):
 
 
 @dataclass
-class SSAStateMap:
-    desired: int
-    opposite: int
-    pv: PV
-
-
-@dataclass
 class ValveParams:
     refValvePos: float
     refHeatLoadDes: float
     refHeatLoadAct: float
-
-
-@dataclass
-class TimeParams:
-    startTime: datetime
-    endTime: datetime
-    timeInterval: int
-
-
-@dataclass
-class CryomodulePVs:
-    heaterDesPV: str
-    heaterActPV: str
-    valvePV: str
-    dsLevelPV: str
-    usLevelPV: str
-    dsPressurePV: str
-    ampPVs: Optional[List[str]] = None
-    
-    def asList(self) -> List[str]:
-        return ([self.valvePV, self.dsLevelPV, self.usLevelPV,
-                 self.dsPressurePV] + self.heaterDesPV + self.heaterActPV +
-                (self.ampPVs if self.ampPVs else []))
-
-
-def isYes(prompt):
-    return getStrLim(prompt + " (y/n) ", ["Y", "y", "N", "n"]) in ["y", "Y"]
-
-
-def getStrLim(prompt, acceptable_strings):
-    # type: (str, List[str]) -> str
-    
-    response = get_input(prompt, str)
-    
-    while response not in acceptable_strings:
-        stderr.write(ERROR_MESSAGE + "\n")
-        sleep(0.01)
-        response = get_input(prompt, str)
-    
-    return response
-
-
-def writeAndFlushStdErr(message):
-    # type: (str) -> None
-    stderr.write("\n{MSSG}\n".format(MSSG=message))
-    stderr.flush()
-
-
-def writeAndWait(message, timeToWait=0):
-    # type: (str, float) -> None
-    stdout.write(message)
-    stdout.flush()
-    sleep(timeToWait)
-
-
-def get_float_lim(prompt, low_lim, high_lim):
-    # type: (str, float, float) -> float
-    return getNumericalInput(prompt, low_lim, high_lim, float)
-
-
-def getNumInputFromLst(prompt, lst, inputType, allowNoResponse=False):
-    # type: (str, Union[KeysView, List], Callable, bool) -> Union[float, int]
-    response = get_input(prompt, inputType, allowNoResponse)
-    while response not in lst:
-        # If the user just hits enter, return the first number in the list
-        if allowNoResponse and response == "":
-            # return lst[0]
-            # @pre First option should always be 1
-            return 1
-        else:
-            stderr.write(ERROR_MESSAGE + "\n")
-            # Need to pause briefly for some reason to make sure the error message
-            # shows up before the next prompt
-            sleep(0.01)
-            response = get_input(prompt, inputType, allowNoResponse)
-    
-    return response
-
-
-def getNumericalInput(prompt, lowLim, highLim, inputType):
-    # type: (str, Union[int, float], Union[int, float], Callable) -> Union[int, float]
-    response = get_input(prompt, inputType)
-    
-    while response < lowLim or response > highLim:
-        stderr.write(ERROR_MESSAGE + "\n")
-        sleep(0.01)
-        response = get_input(prompt, inputType)
-    
-    return response
-
-
-def get_input(prompt, desired_type, allowNoResponse=False):
-    # type: (str, Callable, bool) -> Union[int, float, str]
-    
-    response = moves.input(prompt)
-    
-    # if allowNoResponse is True the user is permitted to just hit enter in
-    # response to the prompt, giving us an empty string regardless of the
-    # desired input type
-    if allowNoResponse and response == "":
-        return response
-    
-    try:
-        response = desired_type(response)
-    except ValueError:
-        stderr.write(str(desired_type) + " required\n")
-        sleep(0.01)
-        return get_input(prompt, desired_type, allowNoResponse)
-    
-    return response
-
-
-def get_int_lim(prompt, low_lim, high_lim):
-    # type: (str, int, int) -> int
-    return getNumericalInput(prompt, low_lim, high_lim, int)
-
-
-# PyEpics doesn't work at LERF yet...
-# noinspection PyArgumentList
-def cagetPV(pv, startIdx=1, attempt=1):
-    # type: (str, int, int) -> [str]
-    
-    if attempt < 4:
-        try:
-            out = check_output(["caget", pv, "-n"]).split()[startIdx:]
-            if startIdx == 1:
-                return out.pop()
-            elif startIdx >= 2:
-                return out
-        except CalledProcessError as _:
-            sleep(2)
-            print("Retrying caget")
-            return cagetPV(pv, startIdx, attempt + 1)
-    
-    else:
-        raise CalledProcessError("caget failed too many times")
-
-
-# noinspection PyArgumentList
-def caputPV(pv, val, attempt=1):
-    # type: (str, str, int) -> int
-    
-    if attempt < 4:
-        try:
-            out = check_call(["caput", pv, val], stdout=FNULL)
-            sleep(2)
-            return out
-        except CalledProcessError:
-            sleep(2)
-            print("Retrying caput")
-            return caputPV(pv, val, attempt + 1)
-    else:
-        raise CalledProcessError("caput failed too many timeStamps")
-
-
-def makeTimeFromStr(row, idx):
-    # type: (List[str], int) -> datetime
-    return datetime.strptime(row[idx], "%m/%d/%y %H:%M:%S")
-
-
-def getTimeParams(row, indices):
-    # type: (List[str], Dict[str, int]) -> TimeParams
-    startTime = makeTimeFromStr(row, indices["startIdx"])
-    endTime = makeTimeFromStr(row, indices["endIdx"])
-    
-    timeIntervalStr = row[indices["timeIntIdx"]]
-    timeInterval = (int(timeIntervalStr) if timeIntervalStr
-                    else ARCHIVER_TIME_INTERVAL)
-    
-    timeParams = TimeParams(startTime, endTime, timeInterval)
-    
-    return timeParams
-
-
-############################################################################
-# getMySamplerData runs a shell command to get archive data. The syntax we're
-# using is:
-#
-#     mySampler -b "%Y-%m-%d %H:%M:%S" -s 1s -n[numPoints] [pv1] ... [pvn]
-#
-# where the "-b" denotes the start time, "-s 1s" says that the desired time
-# step between data points is 1 second, -n[numPoints] tells us how many
-# points we want, and [pv1]...[pvn] are the PVs we want archived
-#
-# Ex:
-#     mySampler -b "2019-03-28 14:16" -s 30s -n11 R121PMES R221PMES
-#
-# @param startTime: datetime object
-# @param signals: list of PV strings
-############################################################################
-def getArchiverData(numPoints: int, signals: List[str],
-                    timeInt: int = ARCHIVER_TIME_INTERVAL,
-                    startTime: datetime = None, endTime: datetime = None) -> Optional[ArchiverData]:
-    archiver = Archiver("lcls")
-    try:
-        if startTime:
-            endTime = startTime + timedelta(seconds=(numPoints * timeInt))
-        
-        elif endTime:
-            startTime = endTime - timedelta(seconds=(numPoints * timeInt))
-        
-        else:
-            writeAndFlushStdErr("No time boundaries supplied")
-            return None
-        
-        # timeInt is is seconds
-        data = archiver.getDataWithTimeInterval(pvList=signals,
-                                                startTime=startTime,
-                                                endTime=endTime,
-                                                timeDelta=timedelta(seconds=timeInt))
-        return data
-    
-    except ConnectTimeout:
-        writeAndFlushStdErr("Archiver timed out - are you VPNed in?")
-        return None
-
-
-# def getAndParseRawData(startTime, numPoints, signals,
-#                        timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True):
-#     # type: (datetime, int, List[str], int, bool) -> Optional[_reader]
-#     if verbose:
-#         print("\nGetting data from the archive...\n")
-#     rawData = getArchiverData(startTime, numPoints, signals, timeInt)
-#
-#     if not rawData:
-#         return None
-#
-#     else:
-#         rawDataSplit = rawData.splitlines()
-#         rows = ["\t".join(rawDataSplit.pop(0).strip().split())]
-#         rows.extend(list(map(lambda x: reformatDate(x), rawDataSplit)))
-#         return reader(rows, delimiter='\t')
-
-
-def reformatDate(row):
-    # type: (str) -> unicode
-    try:
-        # This clusterfuck regex is pretty much just trying to find strings
-        # that match %Y-%m-%d %H:%M:%S and making them %Y-%m-%d-%H:%M:%S
-        # instead (otherwise the csv parser interprets it as two different
-        # columns)
-        regex = compile("[0-9]{4}-[0-9]{2}-[0-9]{2}"
-                        + " [0-9]{2}:[0-9]{2}:[0-9]{2}")
-        res = findall(regex, row)[0].replace(" ", "-")
-        reformattedRow = regex.sub(res, row)
-        return "\t".join(reformattedRow.strip().split())
-    
-    except IndexError:
-        
-        writeAndFlushStdErr("Could not reformat date for row: " + str(row)
-                            + "\n")
-        return "\t".join(row.strip().split())
 
 
 def genAxis(title, xlabel, ylabel):
@@ -704,162 +214,7 @@ def redrawAxis(canvas, title, xlabel, ylabel):
     canvas.axes.set_ylabel(ylabel)
 
 
-# A surprisingly ugly way to pretty print a dictionary
-def printOptions(options):
-    # type: (Dict[int, str]) -> None
-    print(("\n" + dumps(options, indent=4) + "\n")
-          .replace('"', '').replace(',', ''))
-
-
-def addOption(csvRow, lineNum, indices, options):
-    # type: (List[str], int, Dict[str, int], Dict[int, str]) -> None
-    startTime = makeTimeFromStr(csvRow, indices["startIdx"])
-    endTime = makeTimeFromStr(csvRow, indices["endIdx"])
-    rate = csvRow[indices["timeIntIdx"]]
-    options[lineNum] = ("{START} to {END} ({RATE}s sample interval)"
-                        .format(START=startTime, END=endTime,
-                                RATE=rate))
-
-
-def getSelection(duration, suffix, options, name=None):
-    # type: (float, str, Dict[int, str], str) -> int
-    # Running a new Q0 measurement or heater calibration is always
-    # presented as the last option in the list
-    
-    options[max(options) + 1
-    if options else 1] = ("Launch new {TYPE} ({DUR} hours)"
-                          .format(TYPE=suffix, DUR=duration))
-    
-    # The keys in options are line numbers in a CSV file. We want to present
-    # them to the user in a more friendly format, starting from 1 and counting
-    # up.
-    renumberedOptions = OrderedDict()
-    optionMap = {}
-    i = 1
-    for key in options:
-        renumberedOptions[i] = options[key]
-        optionMap[i] = key
-        i += 1
-    
-    printOptions(renumberedOptions)
-    formatter = "Please select a {TYPE} option for {NAME} (hit enter for option 1): "
-    selection = getNumInputFromLst(formatter.format(TYPE=suffix, NAME=name),
-                                   renumberedOptions.keys(), int, True)
-    
-    return optionMap[selection]
-
-
 def drawAndShow():
     # type: () -> None
     plt.draw()
     plt.show()
-
-
-# # Gets raw data from MySampler and does some of the prep work necessary for
-# # collapsing all of the heater DES and ACT values down into summed values
-# # (rewrites the CSV header, stores the indices for the heater DES and ACT PVs)
-# def getDataAndHeaterCols(startTime, numPoints, heaterDesPVs, heaterActPVs,
-#                          allPVs, timeInt=MYSAMPLER_TIME_INTERVAL, verbose=True,
-#                          gradPVs=None):
-#     # type: (datetime, int, List[str], List[str], List[str], int, bool, List) -> Optional[List[str], List[int], List[int], List[int], _reader, List]
-#
-#     def populateHeaterCols(pvList, buff):
-#         # type: (List[str], List[float]) -> None
-#         for heaterPV in pvList:
-#             buff.append(header.index(heaterPV))
-#
-#     data = getArchiverData(startTime, numPoints, allPVs, timeInt)
-#     csvReader = getAndParseRawData(startTime, numPoints, allPVs, timeInt,
-#                                    verbose)
-#
-#     if not csvReader:
-#         return None
-#
-#     else:
-#
-#         header = csvReader.next()
-#
-#         heaterDesCols = []
-#         populateHeaterCols(heaterDesPVs, heaterDesCols)
-#
-#         heaterActCols = []
-#         populateHeaterCols(heaterActPVs, heaterActCols)
-#
-#         gradCols = []
-#         if gradPVs:
-#             populateHeaterCols(gradPVs, gradCols)
-#
-#         # So that we don't corrupt the indices while we're deleting them
-#         colsToDelete = sorted(heaterDesCols + heaterActCols + gradCols, reverse=True)
-#
-#         for index in colsToDelete:
-#             del header[index]
-#
-#         header.append("Electric Heat Load Setpoint")
-#         header.append("Electric Heat Load Readback")
-#         if gradPVs:
-#             header.append("Effective Gradient")
-#
-#         return header, heaterActCols, heaterDesCols, colsToDelete, csvReader, gradCols
-
-
-def collapseGradVals(row, gradCols):
-    # type: (List[str], List[int]) -> Optional[float]
-    
-    grad = 0
-    
-    for col in gradCols:
-        try:
-            grad += float(row[col])
-        except ValueError:
-            grad = None
-            break
-    
-    return grad
-
-
-def collapseHeaterVals(row, heaterDesCols, heaterActCols):
-    # type: (List[str], List[int], List[int]) -> Tuple[Optional[float], Optional[float]]
-    
-    heatLoadSetpoint = 0
-    
-    for col in heaterDesCols:
-        try:
-            heatLoadSetpoint += float(row[col])
-        except ValueError:
-            heatLoadSetpoint = None
-            break
-    
-    heatLoadAct = 0
-    
-    for col in heaterActCols:
-        try:
-            heatLoadAct += float(row[col])
-        except ValueError:
-            heatLoadAct = None
-            break
-    
-    return heatLoadSetpoint, heatLoadAct
-
-
-def compatibleNext(csvReader):
-    # type: (_reader) -> List
-    if version_info[0] < 3:
-        return csvReader.next()
-    else:
-        return next(csvReader)
-
-
-def compatibleMkdirs(filePath: Path) -> Path:
-    if version_info[0] < 3:
-        if not path.exists(filePath):
-            try:
-                makedirs(filePath)
-            # Guard against race condition per Stack Overflow
-            except OSError as exc:
-                if exc.errno != EEXIST:
-                    raise
-    else:
-        makedirs(filePath, exist_ok=True)
-    
-    return filePath
