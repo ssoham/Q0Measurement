@@ -1,0 +1,19 @@
+{
+  "07/22/22 19:56:38": {
+    "Total Reference Heater Setpoint": 48.0,
+    "Total Reference Heater Readback": 47.77520908882232,
+    "JT Valve Position": 26.0,
+    "Start Time": "07/22/22 19:56:38",
+    "End Time": "07/22/22 20:26:48",
+    "Cavity Amplitudes": {
+      "1": 16.6,
+      "2": 16.6,
+      "5": 16.6,
+      "6": 16.6
+    },
+    "Calculated Adjusted Heat Load": 91.93657870097877,
+    "Calculated Raw Heat Load": 88.77074166946434,
+    "Calculated Adjustment": 3.165837031514428,
+    "Calculated Q0": 3.099133e+09
+  }
+}
