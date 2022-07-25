@@ -88,7 +88,7 @@ JSON_END_KEY = "End Time"
 JSON_LL_KEY = "Liquid Level Data"
 JSON_HEATER_RUN_KEY = "Heater Run"
 JSON_RF_RUN_KEY = "RF Run"
-JSON_HEATER_READBACK_KEY = "Heater Readback"
+JSON_HEATER_READBACK_KEY = "Average Heater Readback"
 JSON_DLL_KEY = "dLL/dt"
 JSON_CAV_AMPS_KEY = "Cavity Amplitudes"
 JSON_AVG_PRESS_KEY = "Average Pressure"
@@ -113,6 +113,10 @@ class DataRun:
         if not self._average_heat:
             self._average_heat = np.mean(self.heater_readback_buffer) - self.reference_heat
         return self._average_heat
+    
+    @average_heat.setter
+    def average_heat(self, value: float):
+        self._average_heat = value
     
     @property
     def start_time(self) -> str:
@@ -141,6 +145,10 @@ class DataRun:
                     list(self.ll_data.keys()), list(self.ll_data.values()))
             self._dll_dt = slope
         return self._dll_dt
+    
+    @dll_dt.setter
+    def dll_dt(self, value: float):
+        self._dll_dt = value
 
 
 class HeaterRun(DataRun):

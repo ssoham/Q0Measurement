@@ -59,10 +59,11 @@ class Q0GUI(Display):
         self.calibrationSection.new_button.clicked.connect(self.takeNewCalibration)
         self.calibrationSection.load_button.clicked.connect(self.load_calibration)
         self.cal_option_windows: Dict[str, Display] = {}
-        self.cal_select_options: Dict[str, q0_gui_utils.CalibrationOptions] = {}
         
         self.rfSection: MeasurementSettings = MeasurementSettings("RF Measurement")
         self.rfSection.new_button.clicked.connect(self.takeNewQ0Measurement)
+        self.rfSection.load_button.clicked.connect(self.load_q0)
+        self.rf_option_windows: Dict[str, Display] = {}
         
         self.ui.groupbox_layout.addWidget(self.calibrationSection.main_groupbox)
         self.ui.groupbox_layout.addWidget(self.rfSection.main_groupbox)
@@ -82,12 +83,25 @@ class Q0GUI(Display):
         if self.selectedCM.name not in self.cal_option_windows:
             option_window: Display = Display()
             cal_options = q0_gui_utils.CalibrationOptions(self.selectedCM)
+            cal_options.cal_loaded_signal.connect(self.calibrationSection.handle_status)
+            cal_options.cal_loaded_signal.connect(partial(self.rfSection.main_groupbox.setEnabled, True))
             window_layout = QVBoxLayout()
             window_layout.addWidget(cal_options.main_groupbox)
             option_window.setLayout(window_layout)
             self.cal_option_windows[self.selectedCM.name] = option_window
-            # self.selectedCM.calibration.load_data()
         showDisplay(self.cal_option_windows[self.selectedCM.name])
+    
+    @pyqtSlot()
+    def load_q0(self):
+        if self.selectedCM.name not in self.rf_option_windows:
+            option_window: Display = Display()
+            rf_options = q0_gui_utils.Q0Options(self.selectedCM)
+            rf_options.q0_loaded_signal.connect(self.rfSection.handle_status)
+            window_layout = QVBoxLayout()
+            window_layout.addWidget(rf_options.main_groupbox)
+            option_window.setLayout(window_layout)
+            self.rf_option_windows[self.selectedCM.name] = option_window
+        showDisplay(self.rf_option_windows[self.selectedCM.name])
     
     @pyqtSlot(int)
     def update_ll_buffer(self, value):

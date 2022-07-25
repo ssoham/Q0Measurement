@@ -257,26 +257,71 @@ class CryomoduleSelector(QObject):
         showDisplay(self.cm_display)
 
 
-class CalibrationOptions:
+class Q0Options(QObject):
+    q0_loaded_signal = pyqtSignal(str)
+    
     def __init__(self, cryomodule: Q0Cryomodule):
+        super().__init__()
+        self.cryomodule = cryomodule
+        self.main_groupbox: QGroupBox = QGroupBox(f"Q0 Measurements for CM{cryomodule.name}")
+        grid_layout: QGridLayout = QGridLayout()
+        self.main_groupbox.setLayout(grid_layout)
+        
+        with open(cryomodule.q0_idx_file, "r+") as f:
+            q0_measurements: Dict = json.load(f)
+            col_count = get_dimensions(q0_measurements)
+            for idx, time_stamp in enumerate(q0_measurements.keys()):
+                radio_button: QRadioButton = QRadioButton(time_stamp)
+                grid_layout.addWidget(radio_button, int(idx / col_count),
+                                      idx % col_count)
+                radio_button.clicked.connect(partial(self.load_q0,
+                                                     time_stamp))
+    
+    @pyqtSlot()
+    def load_q0(self, timestamp: str):
+        self.cryomodule.load_q0_measurement(time_stamp=timestamp)
+        q0 = "{:e}".format(self.cryomodule.q0_measurement.q0)
+        self.q0_loaded_signal.emit(f"Loaded q0 measurement for"
+                                   f" CM{self.cryomodule.name} from {timestamp}"
+                                   f" with q0 {q0}")
+
+
+def get_dimensions(options):
+    num_options = len(options.keys())
+    row_count = int(np.sqrt(num_options))
+    col_count = int(np.ceil(np.sqrt(num_options)))
+    if row_count * col_count != num_options:
+        col_count += 1
+    return col_count
+
+
+class CalibrationOptions(QObject):
+    cal_loaded_signal = pyqtSignal(str)
+    
+    def __init__(self, cryomodule: Q0Cryomodule):
+        super().__init__()
+        self.cryomodule = cryomodule
         self.main_groupbox: QGroupBox = QGroupBox(f"Calibrations for CM{cryomodule.name}")
         grid_layout: QGridLayout = QGridLayout()
         self.main_groupbox.setLayout(grid_layout)
         
         with open(cryomodule.calib_idx_file, 'r+') as f:
             calibrations: Dict = json.load(f)
-            num_calibrations = len(calibrations.keys())
-            row_count = int(np.sqrt(num_calibrations))
-            col_count = int(np.ceil(np.sqrt(num_calibrations)))
-            if row_count * col_count != num_calibrations:
-                col_count += 1
+            col_count = get_dimensions(calibrations)
             
             for idx, time_stamp in enumerate(calibrations.keys()):
                 radio_button: QRadioButton = QRadioButton(time_stamp)
                 grid_layout.addWidget(radio_button, int(idx / col_count),
                                       idx % col_count)
-                radio_button.clicked.connect(partial(cryomodule.load_calibration,
+                radio_button.clicked.connect(partial(self.load_calibration,
                                                      time_stamp))
+    
+    @pyqtSlot()
+    def load_calibration(self, timestamp: str):
+        self.cryomodule.load_calibration(time_stamp=timestamp)
+        self.cal_loaded_signal.emit(f"Loaded calibration for"
+                                    f" CM{self.cryomodule.name} from {timestamp}"
+                                    f" with slope {self.cryomodule.calibration.dLLdt_dheat}")
 
 
 class MeasurementSettings(QObject):
