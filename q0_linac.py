@@ -508,8 +508,8 @@ class Q0Cryomodule(Cryomodule):
                              desired_ll: float = q0_utils.MAX_DS_LL,
                              ll_drop: float = q0_utils.TARGET_LL_DIFF):
         
-        for cav_num in desiredAmplitudes.keys():
-            while not self.cavities[cav_num].ready_for_q0:
+        for cav_num, des_amp in desiredAmplitudes.items():
+            while abs(caget(self.cavities[cav_num].selAmplitudeActPV.pvname) - des_amp) > 0.1:
                 print(f"Waiting for cavity {cav_num} to be ready")
                 sleep(5)
         
