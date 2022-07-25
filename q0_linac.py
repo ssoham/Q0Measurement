@@ -49,12 +49,12 @@ class Calibration:
         new_data = {}
         for idx, heater_run in enumerate(self.heater_runs):
             key = heater_run.start_time
-            heater_data = {q0_utils.JSON_START_KEY: heater_run.start_time,
-                           q0_utils.JSON_END_KEY  : heater_run.end_time,
-                           "Desired Heat Load"    : heater_run.heat_load_des,
-                           "Average Heat Load"    : heater_run.average_heat,
-                           q0_utils.JSON_DLL_KEY  : heater_run.dll_dt,
-                           q0_utils.JSON_LL_KEY   : heater_run.ll_data}
+            heater_data = {q0_utils.JSON_START_KEY          : heater_run.start_time,
+                           q0_utils.JSON_END_KEY            : heater_run.end_time,
+                           "Desired Heat Load"              : heater_run.heat_load_des,
+                           q0_utils.JSON_HEATER_READBACK_KEY: heater_run.average_heat,
+                           q0_utils.JSON_DLL_KEY            : heater_run.dll_dt,
+                           q0_utils.JSON_LL_KEY             : heater_run.ll_data}
             
             new_data[key] = heater_data
         

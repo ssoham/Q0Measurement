@@ -61,7 +61,7 @@ INITIAL_CAL_HEAT_LOAD = 8
 # The number of distinct heater settings we're using for cryomodule calibrations
 NUM_CAL_STEPS = 7
 
-NUM_LL_POINTS_TO_AVG = 25
+NUM_LL_POINTS_TO_AVG = 10
 
 CAV_HEATER_RUN_LOAD = 24
 FULL_MODULE_CALIBRATION_LOAD = 80
