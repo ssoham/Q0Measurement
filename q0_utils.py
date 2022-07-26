@@ -33,9 +33,6 @@ VALVE_POS_TOL = 2
 # Used to reject data where the cavity heater wasn't at the correct value
 HEATER_TOL = 1.2
 
-# The minimum acceptable run length is ten minutes (600 seconds)
-MIN_RUN_DURATION = 200
-
 # We want the liquid level to drop by at least 2.5% during our runs. This isn't
 # actually enforced however, unlike the run duration.
 TARGET_LL_DIFF = 4

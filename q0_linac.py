@@ -670,7 +670,7 @@ class Q0Cryomodule(Cryomodule):
         
         print(f"Waiting for JT Valve to be locked at {refValvePos}")
         caput(self.jtManPosSetpointPV, refValvePos, wait=True)
-        while (caget(self.jtManPosSetpointPV) - refValvePos) > 0.01:
+        while (caget(self.jtManPosSetpointPV) - refValvePos) > 0.1:
             sleep(1)
         
         print("Waiting for JT Valve position to be in tolerance")

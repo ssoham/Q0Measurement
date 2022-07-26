@@ -145,7 +145,7 @@ class Q0GUI(Display):
         if self.ui.manual_cryo_groupbox.isChecked():
             self.selectedCM.valveParams = ValveParams(refHeatLoadDes=self.ui.ref_heat_spinbox.value(),
                                                       refValvePos=self.ui.jt_pos_spinbox.value(),
-                                                      refHeatLoadAct=None)
+                                                      refHeatLoadAct=self.ui.ref_heat_spinbox.value())
         
         self.calibration_worker = CalibrationWorker(cryomodule=self.selectedCM,
                                                     start_heat=self.start_heat_spinbox.value(),
