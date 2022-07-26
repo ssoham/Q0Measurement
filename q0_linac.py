@@ -189,6 +189,7 @@ class Q0Measurement:
                                                        q0_utils.DATETIME_FORMATTER)
             self.rf_run.end_time = datetime.strptime(rf_run_data[q0_utils.JSON_END_KEY],
                                                      q0_utils.DATETIME_FORMATTER)
+            self.rf_run.average_heat = rf_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
             
             ll_data = {}
             for time_str, val in rf_run_data[q0_utils.JSON_LL_KEY].items():
