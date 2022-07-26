@@ -539,6 +539,7 @@ class Q0Cryomodule(Cryomodule):
         self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD,
                              target_ll_diff=ll_drop)
         self.q0_measurement.heater_run = self.current_data_run
+        self.q0_measurement.heater_run.reference_heat = self.valveParams.refHeatLoadAct
         
         camonitor_clear(self.dsPressurePV)
         self.q0_measurement.save_data()
