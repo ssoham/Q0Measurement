@@ -38,7 +38,12 @@ class Calibration:
                                                     q0_utils.DATETIME_FORMATTER)
                 run._end_time = datetime.strptime(heater_run_data[q0_utils.JSON_END_KEY],
                                                   q0_utils.DATETIME_FORMATTER)
-                run.ll_data = heater_run_data[q0_utils.JSON_LL_KEY]
+                
+                ll_data = {}
+                for timestamp_str, val in heater_run_data[q0_utils.JSON_LL_KEY].items():
+                    ll_data[float(timestamp_str)] = val
+                
+                run.ll_data = ll_data
                 run.average_heat = heater_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
                 
                 self.heater_runs.append(run)
