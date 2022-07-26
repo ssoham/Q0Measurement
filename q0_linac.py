@@ -349,8 +349,6 @@ class Q0Cryomodule(Cryomodule):
         self.ll_buffer_idx = 0
     
     def monitor_ll(self, value, **kwargs):
-        if value > q0_utils.MAX_DS_LL:
-            return
         
         self.ll_buffer[self.ll_buffer_idx] = value
         self.ll_buffer_idx = (self.ll_buffer_idx + 1) % self.ll_buffer_size
