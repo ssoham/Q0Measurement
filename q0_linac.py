@@ -7,6 +7,7 @@ from typing import Dict, List
 import numpy as np
 from epics import caget, camonitor, camonitor_clear, caput
 from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Magnet, Piezo, Rack, SSA, StepperTuner
+from lcls_tools.superconducting.scLinacUtils import PIEZO_FEEDBACK_VALUE, RF_MODE_SEL, RF_MODE_SELA
 from scipy.signal import medfilt
 from scipy.stats import linregress
 
@@ -195,6 +196,8 @@ class Q0Measurement:
             self.rf_run.ll_data = ll_data
             
             self.rf_run.avg_pressure = rf_run_data[q0_utils.JSON_AVG_PRESS_KEY]
+        
+        self.save_data()
     
     def save_data(self):
         q0_utils.make_json_file(self.cryomodule.q0_data_file)
@@ -275,6 +278,23 @@ class Q0Cavity(Cavity):
     
     def mark_ready(self):
         self.ready_for_q0 = True
+    
+    def ramp(self, desAmp: float):
+        caput(self.data_decim_pv, 255, wait=True)
+        
+        caput(self.selAmplitudeDesPV.pvname, min(5, desAmp), wait=True)
+        self.turnOn()
+        
+        caput(self.rfModeCtrlPV.pvname, RF_MODE_SEL, wait=True)
+        caput(self.piezo.feedback_mode_PV.pvname, PIEZO_FEEDBACK_VALUE, wait=True)
+        caput(self.rfModeCtrlPV.pvname, RF_MODE_SELA, wait=True)
+        
+        if desAmp <= 10:
+            self.walk_amp(desAmp, 0.5)
+        
+        else:
+            self.walk_amp(10, 0.5)
+            self.walk_amp(desAmp, 0.1)
 
 
 class Q0Cryomodule(Cryomodule):

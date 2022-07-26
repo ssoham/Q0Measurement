@@ -17,7 +17,7 @@ from requests import ConnectTimeout
 from urllib3.exceptions import ConnectTimeoutError
 
 import q0_utils
-from q0_linac import Q0Cryomodule, Q0_CRYOMODULES
+from q0_linac import Q0Cavity, Q0Cryomodule, Q0_CRYOMODULES
 
 DEFAULT_LL_DROP = 4
 MIN_STARTING_LL = 94
@@ -123,12 +123,12 @@ class Q0SetupWorker(RFWorker):
 class CavityRampWorker(Worker):
     def __init__(self, cavity: Cavity, des_amp: float):
         super().__init__()
-        self.cavity = cavity
+        self.cavity: Q0Cavity = cavity
         self.des_amp = des_amp
     
     def run(self) -> None:
         self.status.emit(f"Ramping Cavity {self.cavity.number} to {self.des_amp}")
-        self.cavity.setup_SELA(self.des_amp)
+        self.cavity.ramp(self.des_amp)
         self.finished.emit(f"Cavity {self.cavity.number} ramped up to {self.des_amp}")
 
 
@@ -271,7 +271,8 @@ class Q0Options(QObject):
             q0_measurements: Dict = json.load(f)
             col_count = get_dimensions(q0_measurements)
             for idx, time_stamp in enumerate(q0_measurements.keys()):
-                radio_button: QRadioButton = QRadioButton(time_stamp)
+                cav_amps = q0_measurements[time_stamp]["Cavity Amplitudes"]
+                radio_button: QRadioButton = QRadioButton(f"{time_stamp}: {cav_amps}")
                 grid_layout.addWidget(radio_button, int(idx / col_count),
                                       idx % col_count)
                 radio_button.clicked.connect(partial(self.load_q0,
