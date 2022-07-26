@@ -40,7 +40,6 @@ class Calibration:
                                                   q0_utils.DATETIME_FORMATTER)
                 run.ll_data = heater_run_data[q0_utils.JSON_LL_KEY]
                 run.average_heat = heater_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
-                run.dll_dt = heater_run_data[q0_utils.JSON_DLL_KEY]
                 
                 self.heater_runs.append(run)
     
@@ -473,7 +472,7 @@ class Q0Cryomodule(Cryomodule):
         
         print(q0_utils.RUN_STATUS_MSSG)
         
-        self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(new_val)
+        self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(new_val - self.valveParams.refHeatLoadAct)
         self.calibration.heater_runs.append(self.current_data_run)
         
         self.current_data_run.start_time = datetime.now()
