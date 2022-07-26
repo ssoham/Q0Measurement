@@ -23,7 +23,7 @@ TEST_MODE = False
 # have chosen to gather all our data with the downstream sensor above 90%. When
 # refilling the cryomodule we refill to at least 95%.
 MIN_DS_LL = 90
-MAX_DS_LL = 95
+MAX_DS_LL = 94
 
 MIN_US_LL = 66
 

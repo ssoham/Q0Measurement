@@ -349,6 +349,9 @@ class Q0Cryomodule(Cryomodule):
         self.ll_buffer_idx = 0
     
     def monitor_ll(self, value, **kwargs):
+        if value > q0_utils.MAX_DS_LL:
+            return
+        
         self.ll_buffer[self.ll_buffer_idx] = value
         self.ll_buffer_idx = (self.ll_buffer_idx + 1) % self.ll_buffer_size
         if self.current_data_run:
@@ -518,6 +521,7 @@ class Q0Cryomodule(Cryomodule):
                 sleep(5)
         
         self.current_data_run: RFRun = self.q0_measurement.rf_run
+        self.q0_measurement.rf_run.reference_heat = self.valveParams.refHeatLoadAct
         camonitor(self.heater_readback_pv, callback=self.fill_heater_readback_buffer)
         
         start_time = datetime.now()
