@@ -226,7 +226,7 @@ class Q0GUI(Display):
         self.ll_drop_spinbox.setRange(1, 5)
         self.ll_drop_spinbox.setValue(DEFAULT_LL_DROP)
         
-        self.min_start_ll_spinbox.setRange(91, 95)
+        self.min_start_ll_spinbox.setRange(91, 93)
         self.min_start_ll_spinbox.setValue(MIN_STARTING_LL)
         
         self.start_heat_spinbox.setRange(20, 160)
