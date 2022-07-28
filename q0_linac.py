@@ -538,9 +538,12 @@ class Q0Cryomodule(Cryomodule):
                 print(f"Waiting for cavity {cav_num} to be ready")
                 sleep(5)
         
+        self.fillAndLock(desired_ll)
+        
         self.current_data_run: RFRun = self.q0_measurement.rf_run
         self.q0_measurement.rf_run.reference_heat = self.valveParams.refHeatLoadAct
         camonitor(self.heater_readback_pv, callback=self.fill_heater_readback_buffer)
+        camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
         
         start_time = datetime.now()
         self.q0_measurement.start_time = start_time
@@ -577,6 +580,7 @@ class Q0Cryomodule(Cryomodule):
         
         print("Caluclated Q0: ", self.q0_measurement.q0)
         self.q0_measurement.save_results()
+        caput(self.heater_sequencer_pv, 1, wait=True)
     
     def setup_for_q0(self, desiredAmplitudes, desired_ll, jt_search_end, jt_search_start):
         self.q0_measurement = Q0Measurement(cryomodule=self)
@@ -586,11 +590,13 @@ class Q0Cryomodule(Cryomodule):
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
+        caput(self.heater_manual_pv, 1, wait=True)
+        sleep(2)
         print(f"setting heater to {self.valveParams.refHeatLoadDes}")
         
         caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
         self.fillAndLock(desired_ll)
-        camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
+        caput(self.jtAutoSelectPV, 1, wait=True)
     
     def load_calibration(self, time_stamp: str):
         self.calibration: Calibration = Calibration(time_stamp=time_stamp,
