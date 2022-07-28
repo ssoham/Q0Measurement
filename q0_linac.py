@@ -401,7 +401,7 @@ class Q0Cryomodule(Cryomodule):
         
         return self._calib_idx_file
     
-    def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL):
+    def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL, lock=True):
         
         starting_heat = caget(self.heater_setpoint_pv)
         
@@ -419,7 +419,8 @@ class Q0Cryomodule(Cryomodule):
         print(f"Setting heat back to {starting_heat}")
         caput(self.heater_setpoint_pv, starting_heat, wait=True)
         
-        self.lock_jt(self.valveParams.refValvePos)
+        if lock:
+            self.lock_jt(self.valveParams.refValvePos)
     
     def getRefValveParams(self, start_time: datetime, end_time: datetime):
         print(f"\nSearching {start_time} to {end_time} for period of JT stability")
@@ -595,8 +596,7 @@ class Q0Cryomodule(Cryomodule):
         print(f"setting heater to {self.valveParams.refHeatLoadDes}")
         
         caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
-        self.fillAndLock(desired_ll)
-        caput(self.jtAutoSelectPV, 1, wait=True)
+        self.fillAndLock(desired_ll, lock=False)
     
     def load_calibration(self, time_stamp: str):
         self.calibration: Calibration = Calibration(time_stamp=time_stamp,
