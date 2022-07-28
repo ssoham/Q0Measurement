@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (QButtonGroup, QDateTimeEdit, QDoubleSpinBox, QGridL
 from lcls_tools.common.pydm_tools.displayUtils import showDisplay
 from lcls_tools.superconducting.scLinac import L1BHL, LINAC_TUPLES
 from pydm import Display
+from pyqtgraph import PlotWidget, plot
 
 import q0_gui_utils
 from q0_gui_utils import (CalibrationWorker, CryoParamWorker, CryomoduleSelector,
@@ -59,11 +60,13 @@ class Q0GUI(Display):
         self.calibrationSection.new_button.clicked.connect(self.takeNewCalibration)
         self.calibrationSection.load_button.clicked.connect(self.load_calibration)
         self.cal_option_windows: Dict[str, Display] = {}
+        self.calibrationSection.data_button.clicked.connect(self.show_calibration_data)
         
         self.rfSection: MeasurementSettings = MeasurementSettings("RF Measurement")
         self.rfSection.new_button.clicked.connect(self.takeNewQ0Measurement)
         self.rfSection.load_button.clicked.connect(self.load_q0)
         self.rf_option_windows: Dict[str, Display] = {}
+        self.rfSection.data_button.clicked.connect(self.show_q0_data)
         
         self.ui.groupbox_layout.addWidget(self.calibrationSection.main_groupbox)
         self.ui.groupbox_layout.addWidget(self.rfSection.main_groupbox)
@@ -77,6 +80,94 @@ class Q0GUI(Display):
         
         self.ui.new_cryo_params_button.clicked.connect(self.getNewCryoParams)
         self.ui.setup_param_button.clicked.connect(self.setup_for_cryo_params)
+        
+        self.calibration_data_plot: PlotWidget = None
+        self.calibration_data_plot_items = []
+        self.calibration_fit_plot: PlotWidget = None
+        self.calibration_fit_plot_items = []
+        
+        self.q0_data_plot: PlotWidget = None
+        self.q0_data_plot_items = []
+        self.q0_fit_plot: PlotWidget = None
+        self.q0_fit_plot_items = []
+        
+        self.calibration_window: Display = None
+        self.q0_window: Display = None
+    
+    @pyqtSlot()
+    def show_q0_data(self):
+        if not self.q0_window:
+            self.q0_window = Display()
+            self.q0_window.setWindowTitle("Q0 Plots")
+            layout: QHBoxLayout = QHBoxLayout()
+            self.q0_data_plot: PlotWidget = plot()
+            self.q0_data_plot.setTitle("Q0 Data")
+            self.q0_fit_plot: PlotWidget = plot()
+            self.q0_fit_plot.setTitle("Heat On Calibration Curve (with adjustments)")
+            layout.addWidget(self.q0_data_plot)
+            layout.addWidget(self.q0_fit_plot)
+            self.q0_window.setLayout(layout)
+        
+        while self.q0_data_plot_items:
+            self.q0_data_plot.removeItem(self.q0_data_plot_items.pop())
+        
+        while self.q0_fit_plot_items:
+            self.q0_fit_plot.removeItem(self.q0_fit_plot_items.pop())
+        
+        measurement = self.selectedCM.q0_measurement
+        self.q0_data_plot_items.append(
+                self.q0_data_plot.plot(list(measurement.rf_run.ll_data.keys()),
+                                       list(measurement.rf_run.ll_data.values())))
+        self.q0_data_plot_items.append(
+                self.q0_data_plot.plot(list(measurement.heater_run.ll_data.keys()),
+                                       list(measurement.heater_run.ll_data.values())))
+        
+        dll_dts = [measurement.rf_run.dll_dt, measurement.heater_run.dll_dt]
+        self.q0_fit_plot_items.append(self.q0_fit_plot.plot([measurement.heat_load, measurement.heater_run_heatload],
+                                                            dll_dts,
+                                                            pen=None, symbol="o"))
+        
+        self.q0_fit_plot_items.append(
+                self.q0_fit_plot.plot([self.selectedCM.calibration.get_heat(dll_dt) for dll_dt in dll_dts], dll_dts))
+        
+        showDisplay(self.q0_window)
+    
+    @pyqtSlot()
+    def show_calibration_data(self):
+        if not self.calibration_window:
+            self.calibration_window = Display()
+            self.calibration_window.setWindowTitle("Calibration Plots")
+            layout: QHBoxLayout = QHBoxLayout()
+            self.calibration_data_plot: PlotWidget = plot()
+            self.calibration_data_plot.setTitle("Calibration Data")
+            self.calibration_fit_plot: PlotWidget = plot()
+            self.calibration_fit_plot.setTitle("Heat vs dll/dt")
+            layout.addWidget(self.calibration_data_plot)
+            layout.addWidget(self.calibration_fit_plot)
+            self.calibration_window.setLayout(layout)
+        
+        while self.calibration_data_plot_items:
+            self.calibration_data_plot.removeItem(self.calibration_data_plot_items.pop())
+        
+        while self.calibration_fit_plot_items:
+            self.calibration_fit_plot.removeItem(self.calibration_fit_plot_items.pop())
+        
+        dll_dts = []
+        
+        for heater_run in self.selectedCM.calibration.heater_runs:
+            self.calibration_data_plot_items.append(self.calibration_data_plot.plot(list(heater_run.ll_data.keys()),
+                                                                                    list(heater_run.ll_data.values())))
+            dll_dts.append(heater_run.dll_dt)
+            self.calibration_fit_plot_items.append(
+                    self.calibration_fit_plot.plot([heater_run.average_heat],
+                                                   [heater_run.dll_dt], pen=None,
+                                                   symbol="o"))
+        
+        heat_loads = [self.selectedCM.calibration.get_heat(dll_dt) for dll_dt in dll_dts]
+        
+        self.calibration_fit_plot_items.append(self.calibration_fit_plot.plot(heat_loads, dll_dts))
+        
+        showDisplay(self.calibration_window)
     
     @pyqtSlot()
     def load_calibration(self):
@@ -85,6 +176,7 @@ class Q0GUI(Display):
             cal_options = q0_gui_utils.CalibrationOptions(self.selectedCM)
             cal_options.cal_loaded_signal.connect(self.calibrationSection.handle_status)
             cal_options.cal_loaded_signal.connect(partial(self.rfSection.main_groupbox.setEnabled, True))
+            cal_options.cal_loaded_signal.connect(self.show_calibration_data)
             window_layout = QVBoxLayout()
             window_layout.addWidget(cal_options.main_groupbox)
             option_window.setLayout(window_layout)
@@ -97,6 +189,7 @@ class Q0GUI(Display):
             option_window: Display = Display()
             rf_options = q0_gui_utils.Q0Options(self.selectedCM)
             rf_options.q0_loaded_signal.connect(self.rfSection.handle_status)
+            rf_options.q0_loaded_signal.connect(self.show_q0_data)
             window_layout = QVBoxLayout()
             window_layout.addWidget(rf_options.main_groupbox)
             option_window.setLayout(window_layout)
