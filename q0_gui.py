@@ -289,7 +289,7 @@ class Q0GUI(Display):
         if self.ui.manual_cryo_groupbox.isChecked():
             self.selectedCM.valveParams = ValveParams(refHeatLoadDes=self.ui.ref_heat_spinbox.value(),
                                                       refValvePos=self.ui.jt_pos_spinbox.value(),
-                                                      refHeatLoadAct=None)
+                                                      refHeatLoadAct=self.ui.ref_heat_spinbox.value())
         
         self.q0_setup_worker = q0_gui_utils.Q0SetupWorker(cryomodule=self.selectedCM,
                                                           jt_search_start=self.jt_search_start,
