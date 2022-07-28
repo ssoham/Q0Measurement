@@ -280,7 +280,7 @@ class Q0Cavity(Cavity):
         self.ready_for_q0 = True
     
     def ramp(self, desAmp: float):
-        caput(self.data_decim_pv, 255, wait=True)
+        caput(self.cw_data_decim_pv, 255, wait=True)
         
         caput(self.selAmplitudeDesPV.pvname, min(5, desAmp), wait=True)
         self.turnOn()
