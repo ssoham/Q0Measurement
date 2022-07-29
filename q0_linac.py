@@ -53,12 +53,11 @@ class Calibration:
                 all_data: Dict = json.load(f)
                 data: Dict = all_data[self.time_stamp]
                 
-                ref_heat = data["Total Reference Heater Readback"]
-                ref_pos = data["JT Valve Position"]
-                
-                self.cryomodule.valveParams = q0_utils.ValveParams(refValvePos=ref_pos,
-                                                                   refHeatLoadDes=ref_heat,
-                                                                   refHeatLoadAct=ref_heat)
+                self.cryomodule.valveParams = q0_utils.ValveParams(refValvePos=data["JT Valve Position"],
+                                                                   refHeatLoadDes=data[
+                                                                       "Total Reference Heater Setpoint"],
+                                                                   refHeatLoadAct=data[
+                                                                       "Total Reference Heater Readback"])
                 print("Loaded new reference parameters")
     
     def save_data(self):
@@ -413,12 +412,13 @@ class Q0Cryomodule(Cryomodule):
         
         return self._calib_idx_file
     
-    def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL, lock=True):
+    def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL, lock=True, assist=True):
         
         starting_heat = caget(self.heater_setpoint_pv)
         
-        print("Setting heaters to 0 to assist fill")
-        caput(self.heater_setpoint_pv, 0, wait=True)
+        if assist:
+            print("Setting heaters to 0 to assist fill")
+            caput(self.heater_setpoint_pv, 0, wait=True)
         
         caput(self.dsLiqLevSetpointPV, desiredLevel, wait=True)
         
@@ -551,7 +551,7 @@ class Q0Cryomodule(Cryomodule):
                 print(f"Waiting for cavity {cav_num} to be ready")
                 sleep(5)
         
-        self.fillAndLock(desired_ll)
+        self.fillAndLock(desired_ll, assist=False)
         
         self.current_data_run: RFRun = self.q0_measurement.rf_run
         self.q0_measurement.rf_run.reference_heat = self.valveParams.refHeatLoadAct
