@@ -48,6 +48,18 @@ class Calibration:
                 run.average_heat = heater_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
                 
                 self.heater_runs.append(run)
+            
+            with open(self.cryomodule.calib_idx_file, "r+") as f:
+                all_data: Dict = json.load(f)
+                data: Dict = all_data[self.time_stamp]
+                
+                ref_heat = data["Total Reference Heater Readback"]
+                ref_pos = data["JT Valve Position"]
+                
+                self.cryomodule.valveParams = q0_utils.ValveParams(refValvePos=ref_pos,
+                                                                   refHeatLoadDes=ref_heat,
+                                                                   refHeatLoadAct=ref_heat)
+                print("Loaded new reference parameters")
     
     def save_data(self):
         
@@ -582,6 +594,7 @@ class Q0Cryomodule(Cryomodule):
         print("Caluclated Q0: ", self.q0_measurement.q0)
         self.q0_measurement.save_results()
         caput(self.heater_sequencer_pv, 1, wait=True)
+        caput(self.jtAutoSelectPV, 1, wait=True)
     
     def setup_for_q0(self, desiredAmplitudes, desired_ll, jt_search_end, jt_search_start):
         self.q0_measurement = Q0Measurement(cryomodule=self)
