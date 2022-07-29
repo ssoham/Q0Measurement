@@ -552,6 +552,10 @@ class Q0Cryomodule(Cryomodule):
                 sleep(5)
         
         self.fillAndLock(desired_ll, assist=False)
+        caput(self.heater_manual_pv, 1, wait=True)
+        sleep(2)
+        print(f"setting heater to {self.valveParams.refHeatLoadDes}")
+        caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
         
         self.current_data_run: RFRun = self.q0_measurement.rf_run
         self.q0_measurement.rf_run.reference_heat = self.valveParams.refHeatLoadAct
@@ -604,11 +608,6 @@ class Q0Cryomodule(Cryomodule):
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
-        caput(self.heater_manual_pv, 1, wait=True)
-        sleep(2)
-        print(f"setting heater to {self.valveParams.refHeatLoadDes}")
-        
-        caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
         self.fillAndLock(desired_ll, lock=False)
     
     def load_calibration(self, time_stamp: str):

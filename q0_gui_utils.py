@@ -128,7 +128,7 @@ class CavityRampWorker(Worker):
     
     def run(self) -> None:
         self.status.emit(f"Ramping Cavity {self.cavity.number} to {self.des_amp}")
-        self.cavity.ramp(self.des_amp)
+        self.cavity.setup_SELA(self.des_amp)
         self.finished.emit(f"Cavity {self.cavity.number} ramped up to {self.des_amp}")
 
 
