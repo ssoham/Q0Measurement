@@ -412,6 +412,15 @@ class Q0Cryomodule(Cryomodule):
         
         return self._calib_idx_file
     
+    def shut_off(self):
+        print("Restoring cryo")
+        caput(self.heater_sequencer_pv, 1, wait=True)
+        caput(self.jtAutoSelectPV, 1, wait=True)
+        print("Turning cavities and SSAs off")
+        for cavity in self.cavities.values():
+            cavity.turnOff()
+            cavity.ssa.turnOff()
+    
     def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL, lock=True, assist=True):
         
         starting_heat = caget(self.heater_setpoint_pv)
@@ -426,8 +435,6 @@ class Q0Cryomodule(Cryomodule):
         print(f"Setting JT to auto for refill to {desiredLevel}")
         caput(self.jtAutoSelectPV, 1, wait=True)
         self.waitForLL(desiredLevel)
-        
-        caput(self.jtManPosSetpointPV, self.valveParams.refValvePos, wait=True)
         
         print(f"Setting heat back to {starting_heat}")
         caput(self.heater_setpoint_pv, starting_heat, wait=True)
@@ -552,8 +559,9 @@ class Q0Cryomodule(Cryomodule):
                 print(f"Waiting for cavity {cav_num} to be ready")
                 sleep(5)
         
-        self.fillAndLock(desired_ll, assist=False)
+        self.fillAndLock(desired_ll, assist=True)
         caput(self.heater_manual_pv, 1, wait=True)
+        caput(self.jtManPosSetpointPV, self.valveParams.refValvePos, wait=True)
         sleep(2)
         print(f"setting heater to {self.valveParams.refHeatLoadDes}")
         caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
@@ -575,6 +583,7 @@ class Q0Cryomodule(Cryomodule):
         
         for cav_num in desiredAmplitudes.keys():
             self.cavities[cav_num].turnOff()
+            self.cavities[cav_num].ssa.turnOff()
         
         self.fillAndLock(desired_ll)
         self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD,
@@ -609,7 +618,7 @@ class Q0Cryomodule(Cryomodule):
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
-        self.fillAndLock(desired_ll, lock=False)
+        self.fillAndLock(desired_ll, lock=False, assist=False)
     
     def load_calibration(self, time_stamp: str):
         self.calibration: Calibration = Calibration(time_stamp=time_stamp,
