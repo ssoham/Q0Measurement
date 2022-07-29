@@ -417,6 +417,7 @@ class Q0Cryomodule(Cryomodule):
         starting_heat = caget(self.heater_setpoint_pv)
         
         if assist:
+            caput(self.heater_manual_pv, 1, wait=True)
             print("Setting heaters to 0 to assist fill")
             caput(self.heater_setpoint_pv, 0, wait=True)
         
