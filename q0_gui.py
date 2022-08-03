@@ -173,6 +173,11 @@ class Q0GUI(Display):
         self.ui.cal_status_label.setStyleSheet("color: blue;")
         self.ui.cal_status_label.setText(message)
     
+    @pyqtSlot(str)
+    def handle_cal_error(self, message):
+        self.ui.cal_status_label.setStyleSheet("color: red;")
+        self.ui.cal_status_label.setText(message)
+    
     @pyqtSlot()
     def load_calibration(self):
         if self.selectedCM.name not in self.cal_option_windows:
@@ -244,9 +249,9 @@ class Q0GUI(Display):
                                                     heater_delta=heater_delta,
                                                     num_cal_steps=self.ui.num_cal_points_spinbox.value(),
                                                     ll_drop=self.ui.ll_drop_spinbox.value())
-        self.calibration_worker.status.connect(self.calibrationSection.handle_status)
-        self.calibration_worker.finished.connect(self.calibrationSection.handle_status)
-        self.calibration_worker.error.connect(self.calibrationSection.handle_error)
+        self.calibration_worker.status.connect(self.handle_cal_status)
+        self.calibration_worker.finished.connect(self.handle_cal_status)
+        self.calibration_worker.error.connect(self.handle_cal_error)
         self.calibration_worker.finished.connect(partial(self.ui.rf_groupbox.setEnabled, True))
         self.calibration_worker.start()
     
