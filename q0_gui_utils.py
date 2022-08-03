@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout
                              QRadioButton)
 from epics import caget, caput
 from lcls_tools.superconducting.scLinac import Cavity
+from pydm.widgets import PyDMLabel
 from requests import ConnectTimeout
 from urllib3.exceptions import ConnectTimeoutError
 
@@ -182,6 +183,9 @@ class CavAmpControl:
         
         horLayout.addWidget(self.desAmpSpinbox)
         horLayout.addWidget(QLabel("MV"))
+        self.aact_label: PyDMLabel = PyDMLabel()
+        self.aact_label.showUnits = True
+        horLayout.addWidget(self.aact_label)
         horLayout.addStretch()
         
         self.groupbox.setLayout(horLayout)
@@ -191,6 +195,7 @@ class CavAmpControl:
         amax = caget(cavity.ades_max_PV.pvname)
         self.desAmpSpinbox.setValue(min(16.6, amax))
         self.desAmpSpinbox.setRange(0, amax)
+        self.aact_label.channel = cavity.selAmplitudeActPV.pvname
 
 
 class Q0Options(QObject):

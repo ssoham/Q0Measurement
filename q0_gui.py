@@ -276,10 +276,10 @@ class Q0GUI(Display):
             ramp_worker.start()
         
         self.q0_meas_worker = q0_gui_utils.Q0Worker(cryomodule=self.selectedCM,
-                                                    jt_search_start=self.jt_search_start,
-                                                    jt_search_end=self.jt_search_end,
-                                                    desired_ll=self.min_start_ll_spinbox.value(),
-                                                    ll_drop=self.ll_drop_spinbox.value(),
+                                                    jt_search_start=None,
+                                                    jt_search_end=None,
+                                                    desired_ll=self.ui.ll_start_spinbox.value(),
+                                                    ll_drop=self.ui.ll_drop_spinbox.value(),
                                                     desired_amplitudes=self.desiredCavityAmplitudes)
         self.q0_meas_worker.error.connect(partial(q0_gui_utils.make_error_popup, "Q0 Measurement Error"))
         self.q0_meas_worker.error.connect(self.selectedCM.shut_off)
