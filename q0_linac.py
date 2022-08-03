@@ -574,6 +574,7 @@ class Q0Cryomodule(Cryomodule):
         self.q0_measurement.rf_run.reference_heat = self.valveParams.refHeatLoadAct
         camonitor(self.heater_readback_pv, callback=self.fill_heater_readback_buffer)
         camonitor(self.dsPressurePV, callback=self.fill_pressure_buffer)
+        camonitor(self.dsLevelPV, callback=self.monitor_ll)
         
         start_time = datetime.now()
         self.q0_measurement.start_time = start_time
@@ -581,6 +582,7 @@ class Q0Cryomodule(Cryomodule):
         
         self.wait_for_ll_drop(ll_drop)
         camonitor_clear(self.heater_readback_pv)
+        camonitor_clear(self.dsLevelPV)
         self.current_data_run.end_time = datetime.now()
         
         self.current_data_run = None
