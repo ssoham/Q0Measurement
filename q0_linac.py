@@ -6,12 +6,12 @@ from typing import Dict, List
 
 import numpy as np
 from epics import caget, camonitor, camonitor_clear, caput
-from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Magnet, Piezo, Rack, SSA, StepperTuner
-from lcls_tools.superconducting.scLinacUtils import PIEZO_FEEDBACK_VALUE, RF_MODE_SEL, RF_MODE_SELA
 from scipy.signal import medfilt
 from scipy.stats import linregress
 
 import q0_utils
+from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Magnet, Piezo, Rack, SSA, StepperTuner
+from lcls_tools.superconducting.scLinacUtils import PIEZO_FEEDBACK_VALUE, RF_MODE_SEL, RF_MODE_SELA
 
 
 class Calibration:
@@ -527,8 +527,10 @@ class Q0Cryomodule(Cryomodule):
         self.current_data_run.start_time = datetime.now()
         
         camonitor(self.heater_readback_pv, callback=self.fill_heater_readback_buffer)
+        camonitor(self.dsLevelPV, callback=self.monitor_ll)
         self.wait_for_ll_drop(target_ll_diff)
         camonitor_clear(self.heater_readback_pv)
+        camonitor_clear(self.dsLevelPV)
         
         self.current_data_run.end_time = datetime.now()
         
