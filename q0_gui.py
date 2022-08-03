@@ -259,7 +259,8 @@ class Q0GUI(Display):
     def desiredCavityAmplitudes(self):
         amplitudes = {}
         for cav_num, cav_amp_control in self.cav_amp_controls.items():
-            amplitudes[cav_num] = cav_amp_control.desAmpSpinbox.value()
+            if cav_amp_control.groupbox.isChecked():
+                amplitudes[cav_num] = cav_amp_control.desAmpSpinbox.value()
         print(f"Cavity amplitudes: {amplitudes}")
         return amplitudes
     

@@ -618,7 +618,7 @@ class Q0Cryomodule(Cryomodule):
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
-        self.fillAndLock(desired_ll, lock=False, assist=False)
+        self.fillAndLock(desired_ll, lock=False, assist=True)
     
     def load_calibration(self, time_stamp: str):
         self.calibration: Calibration = Calibration(time_stamp=time_stamp,
