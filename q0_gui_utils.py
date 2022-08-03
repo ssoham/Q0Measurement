@@ -185,6 +185,8 @@ class CavAmpControl:
         horLayout.addWidget(QLabel("MV"))
         self.aact_label: PyDMLabel = PyDMLabel()
         self.aact_label.showUnits = True
+        self.aact_label.alarmSensitiveContent = True
+        self.aact_label.alarmSensitiveBorder = True
         horLayout.addWidget(self.aact_label)
         horLayout.addStretch()
         

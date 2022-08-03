@@ -7,14 +7,14 @@
     <x>0</x>
     <y>0</y>
     <width>884</width>
-    <height>561</height>
+    <height>618</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>Q0 Measurement</string>
   </property>
   <layout class="QGridLayout" name="gridLayout_3">
-   <item row="1" column="1">
+   <item row="2" column="1">
     <widget class="QGroupBox" name="groupBox">
      <property name="font">
       <font>
@@ -89,185 +89,7 @@
      </layout>
     </widget>
    </item>
-   <item row="3" column="0" colspan="2">
-    <widget class="QGroupBox" name="groupBox_2">
-     <property name="font">
-      <font>
-       <weight>75</weight>
-       <bold>true</bold>
-      </font>
-     </property>
-     <property name="title">
-      <string>Calibration</string>
-     </property>
-     <layout class="QGridLayout" name="gridLayout_4">
-      <item row="1" column="1" rowspan="4">
-       <widget class="QGroupBox" name="groupBox_5">
-        <property name="title">
-         <string>Settings</string>
-        </property>
-        <layout class="QGridLayout" name="gridLayout_7">
-         <item row="0" column="0">
-          <widget class="QLabel" name="label_12">
-           <property name="text">
-            <string>Starting heat load:</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="0">
-          <widget class="QLabel" name="label_13">
-           <property name="text">
-            <string>End heat load:</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QLabel" name="label_14">
-           <property name="text">
-            <string>Number of data points:</string>
-           </property>
-          </widget>
-         </item>
-         <item row="0" column="1">
-          <widget class="QDoubleSpinBox" name="start_heat_spinbox">
-           <property name="minimum">
-            <double>24.000000000000000</double>
-           </property>
-           <property name="maximum">
-            <double>112.000000000000000</double>
-           </property>
-           <property name="value">
-            <double>80.000000000000000</double>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="1">
-          <widget class="QDoubleSpinBox" name="end_heat_spinbox">
-           <property name="minimum">
-            <double>24.000000000000000</double>
-           </property>
-           <property name="maximum">
-            <double>112.000000000000000</double>
-           </property>
-           <property name="value">
-            <double>112.000000000000000</double>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="1">
-          <widget class="QSpinBox" name="num_cal_points_spinbox">
-           <property name="maximum">
-            <number>20</number>
-           </property>
-           <property name="value">
-            <number>4</number>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item row="1" column="0" rowspan="4">
-       <widget class="QGroupBox" name="manual_cryo_groupbox">
-        <property name="title">
-         <string>Reference Parameters</string>
-        </property>
-        <property name="checkable">
-         <bool>false</bool>
-        </property>
-        <property name="checked">
-         <bool>false</bool>
-        </property>
-        <layout class="QGridLayout" name="gridLayout">
-         <item row="1" column="1">
-          <widget class="QDoubleSpinBox" name="jt_pos_spinbox">
-           <property name="value">
-            <double>40.000000000000000</double>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QLabel" name="label_2">
-           <property name="text">
-            <string>Reference Electric Heat Load</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="0">
-          <widget class="QLabel" name="label">
-           <property name="text">
-            <string>JT Valve Position</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="1">
-          <widget class="QDoubleSpinBox" name="ref_heat_spinbox">
-           <property name="value">
-            <double>48.000000000000000</double>
-           </property>
-          </widget>
-         </item>
-         <item row="0" column="0" colspan="2">
-          <widget class="QPushButton" name="setup_param_button">
-           <property name="enabled">
-            <bool>true</bool>
-           </property>
-           <property name="toolTip">
-            <string>Sets the heater to manual at 48 so that the JT can settle</string>
-           </property>
-           <property name="text">
-            <string>Set Up for New Parameters</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item row="4" column="2">
-       <widget class="QLabel" name="label_8">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="text">
-         <string>Status:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="4" column="3">
-       <widget class="QLabel" name="cal_status_label">
-        <property name="text">
-         <string/>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="2" colspan="2">
-       <widget class="QPushButton" name="show_cal_data_button">
-        <property name="text">
-         <string>Show Calibration Data</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="2" colspan="2">
-       <widget class="QPushButton" name="new_cal_button">
-        <property name="text">
-         <string>Take New Calibration</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="2" colspan="2">
-       <widget class="QPushButton" name="load_cal_button">
-        <property name="text">
-         <string>Load Existing Calibration</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item row="1" column="0">
+   <item row="2" column="0">
     <widget class="QGroupBox" name="groupBox_3">
      <property name="font">
       <font>
@@ -441,20 +263,6 @@
          <string>Heater</string>
         </property>
         <layout class="QGridLayout" name="gridLayout_10">
-         <item row="0" column="3">
-          <widget class="PyDMLabel" name="heater_mode_label">
-           <property name="toolTip">
-            <string/>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="0">
-          <widget class="QLabel" name="label_5">
-           <property name="text">
-            <string>Setpoint:</string>
-           </property>
-          </widget>
-         </item>
          <item row="1" column="1" colspan="2">
           <widget class="PyDMSpinbox" name="heater_setpoint_spinbox">
            <property name="toolTip">
@@ -496,52 +304,6 @@
           <widget class="PyDMLabel" name="heater_readback_label">
            <property name="toolTip">
             <string/>
-           </property>
-          </widget>
-         </item>
-         <item row="0" column="0">
-          <widget class="PyDMPushButton" name="heater_man_button">
-           <property name="toolTip">
-            <string/>
-           </property>
-           <property name="text">
-            <string>Manual</string>
-           </property>
-           <property name="alarmSensitiveContent" stdset="0">
-            <bool>false</bool>
-           </property>
-           <property name="alarmSensitiveBorder" stdset="0">
-            <bool>false</bool>
-           </property>
-           <property name="channel" stdset="0">
-            <string/>
-           </property>
-           <property name="passwordProtected" stdset="0">
-            <bool>false</bool>
-           </property>
-           <property name="password" stdset="0">
-            <string/>
-           </property>
-           <property name="protectedPassword" stdset="0">
-            <string/>
-           </property>
-           <property name="showConfirmDialog" stdset="0">
-            <bool>false</bool>
-           </property>
-           <property name="confirmMessage" stdset="0">
-            <string>Are you sure you want to proceed?</string>
-           </property>
-           <property name="pressValue" stdset="0">
-            <string>1</string>
-           </property>
-           <property name="releaseValue" stdset="0">
-            <string>None</string>
-           </property>
-           <property name="relativeChange" stdset="0">
-            <bool>false</bool>
-           </property>
-           <property name="writeWhenRelease" stdset="0">
-            <bool>false</bool>
            </property>
           </widget>
          </item>
@@ -591,6 +353,66 @@
            </property>
           </widget>
          </item>
+         <item row="0" column="3">
+          <widget class="PyDMLabel" name="heater_mode_label">
+           <property name="toolTip">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="label_5">
+           <property name="text">
+            <string>Setpoint:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="0">
+          <widget class="PyDMPushButton" name="heater_man_button">
+           <property name="toolTip">
+            <string/>
+           </property>
+           <property name="text">
+            <string>Manual</string>
+           </property>
+           <property name="alarmSensitiveContent" stdset="0">
+            <bool>false</bool>
+           </property>
+           <property name="alarmSensitiveBorder" stdset="0">
+            <bool>false</bool>
+           </property>
+           <property name="channel" stdset="0">
+            <string/>
+           </property>
+           <property name="passwordProtected" stdset="0">
+            <bool>false</bool>
+           </property>
+           <property name="password" stdset="0">
+            <string/>
+           </property>
+           <property name="protectedPassword" stdset="0">
+            <string/>
+           </property>
+           <property name="showConfirmDialog" stdset="0">
+            <bool>false</bool>
+           </property>
+           <property name="confirmMessage" stdset="0">
+            <string>Are you sure you want to proceed?</string>
+           </property>
+           <property name="pressValue" stdset="0">
+            <string>1</string>
+           </property>
+           <property name="releaseValue" stdset="0">
+            <string>None</string>
+           </property>
+           <property name="relativeChange" stdset="0">
+            <bool>false</bool>
+           </property>
+           <property name="writeWhenRelease" stdset="0">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
         </layout>
        </widget>
       </item>
@@ -598,6 +420,184 @@
     </widget>
    </item>
    <item row="4" column="0" colspan="2">
+    <widget class="QGroupBox" name="groupBox_2">
+     <property name="font">
+      <font>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="title">
+      <string>Calibration</string>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_4">
+      <item row="1" column="0" rowspan="4">
+       <widget class="QGroupBox" name="manual_cryo_groupbox">
+        <property name="title">
+         <string>Reference Parameters</string>
+        </property>
+        <property name="checkable">
+         <bool>false</bool>
+        </property>
+        <property name="checked">
+         <bool>false</bool>
+        </property>
+        <layout class="QGridLayout" name="gridLayout">
+         <item row="1" column="1">
+          <widget class="QDoubleSpinBox" name="jt_pos_spinbox">
+           <property name="value">
+            <double>40.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="label_2">
+           <property name="text">
+            <string>Reference Electric Heat Load</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="label">
+           <property name="text">
+            <string>JT Valve Position</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QDoubleSpinBox" name="ref_heat_spinbox">
+           <property name="value">
+            <double>48.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="0" colspan="2">
+          <widget class="QPushButton" name="setup_param_button">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="toolTip">
+            <string>Sets the heater to manual at 48 so that the JT can settle</string>
+           </property>
+           <property name="text">
+            <string>Set Up for New Parameters</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="3" column="2" colspan="2">
+       <widget class="QPushButton" name="show_cal_data_button">
+        <property name="text">
+         <string>Show Calibration Data</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="label_8">
+        <property name="text">
+         <string>Status:</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1" rowspan="4">
+       <widget class="QGroupBox" name="groupBox_5">
+        <property name="title">
+         <string>Settings</string>
+        </property>
+        <layout class="QGridLayout" name="gridLayout_7">
+         <item row="0" column="0">
+          <widget class="QLabel" name="label_12">
+           <property name="text">
+            <string>Starting heat load:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="label_13">
+           <property name="text">
+            <string>End heat load:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="label_14">
+           <property name="text">
+            <string>Number of data points:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QDoubleSpinBox" name="start_heat_spinbox">
+           <property name="minimum">
+            <double>24.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>112.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>80.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QDoubleSpinBox" name="end_heat_spinbox">
+           <property name="minimum">
+            <double>24.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>112.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>112.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QSpinBox" name="num_cal_points_spinbox">
+           <property name="maximum">
+            <number>20</number>
+           </property>
+           <property name="value">
+            <number>4</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="2" colspan="2">
+       <widget class="QPushButton" name="load_cal_button">
+        <property name="text">
+         <string>Load Existing Calibration</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="2" colspan="2">
+       <widget class="QPushButton" name="new_cal_button">
+        <property name="text">
+         <string>Take New Calibration</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1" colspan="3">
+       <widget class="QLabel" name="cal_status_label">
+        <property name="text">
+         <string/>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item row="5" column="0" colspan="2">
     <widget class="QGroupBox" name="rf_groupbox">
      <property name="enabled">
       <bool>false</bool>
@@ -682,7 +682,7 @@
      </layout>
     </widget>
    </item>
-   <item row="0" column="0" colspan="2">
+   <item row="1" column="0" colspan="2">
     <layout class="QHBoxLayout" name="horizontalLayout_4">
      <item>
       <spacer name="horizontalSpacer_3">
@@ -790,6 +790,16 @@
       </spacer>
      </item>
     </layout>
+   </item>
+   <item row="0" column="0" colspan="2">
+    <widget class="QLabel" name="label_16">
+     <property name="styleSheet">
+      <string notr="true">background-color: rgb(175, 217, 248)</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+    </widget>
    </item>
   </layout>
  </widget>

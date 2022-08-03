@@ -327,6 +327,7 @@ class Q0Cryomodule(Cryomodule):
         self.heater_setpoint_pv: str = self.heater_prefix + "MANPOS_RQST"
         self.heater_manual_pv: str = self.heater_prefix + "MANUAL"
         self.heater_sequencer_pv: str = self.heater_prefix + "SEQUENCER"
+        self.heater_mode_pv: str = self.heater_prefix + "MODE_STRING"
         
         self.cryo_access_pv: str = f"CRYO:CM{self.name}:0:CAS_ACCESS"
         
