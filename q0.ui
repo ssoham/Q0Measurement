@@ -119,6 +119,9 @@
            <property name="toolTip">
             <string/>
            </property>
+           <property name="alarmSensitiveContent" stdset="0">
+            <bool>true</bool>
+           </property>
           </widget>
          </item>
          <item row="1" column="1">
@@ -159,6 +162,9 @@
           <widget class="PyDMLabel" name="jt_setpoint_readback">
            <property name="toolTip">
             <string/>
+           </property>
+           <property name="alarmSensitiveContent" stdset="0">
+            <bool>true</bool>
            </property>
           </widget>
          </item>
@@ -305,6 +311,9 @@
            <property name="toolTip">
             <string/>
            </property>
+           <property name="alarmSensitiveContent" stdset="0">
+            <bool>true</bool>
+           </property>
           </widget>
          </item>
          <item row="0" column="1">
@@ -357,6 +366,9 @@
           <widget class="PyDMLabel" name="heater_mode_label">
            <property name="toolTip">
             <string/>
+           </property>
+           <property name="alarmSensitiveContent" stdset="0">
+            <bool>true</bool>
            </property>
           </widget>
          </item>

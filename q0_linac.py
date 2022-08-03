@@ -318,6 +318,7 @@ class Q0Cryomodule(Cryomodule):
                          cavityClass=Q0Cavity)
         
         self.jtModePV: str = self.jtPrefix + "MODE"
+        self.jt_mode_str_pv: str = self.jtPrefix + "MODE_STRING"
         self.jtManualSelectPV: str = self.jtPrefix + "MANUAL"
         self.jtAutoSelectPV: str = self.jtPrefix + "AUTO"
         self.dsLiqLevSetpointPV: str = self.jtPrefix + "SP_RQST"
