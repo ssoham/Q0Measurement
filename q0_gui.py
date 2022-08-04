@@ -3,12 +3,12 @@ from typing import Dict, Optional
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (QHBoxLayout, QVBoxLayout)
-from lcls_tools.common.pydm_tools.displayUtils import showDisplay
-from lcls_tools.superconducting.scLinac import ALL_CRYOMODULES
 from pydm import Display
 from pyqtgraph import PlotWidget, plot
 
 import q0_gui_utils
+from lcls_tools.common.pydm_tools.displayUtils import showDisplay
+from lcls_tools.superconducting.scLinac import ALL_CRYOMODULES
 from q0_gui_utils import (CalibrationWorker)
 from q0_linac import Q0Cryomodule, Q0_CRYOMODULES
 from q0_utils import ValveParams
@@ -68,6 +68,9 @@ class Q0GUI(Display):
             cav_amp_control = q0_gui_utils.CavAmpControl()
             self.cav_amp_controls[i + 1] = cav_amp_control
             self.ui.cavity_layout.addWidget(cav_amp_control.groupbox, i / 4, i % 4)
+        
+        self.ui.heater_setpoint_spinbox.ctrl_limit_changed = lambda *args: None
+        self.ui.jt_setpoint_spinbox.ctrl_limit_changed = lambda *args: None
     
     @pyqtSlot(str)
     def update_cm(self, current_text):
