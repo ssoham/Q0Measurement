@@ -286,6 +286,8 @@ class Q0GUI(Display):
                                                     desired_amplitudes=self.desiredCavityAmplitudes)
         self.q0_meas_worker.error.connect(partial(q0_gui_utils.make_error_popup, "Q0 Measurement Error"))
         self.q0_meas_worker.error.connect(self.selectedCM.shut_off)
+        self.q0_meas_worker.finished.connect(self.handle_rf_status)
+        self.q0_meas_worker.status.connect(self.handle_rf_status)
         self.q0_meas_worker.start()
     
     @pyqtSlot()
