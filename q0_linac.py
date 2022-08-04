@@ -588,6 +588,8 @@ class Q0Cryomodule(Cryomodule):
         camonitor_clear(self.dsPressurePV)
         self.q0_measurement.rf_run.end_time = datetime.now()
         
+        print(self.q0_measurement.rf_run.dll_dt)
+        
         for cav_num in desiredAmplitudes.keys():
             self.cavities[cav_num].turnOff()
             self.cavities[cav_num].ssa.turnOff()
@@ -597,6 +599,8 @@ class Q0Cryomodule(Cryomodule):
                              target_ll_diff=ll_drop, is_cal=False)
         self.q0_measurement.heater_run = self.current_data_run
         self.q0_measurement.heater_run.reference_heat = self.valveParams.refHeatLoadAct
+        
+        print(self.q0_measurement.heater_run.dll_dt)
         
         self.q0_measurement.save_data()
         
