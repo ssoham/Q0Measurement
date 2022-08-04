@@ -512,7 +512,8 @@ class Q0Cryomodule(Cryomodule):
                                       end_time=end_time + timedelta(minutes=30))
     
     def launchHeaterRun(self, delta: float = q0_utils.CAL_HEATER_DELTA,
-                        target_ll_diff: float = q0_utils.TARGET_LL_DIFF) -> None:
+                        target_ll_diff: float = q0_utils.TARGET_LL_DIFF,
+                        is_cal=True) -> None:
         
         print(f"Changing heater by {delta}")
         
@@ -522,7 +523,8 @@ class Q0Cryomodule(Cryomodule):
         print(q0_utils.RUN_STATUS_MSSG)
         
         self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(new_val - self.valveParams.refHeatLoadAct)
-        self.calibration.heater_runs.append(self.current_data_run)
+        if is_cal:
+            self.calibration.heater_runs.append(self.current_data_run)
         
         self.current_data_run.start_time = datetime.now()
         
@@ -578,14 +580,13 @@ class Q0Cryomodule(Cryomodule):
         
         start_time = datetime.now()
         self.q0_measurement.start_time = start_time
-        self.current_data_run.start_time = start_time
+        self.q0_measurement.rf_run.start_time = start_time
         
         self.wait_for_ll_drop(ll_drop)
         camonitor_clear(self.heater_readback_pv)
         camonitor_clear(self.dsLevelPV)
-        self.current_data_run.end_time = datetime.now()
-        
-        self.current_data_run = None
+        camonitor_clear(self.dsPressurePV)
+        self.q0_measurement.rf_run.end_time = datetime.now()
         
         for cav_num in desiredAmplitudes.keys():
             self.cavities[cav_num].turnOff()
@@ -593,13 +594,11 @@ class Q0Cryomodule(Cryomodule):
         
         self.fillAndLock(desired_ll)
         self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD,
-                             target_ll_diff=ll_drop)
+                             target_ll_diff=ll_drop, is_cal=False)
         self.q0_measurement.heater_run = self.current_data_run
         self.q0_measurement.heater_run.reference_heat = self.valveParams.refHeatLoadAct
         
-        camonitor_clear(self.dsPressurePV)
         self.q0_measurement.save_data()
-        self.current_data_run = None
         
         end_time = datetime.now()
         caput(self.heater_setpoint_pv,
