@@ -40,11 +40,10 @@ class Q0GUI(Display):
         self.rf_option_windows: Dict[str, Display] = {}
         self.ui.show_rf_button.clicked.connect(self.show_q0_data)
         
-        self.calibration_worker = None
-        self.cryo_param_worker = None
-        self.q0_setup_worker = None
-        self.q0_ramp_workers = {i: None for i in range(1, 9)}
-        self.q0_meas_worker = None
+        self.calibration_worker: q0_gui_utils.Worker = None
+        self.q0_setup_worker: q0_gui_utils.Worker = None
+        self.q0_ramp_workers: Dict[int, q0_gui_utils.Worker] = {i: None for i in range(1, 9)}
+        self.q0_meas_worker: q0_gui_utils.Worker = None
         self.cryo_param_setup_worker: q0_gui_utils.CryoParamSetupWorker = None
         
         self.ui.setup_param_button.clicked.connect(self.setup_for_cryo_params)
@@ -71,6 +70,26 @@ class Q0GUI(Display):
         
         self.ui.heater_setpoint_spinbox.ctrl_limit_changed = lambda *args: None
         self.ui.jt_setpoint_spinbox.ctrl_limit_changed = lambda *args: None
+        
+        self.ui.abort_rf_button.clicked.connect(self.kill_rf)
+        self.ui.abort_cal_button.clicked.connect(self.kill_calibration)
+    
+    @pyqtSlot()
+    def kill_rf(self):
+        if self.q0_setup_worker:
+            self.q0_setup_worker.terminate()
+        
+        for worker in self.q0_ramp_workers.values():
+            if worker:
+                worker.terminate()
+        
+        if self.q0_meas_worker:
+            self.q0_meas_worker.terminate()
+    
+    @pyqtSlot()
+    def kill_calibration(self):
+        if self.calibration_worker:
+            self.calibration_worker.terminate()
     
     @pyqtSlot(str)
     def update_cm(self, current_text):

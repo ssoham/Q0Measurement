@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>884</width>
-    <height>616</height>
+    <height>618</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -505,13 +505,6 @@
         </layout>
        </widget>
       </item>
-      <item row="3" column="2" colspan="2">
-       <widget class="QPushButton" name="show_cal_data_button">
-        <property name="text">
-         <string>Show Calibration Data</string>
-        </property>
-       </widget>
-      </item>
       <item row="5" column="0">
        <widget class="QLabel" name="label_8">
         <property name="text">
@@ -588,21 +581,38 @@
         </layout>
        </widget>
       </item>
-      <item row="1" column="2" colspan="2">
-       <widget class="QPushButton" name="load_cal_button">
+      <item row="4" column="2">
+       <widget class="QPushButton" name="abort_cal_button">
+        <property name="styleSheet">
+         <string notr="true">color: rgb(252, 33, 37);</string>
+        </property>
         <property name="text">
-         <string>Load Existing Calibration</string>
+         <string>Abort Calibration</string>
         </property>
        </widget>
       </item>
-      <item row="2" column="2" colspan="2">
+      <item row="3" column="2">
+       <widget class="QPushButton" name="show_cal_data_button">
+        <property name="text">
+         <string>Show Calibration Data</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="2">
        <widget class="QPushButton" name="new_cal_button">
         <property name="text">
          <string>Take New Calibration</string>
         </property>
        </widget>
       </item>
-      <item row="5" column="1" colspan="3">
+      <item row="1" column="2">
+       <widget class="QPushButton" name="load_cal_button">
+        <property name="text">
+         <string>Load Existing Calibration</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1" colspan="2">
        <widget class="QLabel" name="cal_status_label">
         <property name="text">
          <string/>
@@ -630,20 +640,6 @@
       <string>RF Measurement</string>
      </property>
      <layout class="QGridLayout" name="gridLayout_8">
-      <item row="1" column="0">
-       <widget class="QLabel" name="label_7">
-        <property name="text">
-         <string>Calibration Heat Load:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="2">
-       <widget class="QPushButton" name="show_rf_button">
-        <property name="text">
-         <string>Show RF Data</string>
-        </property>
-       </widget>
-      </item>
       <item row="2" column="0">
        <widget class="QPushButton" name="load_rf_button">
         <property name="text">
@@ -651,8 +647,18 @@
         </property>
        </widget>
       </item>
+      <item row="2" column="1">
+       <widget class="QPushButton" name="new_rf_button">
+        <property name="text">
+         <string>Take New RF Measurement</string>
+        </property>
+       </widget>
+      </item>
       <item row="1" column="1">
        <widget class="QDoubleSpinBox" name="rf_cal_spinbox">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
         <property name="minimum">
          <double>24.000000000000000</double>
         </property>
@@ -664,7 +670,41 @@
         </property>
        </widget>
       </item>
-      <item row="0" column="0" colspan="3">
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_7">
+        <property name="text">
+         <string>Calibration Heat Load:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="label_15">
+        <property name="text">
+         <string>Status:</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QPushButton" name="show_rf_button">
+        <property name="text">
+         <string>Show RF Data</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QPushButton" name="abort_rf_button">
+        <property name="styleSheet">
+         <string notr="true">color: rgb(252, 33, 37);</string>
+        </property>
+        <property name="text">
+         <string>Abort RF Measurement</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0" colspan="2">
        <widget class="QGroupBox" name="groupBox_7">
         <property name="title">
          <string>Cavity Amplitudes</string>
@@ -676,24 +716,13 @@
         </layout>
        </widget>
       </item>
-      <item row="2" column="1">
-       <widget class="QPushButton" name="new_rf_button">
-        <property name="text">
-         <string>Take New RF Measurement</string>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="0">
-       <widget class="QLabel" name="label_15">
-        <property name="text">
-         <string>Status:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="1" colspan="2">
+      <item row="4" column="1">
        <widget class="QLabel" name="rf_status_label">
         <property name="text">
          <string/>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
         </property>
        </widget>
       </item>

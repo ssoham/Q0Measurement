@@ -40,6 +40,10 @@ class Worker(QThread):
         self.progress.connect(print)
         self.error.connect(print)
         self.status.connect(print)
+    
+    def terminate(self) -> None:
+        self.error.emit("Thread termination requested")
+        super().terminate()
 
 
 class CryoParamSetupWorker(Worker):
