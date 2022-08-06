@@ -85,7 +85,7 @@ class Q0GUI(Display):
             self.ui.jt_auto_button.channel = self.selectedCM.jtAutoSelectPV
             self.ui.jt_mode_label.channel = self.selectedCM.jt_mode_str_pv
             self.ui.jt_setpoint_spinbox.channel = self.selectedCM.jtManPosSetpointPV
-            self.ui.jt_setpoint_readback.channel = self.selectedCM.jtManPosSetpointPV
+            self.ui.jt_setpoint_readback.channel = self.selectedCM.jtValveReadbackPV
             
             self.ui.heater_man_button.channel = self.selectedCM.heater_manual_pv
             self.ui.heater_seq_button.channel = self.selectedCM.heater_sequencer_pv
