@@ -3,12 +3,12 @@ from typing import Dict, Optional
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (QHBoxLayout, QVBoxLayout)
-from lcls_tools.common.pydm_tools.displayUtils import showDisplay
-from lcls_tools.superconducting.scLinac import ALL_CRYOMODULES
 from pydm import Display
 from pyqtgraph import PlotWidget, plot
 
 import q0_gui_utils
+from lcls_tools.common.pydm_tools.displayUtils import showDisplay
+from lcls_tools.superconducting.scLinac import ALL_CRYOMODULES
 from q0_gui_utils import (CalibrationWorker)
 from q0_linac import Q0Cryomodule, Q0_CRYOMODULES
 from q0_utils import ValveParams
@@ -68,6 +68,9 @@ class Q0GUI(Display):
             cav_amp_control = q0_gui_utils.CavAmpControl()
             self.cav_amp_controls[i + 1] = cav_amp_control
             self.ui.cavity_layout.addWidget(cav_amp_control.groupbox, i / 4, i % 4)
+        
+        self.ui.heater_setpoint_spinbox.ctrl_limit_changed = lambda *args: None
+        self.ui.jt_setpoint_spinbox.ctrl_limit_changed = lambda *args: None
     
     @pyqtSlot(str)
     def update_cm(self, current_text):
@@ -82,7 +85,7 @@ class Q0GUI(Display):
             self.ui.jt_auto_button.channel = self.selectedCM.jtAutoSelectPV
             self.ui.jt_mode_label.channel = self.selectedCM.jt_mode_str_pv
             self.ui.jt_setpoint_spinbox.channel = self.selectedCM.jtManPosSetpointPV
-            self.ui.jt_setpoint_readback.channel = self.selectedCM.jtManPosSetpointPV
+            self.ui.jt_setpoint_readback.channel = self.selectedCM.jtValveReadbackPV
             
             self.ui.heater_man_button.channel = self.selectedCM.heater_manual_pv
             self.ui.heater_seq_button.channel = self.selectedCM.heater_sequencer_pv
@@ -283,6 +286,8 @@ class Q0GUI(Display):
                                                     desired_amplitudes=self.desiredCavityAmplitudes)
         self.q0_meas_worker.error.connect(partial(q0_gui_utils.make_error_popup, "Q0 Measurement Error"))
         self.q0_meas_worker.error.connect(self.selectedCM.shut_off)
+        self.q0_meas_worker.finished.connect(self.handle_rf_status)
+        self.q0_meas_worker.status.connect(self.handle_rf_status)
         self.q0_meas_worker.start()
     
     @pyqtSlot()

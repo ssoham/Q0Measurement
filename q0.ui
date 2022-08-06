@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>884</width>
-    <height>618</height>
+    <height>616</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -163,6 +163,9 @@
            <property name="toolTip">
             <string/>
            </property>
+           <property name="showUnits" stdset="0">
+            <bool>true</bool>
+           </property>
            <property name="alarmSensitiveContent" stdset="0">
             <bool>true</bool>
            </property>
@@ -310,6 +313,9 @@
           <widget class="PyDMLabel" name="heater_readback_label">
            <property name="toolTip">
             <string/>
+           </property>
+           <property name="showUnits" stdset="0">
+            <bool>true</bool>
            </property>
            <property name="alarmSensitiveContent" stdset="0">
             <bool>true</bool>
@@ -786,6 +792,9 @@
        <property name="toolTip">
         <string/>
        </property>
+       <property name="alarmSensitiveContent" stdset="0">
+        <bool>true</bool>
+       </property>
       </widget>
      </item>
      <item>
@@ -805,6 +814,12 @@
    </item>
    <item row="0" column="0" colspan="2">
     <widget class="QLabel" name="label_16">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
      <property name="styleSheet">
       <string notr="true">background-color: rgb(175, 217, 248)</string>
      </property>

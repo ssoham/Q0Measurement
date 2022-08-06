@@ -6,12 +6,12 @@ from typing import Dict, List
 
 import numpy as np
 from epics import caget, camonitor, camonitor_clear, caput
-from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Magnet, Piezo, Rack, SSA, StepperTuner
-from lcls_tools.superconducting.scLinacUtils import PIEZO_FEEDBACK_VALUE, RF_MODE_SEL, RF_MODE_SELA
 from scipy.signal import medfilt
 from scipy.stats import linregress
 
 import q0_utils
+from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Magnet, Piezo, Rack, SSA, StepperTuner
+from lcls_tools.superconducting.scLinacUtils import PIEZO_FEEDBACK_VALUE, RF_MODE_SEL, RF_MODE_SELA
 
 
 class Calibration:
@@ -354,6 +354,8 @@ class Q0Cryomodule(Cryomodule):
         self.q0_measurement: Q0Measurement = None
         self.current_data_run: q0_utils.DataRun = None
         self.cavity_amplitudes = {}
+        
+        self.fill_data_run_buffer = False
     
     @property
     def calib_data_file(self):
@@ -385,7 +387,7 @@ class Q0Cryomodule(Cryomodule):
         
         self.ll_buffer[self.ll_buffer_idx] = value
         self.ll_buffer_idx = (self.ll_buffer_idx + 1) % self.ll_buffer_size
-        if self.current_data_run:
+        if self.fill_data_run_buffer:
             self.current_data_run.ll_data[datetime.now().timestamp()] = value
     
     @property
@@ -512,7 +514,8 @@ class Q0Cryomodule(Cryomodule):
                                       end_time=end_time + timedelta(minutes=30))
     
     def launchHeaterRun(self, delta: float = q0_utils.CAL_HEATER_DELTA,
-                        target_ll_diff: float = q0_utils.TARGET_LL_DIFF) -> None:
+                        target_ll_diff: float = q0_utils.TARGET_LL_DIFF,
+                        is_cal=True) -> None:
         
         print(f"Changing heater by {delta}")
         
@@ -522,12 +525,15 @@ class Q0Cryomodule(Cryomodule):
         print(q0_utils.RUN_STATUS_MSSG)
         
         self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(new_val - self.valveParams.refHeatLoadAct)
-        self.calibration.heater_runs.append(self.current_data_run)
+        if is_cal:
+            self.calibration.heater_runs.append(self.current_data_run)
         
         self.current_data_run.start_time = datetime.now()
         
         camonitor(self.heater_readback_pv, callback=self.fill_heater_readback_buffer)
+        self.fill_data_run_buffer = True
         self.wait_for_ll_drop(target_ll_diff)
+        self.fill_data_run_buffer = False
         camonitor_clear(self.heater_readback_pv)
         
         self.current_data_run.end_time = datetime.now()
@@ -575,13 +581,16 @@ class Q0Cryomodule(Cryomodule):
         
         start_time = datetime.now()
         self.q0_measurement.start_time = start_time
-        self.current_data_run.start_time = start_time
+        self.q0_measurement.rf_run.start_time = start_time
         
+        self.fill_data_run_buffer = True
         self.wait_for_ll_drop(ll_drop)
+        self.fill_data_run_buffer = False
         camonitor_clear(self.heater_readback_pv)
-        self.current_data_run.end_time = datetime.now()
+        camonitor_clear(self.dsPressurePV)
+        self.q0_measurement.rf_run.end_time = datetime.now()
         
-        self.current_data_run = None
+        print(self.q0_measurement.rf_run.dll_dt)
         
         for cav_num in desiredAmplitudes.keys():
             self.cavities[cav_num].turnOff()
@@ -589,17 +598,19 @@ class Q0Cryomodule(Cryomodule):
         
         self.fillAndLock(desired_ll)
         self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD,
-                             target_ll_diff=ll_drop)
+                             target_ll_diff=ll_drop, is_cal=False)
         self.q0_measurement.heater_run = self.current_data_run
         self.q0_measurement.heater_run.reference_heat = self.valveParams.refHeatLoadAct
         
-        camonitor_clear(self.dsPressurePV)
+        print(self.q0_measurement.heater_run.dll_dt)
+        
         self.q0_measurement.save_data()
-        self.current_data_run = None
         
         end_time = datetime.now()
         caput(self.heater_setpoint_pv,
               caget(self.heater_readback_pv) - q0_utils.FULL_MODULE_CALIBRATION_LOAD)
+        
+        camonitor_clear(self.dsLevelPV)
         
         print("\nStart Time: {START}".format(START=start_time))
         print("End Time: {END}".format(END=end_time))
@@ -620,6 +631,8 @@ class Q0Cryomodule(Cryomodule):
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
+        
+        camonitor(self.dsLevelPV, callback=self.monitor_ll)
         self.fillAndLock(desired_ll, lock=False, assist=True)
     
     def load_calibration(self, time_stamp: str):
@@ -656,6 +669,7 @@ class Q0Cryomodule(Cryomodule):
         starting_ll_setpoint = caget(self.dsLiqLevSetpointPV)
         print(f"Starting liquid level setpoint: {starting_ll_setpoint}")
         
+        camonitor(self.dsLevelPV, callback=self.monitor_ll)
         self.fillAndLock(desired_ll)
         
         self.launchHeaterRun(initial_heat_load, target_ll_diff=ll_drop)
@@ -685,6 +699,7 @@ class Q0Cryomodule(Cryomodule):
         caput(self.heater_sequencer_pv, 1, wait=True)
         
         self.calibration.save_results()
+        camonitor_clear(self.dsLevelPV)
     
     def lock_jt(self, refValvePos):
         # type: (float) -> None

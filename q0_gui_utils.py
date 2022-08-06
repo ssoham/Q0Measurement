@@ -10,12 +10,12 @@ from PyQt5.QtWidgets import (QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout
                              QMessageBox,
                              QRadioButton)
 from epics import caget, caput
-from lcls_tools.superconducting.scLinac import Cavity
 from pydm.widgets import PyDMLabel
 from requests import ConnectTimeout
 from urllib3.exceptions import ConnectTimeoutError
 
 import q0_utils
+from lcls_tools.superconducting.scLinac import Cavity
 from q0_linac import Q0Cavity, Q0Cryomodule
 
 DEFAULT_LL_DROP = 4
@@ -99,9 +99,11 @@ class Q0Worker(RFWorker):
             return
         
         try:
+            self.status.emit("Taking new Q0 Measurement")
             self.cryomodule.takeNewQ0Measurement(desiredAmplitudes=self.desired_amplitudes,
                                                  desired_ll=self.desired_ll,
                                                  ll_drop=self.ll_drop)
+            self.finished.emit(f"Recorded Q0: {self.cryomodule.q0_measurement.q0:.2e}")
         except TypeError as e:
             self.error.emit(str(e))
 
@@ -224,10 +226,9 @@ class Q0Options(QObject):
     @pyqtSlot()
     def load_q0(self, timestamp: str):
         self.cryomodule.load_q0_measurement(time_stamp=timestamp)
-        q0 = "{:e}".format(self.cryomodule.q0_measurement.q0)
         self.q0_loaded_signal.emit(f"Loaded q0 measurement for"
                                    f" CM{self.cryomodule.name} from {timestamp}"
-                                   f" with q0 {q0}")
+                                   f" with q0 {self.cryomodule.q0_measurement.q0:.2e}")
 
 
 def get_dimensions(options):
@@ -265,4 +266,4 @@ class CalibrationOptions(QObject):
         self.cryomodule.load_calibration(time_stamp=timestamp)
         self.cal_loaded_signal.emit(f"Loaded calibration for"
                                     f" CM{self.cryomodule.name} from {timestamp}"
-                                    f" with slope {self.cryomodule.calibration.dLLdt_dheat}")
+                                    f" with slope {self.cryomodule.calibration.dLLdt_dheat:.2e}")
