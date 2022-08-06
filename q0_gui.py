@@ -78,22 +78,18 @@ class Q0GUI(Display):
     def kill_rf(self):
         if self.q0_setup_worker:
             self.q0_setup_worker.terminate()
-            # self.q0_setup_worker.wait()
         
         for worker in self.q0_ramp_workers.values():
             if worker:
                 worker.terminate()
-                # worker.wait()
         
         if self.q0_meas_worker:
             self.q0_meas_worker.terminate()
-            # self.q0_meas_worker.wait()
     
     @pyqtSlot()
     def kill_calibration(self):
         if self.calibration_worker:
             self.calibration_worker.terminate()
-            # self.calibration_worker.wait()
     
     @pyqtSlot(str)
     def update_cm(self, current_text):
