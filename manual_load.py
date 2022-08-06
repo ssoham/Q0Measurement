@@ -16,7 +16,13 @@ def get_q0_data(cm_name, cal_timestamp, heater_start: datetime,
     q0_meas = Q0Measurement(cm)
     q0_meas.amplitudes = cav_amps
     q0_meas.start_time = rf_start
+    
     q0_meas.heater_run_heatload = 48.0
+    q0_meas.heater_run.start_time = heater_start
+    q0_meas.heater_run.end_time = heater_end
+    
+    q0_meas.rf_run.start_time = rf_start
+    q0_meas.rf_run.end_time = rf_end
     
     heater_run_data = a.getValuesOverTimeRange(pvList=[cm.dsLevelPV,
                                                        cm.heater_readback_pv],
@@ -96,10 +102,11 @@ def get_cal_data():
 
 
 if __name__ == "__main__":
-    heater_start = datetime.strptime("08/05/22 20:33:20", strptime_formatter)
-    heater_end = datetime.strptime("08/05/22 20:37:00", strptime_formatter)
-    rf_start = datetime.strptime("08/05/22 19:45:10", strptime_formatter)
-    rf_end = datetime.strptime("08/05/22 20:30:40", strptime_formatter)
-    get_q0_data(cm_name="12", cal_timestamp="08/05/22 15:35:12",
+    heater_start = datetime.strptime("08/05/22 20:26:00", strptime_formatter)
+    heater_end = datetime.strptime("08/05/22 20:32:00", strptime_formatter)
+    rf_start = datetime.strptime("08/05/22 20:13:00", strptime_formatter)
+    rf_end = datetime.strptime("08/05/22 20:22:00", strptime_formatter)
+    get_q0_data(cm_name="14", cal_timestamp="08/05/22 16:00:32",
                 heater_start=heater_start, heater_end=heater_end,
-                rf_start=rf_start, rf_end=rf_end, cav_amps={8: 10.0})
+                rf_start=rf_start, rf_end=rf_end,
+                cav_amps={2: 16.6, 3: 16.6, 6: 16.6})
