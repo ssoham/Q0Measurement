@@ -28,5 +28,20 @@
         "Calculated Adjustment": -45.071342766836366,
         "Calculated Q0": 19147246800.94432,
         "Calibration Used": "08/11/22 15:50:31"
+    },
+    "08/12/22 14:48:05": {
+        "Start Time": "08/12/22 14:48:05",
+        "Cavity Amplitudes": {
+            "2": 16.6,
+            "3": 16.6,
+            "4": 16.6,
+            "6": 16.6,
+            "7": 16.6
+        },
+        "Calculated Adjusted Heat Load": 72.60766081337599,
+        "Calculated Raw Heat Load": 118.0497350614729,
+        "Calculated Adjustment": -45.442074248096915,
+        "Calculated Q0": 18805772520.243053,
+        "Calibration Used": "08/11/22 15:50:31"
     }
 }
