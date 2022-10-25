@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>884</width>
-    <height>618</height>
+    <height>657</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -471,7 +471,7 @@
          <item row="2" column="0">
           <widget class="QLabel" name="label_2">
            <property name="text">
-            <string>Reference Electric Heat Load</string>
+            <string>Electric Heat Load Offset</string>
            </property>
           </widget>
          </item>
@@ -561,7 +561,7 @@
             <double>24.000000000000000</double>
            </property>
            <property name="maximum">
-            <double>112.000000000000000</double>
+            <double>160.000000000000000</double>
            </property>
            <property name="value">
             <double>112.000000000000000</double>
