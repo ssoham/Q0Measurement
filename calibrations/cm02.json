@@ -1,0 +1,10 @@
+{
+    "10/26/22 13:17:29": {
+        "Start Time": "10/26/22 13:17:29",
+        "Calculated Heat vs dll/dt Slope": -9.277640348244542e-05,
+        "Calculated Adjustment": 0.0029566088549168035,
+        "Total Reference Heater Setpoint": 30.0,
+        "Total Reference Heater Readback": 30.0,
+        "JT Valve Position": 40.0
+    }
+}
