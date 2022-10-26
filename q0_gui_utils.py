@@ -10,12 +10,12 @@ from PyQt5.QtWidgets import (QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout
                              QMessageBox,
                              QRadioButton)
 from epics import caget, caput
+from lcls_tools.superconducting.scLinac import Cavity
 from pydm.widgets import PyDMLabel
 from requests import ConnectTimeout
 from urllib3.exceptions import ConnectTimeoutError
 
 import q0_utils
-from lcls_tools.superconducting.scLinac import Cavity
 from q0_linac import Q0Cavity, Q0Cryomodule
 
 DEFAULT_LL_DROP = 4
@@ -47,9 +47,11 @@ class Worker(QThread):
 
 
 class CryoParamSetupWorker(Worker):
-    def __init__(self, cryomodule: Q0Cryomodule):
+    def __init__(self, cryomodule: Q0Cryomodule,
+                 heater_setpoint=q0_utils.MINIMUM_HEATLOAD):
         super().__init__()
         self.cryomodule = cryomodule
+        self.heater_setpoint = heater_setpoint
     
     def run(self) -> None:
         self.status.emit("Checking for required cryo permissions")
@@ -59,10 +61,9 @@ class CryoParamSetupWorker(Worker):
         
         caput(self.cryomodule.heater_manual_pv, 1, wait=True)
         sleep(3)
-        caput(self.cryomodule.heater_setpoint_pv, q0_utils.MINIMUM_HEATLOAD)
+        caput(self.cryomodule.heater_setpoint_pv, self.heater_setpoint)
         caput(self.cryomodule.jtAutoSelectPV, 1, wait=True)
-        caput(self.cryomodule.dsLiqLevSetpointPV, 93, wait=True)
-        self.finished.emit("Cryo setup for new reference parameters in ~3 hours")
+        self.finished.emit("Cryo setup for new reference parameters in ~1 hour")
 
 
 class CryoParamWorker(Worker):
