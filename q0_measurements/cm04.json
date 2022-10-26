@@ -1,19 +1,36 @@
 {
-  "07/22/22 19:56:38": {
-    "Total Reference Heater Setpoint": 48.0,
-    "Total Reference Heater Readback": 47.77520908882232,
-    "JT Valve Position": 26.0,
-    "Start Time": "07/22/22 19:56:38",
-    "End Time": "07/22/22 20:26:48",
-    "Cavity Amplitudes": {
-      "1": 16.6,
-      "2": 16.6,
-      "5": 16.6,
-      "6": 16.6
+    "07/22/22 19:56:38": {
+        "Total Reference Heater Setpoint": 48.0,
+        "Total Reference Heater Readback": 47.77520908882232,
+        "JT Valve Position": 26.0,
+        "Start Time": "07/22/22 19:56:38",
+        "End Time": "07/22/22 20:26:48",
+        "Cavity Amplitudes": {
+            "1": 16.6,
+            "2": 16.6,
+            "5": 16.6,
+            "6": 16.6
+        },
+        "Calculated Adjusted Heat Load": 91.93657870097877,
+        "Calculated Raw Heat Load": 88.77074166946434,
+        "Calculated Adjustment": 3.165837031514428,
+        "Calculated Q0": 11783331902.646454
     },
-    "Calculated Adjusted Heat Load": 91.93657870097877,
-    "Calculated Raw Heat Load": 88.77074166946434,
-    "Calculated Adjustment": 3.165837031514428,
-    "Calculated Q0": 11783331902.646454
-  }
+    "10/25/22 21:16:06": {
+        "Start Time": "10/25/22 21:16:06",
+        "Cavity Amplitudes": {
+            "1": 16.6,
+            "2": 16.6,
+            "3": 16.6,
+            "4": 16.6,
+            "5": 16.6,
+            "6": 16.6,
+            "8": 16.6
+        },
+        "Calculated Adjusted Heat Load": 78.66060825838682,
+        "Calculated Raw Heat Load": 138.4262561392687,
+        "Calculated Adjustment": -59.765647880881886,
+        "Calculated Q0": 23754953954.206333,
+        "Calibration Used": "10/25/22 15:07:11"
+    }
 }
