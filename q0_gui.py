@@ -3,12 +3,12 @@ from typing import Dict, Optional
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (QHBoxLayout, QVBoxLayout)
+from lcls_tools.common.pydm_tools.displayUtils import showDisplay
+from lcls_tools.superconducting.scLinac import ALL_CRYOMODULES
 from pydm import Display
 from pyqtgraph import PlotWidget, plot
 
 import q0_gui_utils
-from lcls_tools.common.pydm_tools.displayUtils import showDisplay
-from lcls_tools.superconducting.scLinac import ALL_CRYOMODULES
 from q0_gui_utils import (CalibrationWorker)
 from q0_linac import Q0Cryomodule, Q0_CRYOMODULES
 from q0_utils import ValveParams
@@ -250,7 +250,8 @@ class Q0GUI(Display):
     
     @pyqtSlot()
     def setup_for_cryo_params(self):
-        self.cryo_param_setup_worker = q0_gui_utils.CryoParamSetupWorker(self.selectedCM)
+        self.cryo_param_setup_worker = q0_gui_utils.CryoParamSetupWorker(self.selectedCM,
+                                                                         heater_setpoint=self.ui.ref_heat_spinbox.value())
         self.cryo_param_setup_worker.error.connect(partial(q0_gui_utils.make_error_popup,
                                                            "Cryo Setup Error"))
         self.cryo_param_setup_worker.start()
