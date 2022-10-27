@@ -196,5 +196,63 @@
         "Calculated Adjustment": -53.42170322064743,
         "Calculated Q0": 4919008301.589199,
         "Calibration Used": "08/05/22 15:35:12"
+    },
+    "10/26/22 17:11:11": {
+        "Start Time": "10/26/22 17:11:11",
+        "Cavity Amplitudes": {
+            "2": 16.6,
+            "4": 16.6,
+            "5": 16.6,
+            "6": 16.6,
+            "7": 16.6,
+            "8": 16.6
+        },
+        "Calculated Adjusted Heat Load": 30.596446389082885,
+        "Calculated Raw Heat Load": 81.0940813903771,
+        "Calculated Adjustment": -50.49763500129421,
+        "Calculated Q0": 52038683123.79756,
+        "Calibration Used": "10/26/22 16:05:44"
+    },
+    "10/26/22 17:29:52": {
+        "Start Time": "10/26/22 17:29:52",
+        "Cavity Amplitudes": {
+            "2": 16.6,
+            "4": 16.6,
+            "5": 16.6,
+            "6": 16.6,
+            "7": 16.6,
+            "8": 16.6
+        },
+        "Calculated Adjusted Heat Load": 25.41921170385784,
+        "Calculated Raw Heat Load": 74.42384287910194,
+        "Calculated Adjustment": -49.0046311752441,
+        "Calculated Q0": 62544906573.011444,
+        "Calibration Used": "10/26/22 16:05:44"
+    },
+    "10/26/22 17:47:13": {
+        "Start Time": "10/26/22 17:47:13",
+        "Cavity Amplitudes": {
+            "2": 16.6,
+            "4": 16.6,
+            "5": 16.6
+        },
+        "Calculated Adjusted Heat Load": 25.37426676456353,
+        "Calculated Raw Heat Load": 72.39448314745768,
+        "Calculated Adjustment": -47.02021638289415,
+        "Calculated Q0": 31775343864.81392,
+        "Calibration Used": "10/26/22 16:05:44"
+    },
+    "10/26/22 18:12:45": {
+        "Start Time": "10/26/22 18:12:45",
+        "Cavity Amplitudes": {
+            "6": 16.6,
+            "7": 16.6,
+            "8": 16.6
+        },
+        "Calculated Adjusted Heat Load": 13.571959540482013,
+        "Calculated Raw Heat Load": 65.19919440071835,
+        "Calculated Adjustment": -51.62723486023634,
+        "Calculated Q0": 58707389681.08126,
+        "Calibration Used": "10/26/22 16:05:44"
     }
 }
