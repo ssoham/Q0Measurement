@@ -11,12 +11,11 @@ from lcls_tools.common.data_analysis.archiver import Archiver
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-# Set True to use a known data set for debugging and/or demoing
-# Set False to prompt the user for real data
-from scipy.stats import linregress
+from scipy.stats import linregress, siegelslopes
+
+USE_SIEGELSLOPES = True
 
 DATETIME_FORMATTER = "%m/%d/%y %H:%M:%S"
-TEST_MODE = False
 
 # The relationship between the LHE content of a cryomodule and the readback from
 # the liquid level sensors isn't linear over the full range of the sensors. We
@@ -138,8 +137,12 @@ class DataRun:
     @property
     def dll_dt(self) -> float:
         if not self._dll_dt:
-            slope, intercept, r_val, p_val, std_err = linregress(
-                    list(self.ll_data.keys()), list(self.ll_data.values()))
+            if USE_SIEGELSLOPES:
+                slope, intercept = siegelslopes(list(self.ll_data.values()),
+                                                list(self.ll_data.keys()))
+            else:
+                slope, intercept, r_val, p_val, std_err = linregress(
+                        list(self.ll_data.keys()), list(self.ll_data.values()))
             self._dll_dt = slope
         return self._dll_dt
     
@@ -170,15 +173,14 @@ def update_json_data(filepath, time_stamp, new_data):
 # (drury@jlab.org) to calculate Q0 from the measured heat load on a cavity,
 # the RF gradient used during the test, and the pressure of the incoming
 # 2 K helium.
-def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float, cav_length: float):
+def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float,
+           cav_length: float, use_correction: bool = False) -> float:
     # The initial Q0 calculation doesn't account for the temperature
     # variation of the 2 K helium
     rUponQ = 1012
     
-    uncorrectedQ0 = (((amplitude * 1e6) ** 2) / (rUponQ * rfHeatLoad))
-    print(f"Uncorrected Q0: {uncorrectedQ0}")
-    
-    # uncorrectedQ0 = ((grad * 1000000) ** 2) / (939.3 * rfHeatLoad)
+    uncorrected_q0 = (((amplitude * 1e6) ** 2) / (rUponQ * rfHeatLoad))
+    print(f"Uncorrected Q0: {uncorrected_q0}")
     
     # We can correct Q0 for the helium temperature
     mbar_to_torr = 0.750062
@@ -192,8 +194,11 @@ def calcQ0(amplitude: float, rfHeatLoad: float, avgPressure: float, cav_length: 
     C6 = -17.02
     C7 = C2 - (C3 * C4) + (C5 * (C4 ** 2))
     
-    return (C1 / ((C7 / 2) * np.exp(C6 / 2) + C1 / uncorrectedQ0
-                  - (C7 / tempFromPress) * np.exp(C6 / tempFromPress)))
+    corrected_q0 = (C1 / ((C7 / 2) * np.exp(C6 / 2) + C1 / uncorrected_q0
+                          - (C7 / tempFromPress) * np.exp(C6 / tempFromPress)))
+    print(f"Corrected Q0: {corrected_q0}")
+    
+    return corrected_q0 if use_correction else uncorrected_q0
 
 
 def make_json_file(filepath):
