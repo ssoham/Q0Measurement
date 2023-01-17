@@ -222,7 +222,7 @@ class Q0Options(QObject):
             col_count = get_dimensions(q0_measurements)
             for idx, time_stamp in enumerate(q0_measurements.keys()):
                 cav_amps = q0_measurements[time_stamp]["Cavity Amplitudes"]
-                radio_button: QRadioButton = QRadioButton(f"{time_stamp}: {cav_amps}")
+                radio_button: QRadioButton = QRadioButton(f"{time_stamp}: \n{json.dumps(cav_amps, indent=4)}")
                 grid_layout.addWidget(radio_button, int(idx / col_count),
                                       idx % col_count)
                 radio_button.clicked.connect(partial(self.load_q0,
