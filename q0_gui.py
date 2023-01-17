@@ -204,9 +204,11 @@ class Q0GUI(Display):
     def load_calibration(self):
         if self.selectedCM.name not in self.cal_option_windows:
             option_window: Display = Display()
+            option_window.setWindowTitle(f"CM {self.selectedCM.name} Calibration Options")
             cal_options = q0_gui_utils.CalibrationOptions(self.selectedCM)
             cal_options.cal_loaded_signal.connect(self.handle_cal_status)
             cal_options.cal_loaded_signal.connect(partial(self.ui.rf_groupbox.setEnabled, True))
+            cal_options.cal_loaded_signal.connect(partial(self.ui.show_cal_data_button.setEnabled, True))
             cal_options.cal_loaded_signal.connect(self.show_calibration_data)
             cal_options.cal_loaded_signal.connect(self.update_cryo_params)
             window_layout = QVBoxLayout()
@@ -229,6 +231,7 @@ class Q0GUI(Display):
     def load_q0(self):
         if self.selectedCM.name not in self.rf_option_windows:
             option_window: Display = Display()
+            option_window.setWindowTitle(f"CM {self.selectedCM.name} RF Measurement Options")
             rf_options = q0_gui_utils.Q0Options(self.selectedCM)
             rf_options.q0_loaded_signal.connect(self.handle_rf_status)
             rf_options.q0_loaded_signal.connect(self.show_q0_data)
