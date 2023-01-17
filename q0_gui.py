@@ -279,6 +279,7 @@ class Q0GUI(Display):
         self.calibration_worker.finished.connect(self.handle_cal_status)
         self.calibration_worker.error.connect(self.handle_cal_error)
         self.calibration_worker.finished.connect(partial(self.ui.rf_groupbox.setEnabled, True))
+        self.calibration_worker.finished.connect(partial(self.ui.show_cal_data_button.setEnabled, True))
         self.calibration_worker.start()
     
     @property
