@@ -593,6 +593,9 @@
       </item>
       <item row="3" column="2">
        <widget class="QPushButton" name="show_cal_data_button">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
         <property name="text">
          <string>Show Calibration Data</string>
         </property>
