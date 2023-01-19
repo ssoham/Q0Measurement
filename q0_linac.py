@@ -524,7 +524,7 @@ class Q0Cryomodule(Cryomodule):
         print(f"Changing heater by {delta} and waiting 3s")
         sleep(3)
         
-        new_val = caget(self.heater_readback_pv) + delta
+        new_val = caget(self.heater_setpoint_pv) + delta
         caput(self.heater_setpoint_pv, new_val, wait=True)
         
         print(q0_utils.RUN_STATUS_MSSG)
