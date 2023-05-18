@@ -429,23 +429,25 @@ class Q0Cryomodule(Cryomodule):
         
         starting_heat = caget(self.heater_setpoint_pv)
         
-        if assist:
-            print("Setting heaters to manual and waiting 3s")
-            caput(self.heater_manual_pv, 1, wait=True)
-            sleep(3)
-            print("Setting heaters to 0 to assist fill")
-            caput(self.heater_setpoint_pv, 0, wait=True)
-            sleep(3)
-        
         caput(self.dsLiqLevSetpointPV, desiredLevel, wait=True)
         
         print(f"Setting JT to auto for refill to {desiredLevel}")
         caput(self.jtAutoSelectPV, 1, wait=True)
-        self.waitForLL(desiredLevel)
         
-        print(f"Setting heat back to {starting_heat} and waiting 3s")
-        caput(self.heater_setpoint_pv, starting_heat, wait=True)
-        sleep(3)
+        if assist:
+            print("Setting heaters to manual and waiting 3s")
+            caput(self.heater_manual_pv, 1, wait=True)
+            sleep(3)
+            
+            print("Setting heaters to 0 to assist fill")
+            caput(self.heater_setpoint_pv, 0, wait=True)
+            sleep(3)
+            
+            print(f"Setting heat back to {starting_heat} and waiting 3s")
+            caput(self.heater_setpoint_pv, starting_heat, wait=True)
+            sleep(3)
+        
+        self.waitForLL(desiredLevel)
         
         if lock:
             self.lock_jt(self.valveParams.refValvePos)
@@ -678,14 +680,14 @@ class Q0Cryomodule(Cryomodule):
         print(f"Starting liquid level setpoint: {starting_ll_setpoint}")
         
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
-        self.fillAndLock(desired_ll)
+        self.fillAndLock(desired_ll, assist=False)
         
         self.launchHeaterRun(initial_heat_load, target_ll_diff=ll_drop)
         self.current_data_run = None
         
         for _ in range(num_cal_steps):
             if (self.averaged_liquid_level - q0_utils.MIN_DS_LL) < ll_drop:
-                self.fillAndLock(desired_ll)
+                self.fillAndLock(desired_ll, assist=False)
             self.launchHeaterRun(heater_delta, target_ll_diff=ll_drop)
             self.current_data_run = None
         
