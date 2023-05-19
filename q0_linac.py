@@ -629,7 +629,7 @@ class Q0Cryomodule(Cryomodule):
             self.cavities[cav_num].ssa.turnOff()
         
         self.fillAndLock(desired_ll)
-        self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD,
+        self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD + self.valveParams.refHeatLoadDes,
                              target_ll_diff=ll_drop, is_cal=False)
         self.q0_measurement.heater_run = self.current_data_run
         self.q0_measurement.heater_run.reference_heat = self.valveParams.refHeatLoadAct
