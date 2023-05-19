@@ -140,16 +140,18 @@ class CavityRampWorker(Worker):
 
 class CalibrationWorker(Worker):
     
-    def __init__(self, cryomodule: Q0Cryomodule, start_heat: float,
+    def __init__(self, cryomodule: Q0Cryomodule,
                  jt_search_start: datetime, jt_search_end: datetime,
-                 desired_ll, heater_delta, num_cal_steps, ll_drop):
+                 desired_ll, num_cal_steps, ll_drop, heat_start,
+                 heat_end):
         super().__init__()
         self.cryomodule = cryomodule
         self.jt_search_end = jt_search_end
         self.jt_search_start = jt_search_start
-        self.start_heat = start_heat
         self.desired_ll = desired_ll
-        self.heater_delta = heater_delta
+        # self.heater_delta = heater_delta
+        self.heat_start = heat_start
+        self.heat_end = heat_end
         self.num_cal_steps = num_cal_steps
         self.ll_drop = ll_drop
     
@@ -163,7 +165,6 @@ class CalibrationWorker(Worker):
                                                jt_search_start=self.jt_search_start,
                                                jt_search_end=self.jt_search_end,
                                                desired_ll=self.desired_ll,
-                                               heater_delta=self.heater_delta,
                                                num_cal_steps=self.num_cal_steps,
                                                ll_drop=self.ll_drop)
             self.finished.emit("Calibration Loaded")

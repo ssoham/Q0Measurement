@@ -8,7 +8,7 @@ import numpy as np
 from epics import caget, camonitor, camonitor_clear, caput
 from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Magnet, Piezo, Rack, SSA, StepperTuner
 from lcls_tools.superconducting.scLinacUtils import PIEZO_FEEDBACK_VALUE, RF_MODE_SEL, RF_MODE_SELA
-from numpy import floor, sign
+from numpy import floor, linspace, sign
 from scipy.signal import medfilt
 from scipy.stats import linregress
 
@@ -358,6 +358,9 @@ class Q0Cryomodule(Cryomodule):
         
         self.fill_data_run_buffer = False
     
+    def __str__(self):
+        return f"CM{self.name}"
+    
     @property
     def calib_data_file(self):
         if not isfile(self._calib_data_file):
@@ -556,17 +559,17 @@ class Q0Cryomodule(Cryomodule):
         return self.getRefValveParams(start_time=start_time + timedelta(minutes=30),
                                       end_time=end_time + timedelta(minutes=30))
     
-    def launchHeaterRun(self, delta: float = q0_utils.CAL_HEATER_DELTA,
+    def launchHeaterRun(self, heater_setpoint,
                         target_ll_diff: float = q0_utils.TARGET_LL_DIFF,
                         is_cal=True) -> None:
         
-        new_val = caget(self.heater_setpoint_pv) + delta
-        self.heater_power = new_val
-        # caput(self.heater_setpoint_pv, new_val, wait=True)
+        self.heater_power = heater_setpoint
+        # caput(self.heater_setpoint_pv, heat_load, wait=True)
         
         print(f"Waiting for the LL to drop {target_ll_diff}%")
         
-        self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(new_val - self.valveParams.refHeatLoadAct)
+        self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(
+                heater_setpoint - self.valveParams.refHeatLoadAct)
         if is_cal:
             self.calibration.heater_runs.append(self.current_data_run)
         
@@ -686,13 +689,12 @@ class Q0Cryomodule(Cryomodule):
         self.q0_measurement: Q0Measurement = Q0Measurement(self)
         self.q0_measurement.load_data(time_stamp)
     
-    def takeNewCalibration(self, initial_heat_load: int,
-                           jt_search_start: datetime = None,
+    def takeNewCalibration(self, jt_search_start: datetime = None,
                            jt_search_end: datetime = None,
                            desired_ll: float = q0_utils.MAX_DS_LL,
                            ll_drop: float = q0_utils.TARGET_LL_DIFF,
-                           heater_delta: float = q0_utils.CAL_HEATER_DELTA,
-                           num_cal_steps: int = q0_utils.NUM_CAL_STEPS):
+                           num_cal_steps: int = q0_utils.NUM_CAL_STEPS,
+                           heat_start: float = 130, heat_end: float = 160):
         
         if not self.valveParams:
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
@@ -717,13 +719,13 @@ class Q0Cryomodule(Cryomodule):
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
         self.fillAndLock(desired_ll)
         
-        self.launchHeaterRun(initial_heat_load, target_ll_diff=ll_drop)
+        self.launchHeaterRun(heater_setpoint=heat_start, target_ll_diff=ll_drop)
         self.current_data_run = None
         
-        for _ in range(num_cal_steps):
+        for setpoint in linspace(heat_start, heat_end, num_cal_steps):
             if (self.averaged_liquid_level - q0_utils.MIN_DS_LL) < ll_drop:
                 self.fillAndLock(desired_ll)
-            self.launchHeaterRun(heater_delta, target_ll_diff=ll_drop)
+            self.launchHeaterRun(setpoint, target_ll_diff=ll_drop)
             self.current_data_run = None
         
         self.calibration.save_data()
@@ -734,9 +736,11 @@ class Q0Cryomodule(Cryomodule):
         duration = (datetime.now() - startTime).total_seconds() / 3600
         print("Duration in hours: {DUR}".format(DUR=duration))
         
-        full_heater_delta = -((num_cal_steps * heater_delta) + initial_heat_load)
-        print(f"Changing heater by {full_heater_delta}")
-        caput(self.heater_setpoint_pv, caget(self.heater_readback_pv) + full_heater_delta, wait=True)
+        # full_heater_delta = -((num_cal_steps * heater_delta) + initial_heat_load)
+        # print(f"Changing heater by {full_heater_delta}")
+        # caput(self.heater_setpoint_pv, caget(self.heater_readback_pv) + full_heater_delta, wait=True)
+        
+        self.heater_power = self.valveParams.refHeatLoadDes
         
         print("Restoring initial cryo conditions")
         caput(self.jtAutoSelectPV, 1, wait=True)
@@ -763,6 +767,7 @@ class Q0Cryomodule(Cryomodule):
         while caget(self.jtModePV) != q0_utils.JT_MANUAL_MODE_VALUE:
             sleep(1)
         
+        print(f"Walking {self} JT to {value}%")
         for _ in range(int(floor(abs(delta)))):
             caput(self.jtManPosSetpointPV, self.jt_position + step, wait=True)
             sleep(3)
