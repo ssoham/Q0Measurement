@@ -8,6 +8,7 @@ import numpy as np
 from epics import caget, camonitor, camonitor_clear, caput
 from lcls_tools.superconducting.scLinac import Cavity, CryoDict, Cryomodule, Magnet, Piezo, Rack, SSA, StepperTuner
 from lcls_tools.superconducting.scLinacUtils import PIEZO_FEEDBACK_VALUE, RF_MODE_SEL, RF_MODE_SELA
+from numpy import floor, sign
 from scipy.signal import medfilt
 from scipy.stats import linregress
 
@@ -425,32 +426,68 @@ class Q0Cryomodule(Cryomodule):
             cavity.turnOff()
             cavity.ssa.turnOff()
     
-    def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL, lock=True, assist=True):
+    @property
+    def heater_power(self):
+        return caget(self.heater_readback_pv)
+    
+    @heater_power.setter
+    def heater_power(self, value):
         
-        starting_heat = caget(self.heater_setpoint_pv)
+        print(f"walking {self} heater power to {value} W")
         
-        caput(self.dsLiqLevSetpointPV, desiredLevel, wait=True)
+        # delta = value - self.heater_power
+        #
+        # step = sign(delta)
+        
+        print(f"Setting {self} heaters to manual and waiting 3s")
+        caput(self.heater_manual_pv, 1, wait=True)
+        sleep(3)
+        
+        # for _ in int(floor(abs(delta))):
+        #     new_val = caget(self.heater_setpoint_pv) + step
+        #     caput(self.heater_setpoint_pv, new_val, wait=True)
+        #     sleep(1)
+        
+        caput(self.heater_setpoint_pv, value)
+        
+        print(f"set {self} heater power to {value} W")
+    
+    @property
+    def ds_liquid_level(self):
+        return caget(self.ds_level_pv)
+    
+    @ds_liquid_level.setter
+    def ds_liquid_level(self, value):
+        caput(self.dsLiqLevSetpointPV, value, wait=True)
+    
+    def fill(self, desiredLevel=q0_utils.MAX_DS_LL):
+        self.ds_liquid_level = desiredLevel
         
         print(f"Setting JT to auto for refill to {desiredLevel}")
         caput(self.jtAutoSelectPV, 1, wait=True)
         
-        if assist:
-            print("Setting heaters to manual and waiting 3s")
-            caput(self.heater_manual_pv, 1, wait=True)
-            sleep(3)
-            
-            print("Setting heaters to 0 to assist fill")
-            caput(self.heater_setpoint_pv, 0, wait=True)
-            sleep(3)
-            
-            print(f"Setting heat back to {starting_heat} and waiting 3s")
-            caput(self.heater_setpoint_pv, starting_heat, wait=True)
-            sleep(3)
+        starting_heater_setpoint = caget(self.heater_setpoint_pv)
+        self.heater_power = self.valveParams.refHeatLoadDes
         
         self.waitForLL(desiredLevel)
         
-        if lock:
-            self.lock_jt(self.valveParams.refValvePos)
+        self.jt_position = self.valveParams.refValvePos
+        self.heater_power = starting_heater_setpoint
+    
+    def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL):
+        
+        self.ds_liquid_level = desiredLevel
+        
+        print(f"Setting JT to auto for refill to {desiredLevel}")
+        caput(self.jtAutoSelectPV, 1, wait=True)
+        
+        # starting_heater_setpoint = caget(self.heater_setpoint_pv)
+        self.heater_power = self.valveParams.refHeatLoadDes
+        
+        self.waitForLL(desiredLevel)
+        
+        self.jt_position = self.valveParams.refValvePos
+        # self.heater_power = starting_heater_setpoint
     
     def getRefValveParams(self, start_time: datetime, end_time: datetime):
         print(f"\nSearching {start_time} to {end_time} for period of JT stability")
@@ -523,13 +560,11 @@ class Q0Cryomodule(Cryomodule):
                         target_ll_diff: float = q0_utils.TARGET_LL_DIFF,
                         is_cal=True) -> None:
         
-        print(f"Changing heater by {delta} and waiting 3s")
-        sleep(3)
-        
         new_val = caget(self.heater_setpoint_pv) + delta
-        caput(self.heater_setpoint_pv, new_val, wait=True)
+        self.heater_power = new_val
+        # caput(self.heater_setpoint_pv, new_val, wait=True)
         
-        print(q0_utils.RUN_STATUS_MSSG)
+        print(f"Waiting for the LL to drop {target_ll_diff}%")
         
         self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(new_val - self.valveParams.refHeatLoadAct)
         if is_cal:
@@ -574,7 +609,7 @@ class Q0Cryomodule(Cryomodule):
                 print(f"Waiting for cavity {cav_num} to be ready")
                 sleep(5)
         
-        self.fillAndLock(desired_ll, assist=True)
+        self.fillAndLock(desired_ll)
         caput(self.heater_manual_pv, 1, wait=True)
         caput(self.jtManPosSetpointPV, self.valveParams.refValvePos, wait=True)
         sleep(2)
@@ -640,7 +675,7 @@ class Q0Cryomodule(Cryomodule):
                                                       end_time=jt_search_end)
         
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
-        self.fillAndLock(desired_ll, lock=False, assist=True)
+        self.fillAndLock(desired_ll)
     
     def load_calibration(self, time_stamp: str):
         self.calibration: Calibration = Calibration(time_stamp=time_stamp,
@@ -663,31 +698,31 @@ class Q0Cryomodule(Cryomodule):
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
         
-        deltaTot = self.valveParams.refHeatLoadDes - caget(self.heater_readback_pv)
+        # deltaTot = self.valveParams.refHeatLoadDes - self.heater_power
         
         startTime = datetime.now().replace(microsecond=0)
         self.calibration = Calibration(time_stamp=startTime.strftime(q0_utils.DATETIME_FORMATTER),
                                        cryomodule=self)
         
-        print("Setting heater to manual and waiting 3s")
-        caput(self.heater_manual_pv, 1, wait=True)
-        sleep(3)
-        print(f"Changing heater by {deltaTot} and waiting 3s")
-        caput(self.heater_setpoint_pv, caget(self.heater_readback_pv) + deltaTot, wait=True)
-        sleep(3)
+        print(f"setting {self} heater to {self.valveParams.refHeatLoadDes} W")
+        self.heater_power = self.valveParams.refHeatLoadDes
+        
+        # print(f"Changing heater by {deltaTot} and waiting 3s")
+        # caput(self.heater_setpoint_pv, caget(self.heater_readback_pv) + deltaTot, wait=True)
+        # sleep(3)
         
         starting_ll_setpoint = caget(self.dsLiqLevSetpointPV)
         print(f"Starting liquid level setpoint: {starting_ll_setpoint}")
         
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
-        self.fillAndLock(desired_ll, assist=False)
+        self.fillAndLock(desired_ll)
         
         self.launchHeaterRun(initial_heat_load, target_ll_diff=ll_drop)
         self.current_data_run = None
         
         for _ in range(num_cal_steps):
             if (self.averaged_liquid_level - q0_utils.MIN_DS_LL) < ll_drop:
-                self.fillAndLock(desired_ll, assist=False)
+                self.fillAndLock(desired_ll)
             self.launchHeaterRun(heater_delta, target_ll_diff=ll_drop)
             self.current_data_run = None
         
@@ -711,6 +746,37 @@ class Q0Cryomodule(Cryomodule):
         self.calibration.save_results()
         camonitor_clear(self.dsLevelPV)
     
+    @property
+    def jt_position(self):
+        return caget(self.jtValveReadbackPV)
+    
+    @jt_position.setter
+    def jt_position(self, value):
+        delta = value - self.jt_position
+        step = sign(delta)
+        
+        print("Setting JT to manual and waiting for readback to change")
+        caput(self.jtManualSelectPV, 1, wait=True)
+        
+        # One way for the JT valve to be locked in the correct position is for
+        # it to be in manual mode and at the desired value
+        while caget(self.jtModePV) != q0_utils.JT_MANUAL_MODE_VALUE:
+            sleep(1)
+        
+        for _ in range(int(floor(abs(delta)))):
+            caput(self.jtManPosSetpointPV, self.jt_position + step, wait=True)
+            sleep(3)
+        
+        caput(self.jtManPosSetpointPV, value)
+        
+        print(f"Waiting for {self} JT Valve position to be in tolerance")
+        # Wait for the valve position to be within tolerance before continuing
+        while abs(self.jt_position - value) > q0_utils.VALVE_POS_TOL:
+            sleep(1)
+        
+        print(f"{self} JT Valve at {value}")
+    
+    # TODO deprecate
     def lock_jt(self, refValvePos):
         # type: (float) -> None
         
@@ -729,7 +795,7 @@ class Q0Cryomodule(Cryomodule):
         
         print("Waiting for JT Valve position to be in tolerance")
         # Wait for the valve position to be within tolerance before continuing
-        while abs(caget(self.jtValveReadbackPV) - refValvePos) > q0_utils.VALVE_POS_TOL:
+        while abs(self.jt_position - refValvePos) > q0_utils.VALVE_POS_TOL:
             sleep(1)
         
         print("JT Valve locked.")
