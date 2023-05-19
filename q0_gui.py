@@ -271,8 +271,8 @@ class Q0GUI(Display):
                                                     jt_search_start=None,
                                                     jt_search_end=None,
                                                     desired_ll=self.ui.ll_start_spinbox.value(),
-                                                    heat_start=self.ui.end_heat_spinbox.value(),
-                                                    heat_end=self.ui.start_heat_spinbox.value(),
+                                                    heat_start=self.ui.start_heat_spinbox.value(),
+                                                    heat_end=self.ui.end_heat_spinbox.value(),
                                                     num_cal_steps=self.ui.num_cal_points_spinbox.value(),
                                                     ll_drop=self.ui.ll_drop_spinbox.value())
         self.calibration_worker.status.connect(self.handle_cal_status)

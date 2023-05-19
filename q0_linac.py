@@ -436,7 +436,7 @@ class Q0Cryomodule(Cryomodule):
     @heater_power.setter
     def heater_power(self, value):
         
-        print(f"walking {self} heater power to {value} W")
+        # print(f"walking {self} heater power to {value} W")
         
         # delta = value - self.heater_power
         #
@@ -709,18 +709,11 @@ class Q0Cryomodule(Cryomodule):
         print(f"setting {self} heater to {self.valveParams.refHeatLoadDes} W")
         self.heater_power = self.valveParams.refHeatLoadDes
         
-        # print(f"Changing heater by {deltaTot} and waiting 3s")
-        # caput(self.heater_setpoint_pv, caget(self.heater_readback_pv) + deltaTot, wait=True)
-        # sleep(3)
-        
         starting_ll_setpoint = caget(self.dsLiqLevSetpointPV)
         print(f"Starting liquid level setpoint: {starting_ll_setpoint}")
         
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
         self.fillAndLock(desired_ll)
-        
-        self.launchHeaterRun(heater_setpoint=heat_start, target_ll_diff=ll_drop)
-        self.current_data_run = None
         
         for setpoint in linspace(heat_start, heat_end, num_cal_steps):
             if (self.averaged_liquid_level - q0_utils.MIN_DS_LL) < ll_drop:
