@@ -149,7 +149,6 @@ class CalibrationWorker(Worker):
         self.jt_search_end = jt_search_end
         self.jt_search_start = jt_search_start
         self.desired_ll = desired_ll
-        # self.heater_delta = heater_delta
         self.heat_start = heat_start
         self.heat_end = heat_end
         self.num_cal_steps = num_cal_steps
@@ -161,12 +160,13 @@ class CalibrationWorker(Worker):
             return
         try:
             self.status.emit("Taking new calibration")
-            self.cryomodule.takeNewCalibration(initial_heat_load=self.start_heat,
-                                               jt_search_start=self.jt_search_start,
+            self.cryomodule.takeNewCalibration(jt_search_start=self.jt_search_start,
                                                jt_search_end=self.jt_search_end,
                                                desired_ll=self.desired_ll,
                                                num_cal_steps=self.num_cal_steps,
-                                               ll_drop=self.ll_drop)
+                                               ll_drop=self.ll_drop,
+                                               heat_start=self.heat_start,
+                                               heat_end=self.heat_end)
             self.finished.emit("Calibration Loaded")
         except (ConnectTimeoutError, ConnectTimeout, q0_utils.CryoError) as e:
             self.error.emit(str(e))
