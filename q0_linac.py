@@ -436,20 +436,9 @@ class Q0Cryomodule(Cryomodule):
     @heater_power.setter
     def heater_power(self, value):
         
-        # print(f"walking {self} heater power to {value} W")
-        
-        # delta = value - self.heater_power
-        #
-        # step = sign(delta)
-        
         print(f"Setting {self} heaters to manual and waiting 3s")
         caput(self.heater_manual_pv, 1, wait=True)
         sleep(3)
-        
-        # for _ in int(floor(abs(delta))):
-        #     new_val = caget(self.heater_setpoint_pv) + step
-        #     caput(self.heater_setpoint_pv, new_val, wait=True)
-        #     sleep(1)
         
         caput(self.heater_setpoint_pv, value)
         
@@ -484,13 +473,11 @@ class Q0Cryomodule(Cryomodule):
         print(f"Setting JT to auto for refill to {desiredLevel}")
         caput(self.jtAutoSelectPV, 1, wait=True)
         
-        # starting_heater_setpoint = caget(self.heater_setpoint_pv)
         self.heater_power = self.valveParams.refHeatLoadDes
         
         self.waitForLL(desiredLevel)
         
         self.jt_position = self.valveParams.refValvePos
-        # self.heater_power = starting_heater_setpoint
     
     def getRefValveParams(self, start_time: datetime, end_time: datetime):
         print(f"\nSearching {start_time} to {end_time} for period of JT stability")
@@ -564,7 +551,6 @@ class Q0Cryomodule(Cryomodule):
                         is_cal=True) -> None:
         
         self.heater_power = heater_setpoint
-        # caput(self.heater_setpoint_pv, heat_load, wait=True)
         
         print(f"Waiting for the LL to drop {target_ll_diff}%")
         
@@ -728,10 +714,6 @@ class Q0Cryomodule(Cryomodule):
         
         duration = (datetime.now() - startTime).total_seconds() / 3600
         print("Duration in hours: {DUR}".format(DUR=duration))
-        
-        # full_heater_delta = -((num_cal_steps * heater_delta) + initial_heat_load)
-        # print(f"Changing heater by {full_heater_delta}")
-        # caput(self.heater_setpoint_pv, caget(self.heater_readback_pv) + full_heater_delta, wait=True)
         
         self.heater_power = self.valveParams.refHeatLoadDes
         

@@ -261,8 +261,6 @@ class Q0GUI(Display):
     
     @pyqtSlot()
     def takeNewCalibration(self):
-        heater_delta = ((self.ui.end_heat_spinbox.value()
-                         - self.ui.start_heat_spinbox.value()) / self.ui.num_cal_points_spinbox.value())
         self.selectedCM.valveParams = ValveParams(refHeatLoadDes=self.ui.ref_heat_spinbox.value(),
                                                   refValvePos=self.ui.jt_pos_spinbox.value(),
                                                   refHeatLoadAct=self.ui.ref_heat_spinbox.value())
