@@ -555,7 +555,8 @@ class Q0Cryomodule(Cryomodule):
         print(f"Waiting for the LL to drop {target_ll_diff}%")
         
         self.current_data_run: q0_utils.HeaterRun = q0_utils.HeaterRun(
-                heater_setpoint - self.valveParams.refHeatLoadAct)
+                heater_setpoint - self.valveParams.refHeatLoadAct,
+                reference_heat=self.valveParams.refHeatLoadAct)
         if is_cal:
             self.calibration.heater_runs.append(self.current_data_run)
         
