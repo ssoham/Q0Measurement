@@ -618,7 +618,7 @@ class Q0Cryomodule(Cryomodule):
             self.cavities[cav_num].turnOff()
             self.cavities[cav_num].ssa.turnOff()
         
-        self.heater_power = self.valveParams.refHeatLoadDes
+        self.heater_power = 0
         self.fill(desired_ll)
         self.jt_position = self.valveParams.refValvePos
         
