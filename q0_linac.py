@@ -466,6 +466,12 @@ class Q0Cryomodule(Cryomodule):
         self.jt_position = self.valveParams.refValvePos
         self.heater_power = starting_heater_setpoint
     
+    def fill(self, desiredLevel=q0_utils.MAX_DS_LL):
+        self.ds_liquid_level = desiredLevel
+        print(f"Setting JT to auto for refill to {desiredLevel}")
+        caput(self.jtAutoSelectPV, 1, wait=True)
+        self.waitForLL(desiredLevel)
+    
     def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL):
         
         self.ds_liquid_level = desiredLevel
@@ -599,12 +605,10 @@ class Q0Cryomodule(Cryomodule):
                 print(f"Waiting for cavity {cav_num} to be ready")
                 sleep(5)
         
-        self.fillAndLock(desired_ll)
-        caput(self.heater_manual_pv, 1, wait=True)
-        caput(self.jtManPosSetpointPV, self.valveParams.refValvePos, wait=True)
-        sleep(2)
-        print(f"setting heater to {self.valveParams.refHeatLoadDes}")
-        caput(self.heater_setpoint_pv, self.valveParams.refHeatLoadDes, wait=True)
+        self.heater_power = 0
+        self.fill(desired_ll)
+        self.heater_power = self.valveParams.refHeatLoadDes
+        self.jt_position = self.valveParams.refValvePos
         
         self.current_data_run: RFRun = self.q0_measurement.rf_run
         self.q0_measurement.rf_run.reference_heat = self.valveParams.refHeatLoadAct
@@ -628,7 +632,10 @@ class Q0Cryomodule(Cryomodule):
             self.cavities[cav_num].turnOff()
             self.cavities[cav_num].ssa.turnOff()
         
-        self.fillAndLock(desired_ll)
+        self.heater_power = self.valveParams.refHeatLoadDes
+        self.fill(desired_ll)
+        self.jt_position = self.valveParams.refValvePos
+        
         self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD + self.valveParams.refHeatLoadDes,
                              target_ll_diff=ll_drop, is_cal=False)
         self.q0_measurement.heater_run = self.current_data_run
@@ -665,7 +672,7 @@ class Q0Cryomodule(Cryomodule):
                                                       end_time=jt_search_end)
         
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
-        self.fillAndLock(desired_ll)
+        self.fill(desired_ll)
     
     def load_calibration(self, time_stamp: str):
         self.calibration: Calibration = Calibration(time_stamp=time_stamp,
