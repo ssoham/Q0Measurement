@@ -658,6 +658,10 @@ class Q0Cryomodule(Cryomodule):
                                                       end_time=jt_search_end)
         
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
+        for cav_num in desiredAmplitudes.keys():
+            self.cavities[cav_num].turnOff()
+        
+        self.heater_power = self.valveParams.refHeatLoadDes
         self.fill(desired_ll)
     
     def load_calibration(self, time_stamp: str):
