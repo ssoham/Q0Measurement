@@ -454,20 +454,6 @@ class Q0Cryomodule(Cryomodule):
     
     def fill(self, desiredLevel=q0_utils.MAX_DS_LL):
         self.ds_liquid_level = desiredLevel
-        
-        print(f"Setting JT to auto for refill to {desiredLevel}")
-        caput(self.jtAutoSelectPV, 1, wait=True)
-        
-        starting_heater_setpoint = caget(self.heater_setpoint_pv)
-        self.heater_power = self.valveParams.refHeatLoadDes
-        
-        self.waitForLL(desiredLevel)
-        
-        self.jt_position = self.valveParams.refValvePos
-        self.heater_power = starting_heater_setpoint
-    
-    def fill(self, desiredLevel=q0_utils.MAX_DS_LL):
-        self.ds_liquid_level = desiredLevel
         print(f"Setting JT to auto for refill to {desiredLevel}")
         caput(self.jtAutoSelectPV, 1, wait=True)
         self.waitForLL(desiredLevel)
