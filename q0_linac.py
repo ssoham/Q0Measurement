@@ -452,14 +452,15 @@ class Q0Cryomodule(Cryomodule):
     def ds_liquid_level(self, value):
         caput(self.dsLiqLevSetpointPV, value, wait=True)
     
-    def fill(self, desiredLevel=q0_utils.MAX_DS_LL):
+    def fill(self, desiredLevel=q0_utils.MAX_DS_LL, turn_cavities_off: bool = True):
         self.ds_liquid_level = desiredLevel
         print(f"Setting JT to auto for refill to {desiredLevel}")
         caput(self.jtAutoSelectPV, 1, wait=True)
         self.heater_power = 0
         
-        for cavity in self.cavities.values():
-            cavity.turnOff()
+        if turn_cavities_off:
+            for cavity in self.cavities.values():
+                cavity.turnOff()
         
         self.waitForLL(desiredLevel)
     
@@ -591,7 +592,7 @@ class Q0Cryomodule(Cryomodule):
                              desired_ll: float = q0_utils.MAX_DS_LL,
                              ll_drop: float = q0_utils.TARGET_LL_DIFF):
         
-        self.setup_cryo_for_measurement(desired_ll)
+        self.setup_cryo_for_measurement(desired_ll, turn_cavities_off=False)
         
         for cav_num, des_amp in desiredAmplitudes.items():
             while abs(caget(self.cavities[cav_num].selAmplitudeActPV.pvname) - des_amp) > 0.1:
@@ -715,8 +716,8 @@ class Q0Cryomodule(Cryomodule):
         self.calibration.save_results()
         camonitor_clear(self.dsLevelPV)
     
-    def setup_cryo_for_measurement(self, desired_ll):
-        self.fill(desired_ll)
+    def setup_cryo_for_measurement(self, desired_ll, turn_cavities_off: bool = True):
+        self.fill(desired_ll, turn_cavities_off=turn_cavities_off)
         self.jt_position = self.valveParams.refValvePos
         self.heater_power = self.valveParams.refHeatLoadDes
     
