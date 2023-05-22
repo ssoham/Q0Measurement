@@ -456,16 +456,10 @@ class Q0Cryomodule(Cryomodule):
         self.ds_liquid_level = desiredLevel
         print(f"Setting JT to auto for refill to {desiredLevel}")
         caput(self.jtAutoSelectPV, 1, wait=True)
-        self.waitForLL(desiredLevel)
-    
-    def fillAndLock(self, desiredLevel=q0_utils.MAX_DS_LL):
+        self.heater_power = 0
         
-        self.ds_liquid_level = desiredLevel
-        
-        print(f"Setting JT to auto for refill to {desiredLevel}")
-        caput(self.jtAutoSelectPV, 1, wait=True)
-        
-        self.heater_power = self.valveParams.refHeatLoadDes
+        for cavity in self.cavities.values():
+            cavity.turnOff()
         
         self.waitForLL(desiredLevel)
     
@@ -597,15 +591,12 @@ class Q0Cryomodule(Cryomodule):
                              desired_ll: float = q0_utils.MAX_DS_LL,
                              ll_drop: float = q0_utils.TARGET_LL_DIFF):
         
+        self.setup_cryo_for_measurement(desired_ll)
+        
         for cav_num, des_amp in desiredAmplitudes.items():
             while abs(caget(self.cavities[cav_num].selAmplitudeActPV.pvname) - des_amp) > 0.1:
                 print(f"Waiting for CM{self.name} cavity {cav_num} to be ready")
                 sleep(5)
-        
-        self.heater_power = 0
-        self.fill(desired_ll)
-        self.heater_power = self.valveParams.refHeatLoadDes
-        self.jt_position = self.valveParams.refValvePos
         
         self.current_data_run: RFRun = self.q0_measurement.rf_run
         self.q0_measurement.rf_run.reference_heat = self.valveParams.refHeatLoadAct
@@ -625,12 +616,7 @@ class Q0Cryomodule(Cryomodule):
         
         print(self.q0_measurement.rf_run.dll_dt)
         
-        for cavity in self.cavities.values():
-            cavity.turnOff()
-        
-        self.heater_power = 0
-        self.fill(desired_ll)
-        self.jt_position = self.valveParams.refValvePos
+        self.setup_cryo_for_measurement(desired_ll)
         
         self.launchHeaterRun(q0_utils.FULL_MODULE_CALIBRATION_LOAD + self.valveParams.refHeatLoadDes,
                              target_ll_diff=ll_drop, is_cal=False)
@@ -668,10 +654,6 @@ class Q0Cryomodule(Cryomodule):
                                                       end_time=jt_search_end)
         
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
-        for cav_num in desiredAmplitudes.keys():
-            self.cavities[cav_num].turnOff()
-        
-        self.heater_power = self.valveParams.refHeatLoadDes
         self.fill(desired_ll)
     
     def load_calibration(self, time_stamp: str):
@@ -694,8 +676,6 @@ class Q0Cryomodule(Cryomodule):
             self.valveParams = self.getRefValveParams(start_time=jt_search_start,
                                                       end_time=jt_search_end)
         
-        # deltaTot = self.valveParams.refHeatLoadDes - self.heater_power
-        
         startTime = datetime.now().replace(microsecond=0)
         self.calibration = Calibration(time_stamp=startTime.strftime(q0_utils.DATETIME_FORMATTER),
                                        cryomodule=self)
@@ -707,11 +687,11 @@ class Q0Cryomodule(Cryomodule):
         print(f"Starting liquid level setpoint: {starting_ll_setpoint}")
         
         camonitor(self.dsLevelPV, callback=self.monitor_ll)
-        self.fillAndLock(desired_ll)
+        
+        self.setup_cryo_for_measurement(desired_ll)
         
         for setpoint in linspace(heat_start, heat_end, num_cal_steps):
-            if (self.averaged_liquid_level - q0_utils.MIN_DS_LL) < ll_drop:
-                self.fillAndLock(desired_ll)
+            self.setup_cryo_for_measurement(desired_ll)
             self.launchHeaterRun(setpoint, target_ll_diff=ll_drop)
             self.current_data_run = None
         
@@ -732,6 +712,11 @@ class Q0Cryomodule(Cryomodule):
         
         self.calibration.save_results()
         camonitor_clear(self.dsLevelPV)
+    
+    def setup_cryo_for_measurement(self, desired_ll):
+        self.fill(desired_ll)
+        self.jt_position = self.valveParams.refValvePos
+        self.heater_power = self.valveParams.refHeatLoadDes
     
     @property
     def jt_position(self):
@@ -763,30 +748,6 @@ class Q0Cryomodule(Cryomodule):
             sleep(1)
         
         print(f"{self} JT Valve at {value}")
-    
-    # TODO deprecate
-    def lock_jt(self, refValvePos):
-        # type: (float) -> None
-        
-        print("Setting JT to manual and waiting for readback to change")
-        caput(self.jtManualSelectPV, 1, wait=True)
-        
-        # One way for the JT valve to be locked in the correct position is for
-        # it to be in manual mode and at the desired value
-        while caget(self.jtModePV) != q0_utils.JT_MANUAL_MODE_VALUE:
-            sleep(1)
-        
-        print(f"Waiting for JT Valve to be locked at {refValvePos}")
-        caput(self.jtManPosSetpointPV, refValvePos, wait=True)
-        while (caget(self.jtManPosSetpointPV) - refValvePos) > 0.1:
-            sleep(1)
-        
-        print("Waiting for JT Valve position to be in tolerance")
-        # Wait for the valve position to be within tolerance before continuing
-        while abs(self.jt_position - refValvePos) > q0_utils.VALVE_POS_TOL:
-            sleep(1)
-        
-        print("JT Valve locked.")
     
     def waitForLL(self, desiredLiquidLevel=q0_utils.MAX_DS_LL):
         print(f"Waiting for downstream liquid level to be {desiredLiquidLevel}%")
