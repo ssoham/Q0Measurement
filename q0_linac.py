@@ -643,6 +643,7 @@ class Q0Cryomodule(Cryomodule):
         self.q0_measurement.save_results()
         caput(self.heater_sequencer_pv, 1, wait=True)
         caput(self.jtAutoSelectPV, 1, wait=True)
+        self.ds_liquid_level = 92
     
     def setup_for_q0(self, desiredAmplitudes, desired_ll, jt_search_end, jt_search_start):
         self.q0_measurement = Q0Measurement(cryomodule=self)
@@ -706,8 +707,9 @@ class Q0Cryomodule(Cryomodule):
         self.heater_power = self.valveParams.refHeatLoadDes
         
         print("Restoring initial cryo conditions")
+        
         caput(self.jtAutoSelectPV, 1, wait=True)
-        caput(self.dsLiqLevSetpointPV, starting_ll_setpoint, wait=True)
+        self.ds_liquid_level = 92
         caput(self.heater_sequencer_pv, 1, wait=True)
         
         self.calibration.save_results()
