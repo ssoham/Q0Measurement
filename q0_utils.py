@@ -74,6 +74,9 @@ RUN_STATUS_MSSG = ("\nWaiting for the LL to drop {DIFF}% "
 JT_MANUAL_MODE_VALUE = 0
 JT_AUTO_MODE_VALUE = 1
 
+HEATER_MANUAL_VALUE = 0
+HEATER_SEQUENCER_VALUE = 2
+
 CRYO_ACCESS_VALUE = 1
 MINIMUM_HEATLOAD = 48
 
@@ -95,14 +98,14 @@ class DataError(Exception):
 
 
 class DataRun:
-    def __init__(self):
+    def __init__(self, reference_heat=0):
         self.ll_data: Dict[float, float] = {}
         self.heater_readback_buffer: List[float] = []
         self._dll_dt = None
         self._start_time: datetime = None
         self._end_time: datetime = None
         self._average_heat = None
-        self.reference_heat = 0
+        self.reference_heat = reference_heat
     
     @property
     def average_heat(self) -> float:
@@ -152,8 +155,8 @@ class DataRun:
 
 
 class HeaterRun(DataRun):
-    def __init__(self, heat_load: float):
-        super().__init__()
+    def __init__(self, heat_load: float, reference_heat=0):
+        super().__init__(reference_heat=reference_heat)
         self.heat_load_des: float = heat_load
 
 
