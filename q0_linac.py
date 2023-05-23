@@ -329,7 +329,8 @@ class Q0Cryomodule(Cryomodule):
         self.heater_setpoint_pv: str = self.heater_prefix + "MANPOS_RQST"
         self.heater_manual_pv: str = self.heater_prefix + "MANUAL"
         self.heater_sequencer_pv: str = self.heater_prefix + "SEQUENCER"
-        self.heater_mode_pv: str = self.heater_prefix + "MODE_STRING"
+        self.heater_mode_string_pv: str = self.heater_prefix + "MODE_STRING"
+        self.heater_mode_pv: str = self.heater_prefix + "MODE"
         
         self.cryo_access_pv: str = f"CRYO:CM{self.name}:0:CAS_ACCESS"
         
@@ -436,9 +437,10 @@ class Q0Cryomodule(Cryomodule):
     @heater_power.setter
     def heater_power(self, value):
         
-        print(f"Setting {self} heaters to manual and waiting 3s")
-        caput(self.heater_manual_pv, 1, wait=True)
-        sleep(3)
+        while caget(self.heater_mode_pv) != q0_utils.HEATER_MANUAL_VALUE:
+            print(f"Setting {self} heaters to manual and waiting 3s")
+            caput(self.heater_manual_pv, 1, wait=True)
+            sleep(3)
         
         caput(self.heater_setpoint_pv, value)
         

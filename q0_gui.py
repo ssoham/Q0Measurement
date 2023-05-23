@@ -108,7 +108,7 @@ class Q0GUI(Display):
             
             self.ui.heater_man_button.channel = self.selectedCM.heater_manual_pv
             self.ui.heater_seq_button.channel = self.selectedCM.heater_sequencer_pv
-            self.ui.heater_mode_label.channel = self.selectedCM.heater_mode_pv
+            self.ui.heater_mode_label.channel = self.selectedCM.heater_mode_string_pv
             self.ui.heater_setpoint_spinbox.channel = self.selectedCM.heater_setpoint_pv
             self.ui.heater_readback_label.channel = self.selectedCM.heater_readback_pv
             
