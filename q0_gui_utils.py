@@ -1,7 +1,6 @@
 import json
 from datetime import datetime, timedelta
 from functools import partial
-from time import sleep
 from typing import Dict
 
 import numpy as np
@@ -60,9 +59,8 @@ class CryoParamSetupWorker(Worker):
             self.error.emit("Required cryo permissions not granted - call cryo ops")
             return
         
-        caput(self.cryomodule.heater_manual_pv, 1, wait=True)
-        sleep(3)
-        caput(self.cryomodule.heater_setpoint_pv, self.heater_setpoint)
+        self.cryomodule.heater_power = self.heater_setpoint
+        self.cryomodule.jt_position = 35
         caput(self.cryomodule.jtAutoSelectPV, 1, wait=True)
         self.finished.emit("Cryo setup for new reference parameters in ~1 hour")
 
