@@ -292,6 +292,8 @@ class Q0GUI(Display):
         for cav_num, cav_amp_control in self.cav_amp_controls.items():
             if cav_amp_control.groupbox.isChecked():
                 amplitudes[cav_num] = cav_amp_control.desAmpSpinbox.value()
+            else:
+                amplitudes[cav_num] = 0
         print(f"Cavity amplitudes: {amplitudes}")
         return amplitudes
     
