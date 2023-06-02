@@ -125,6 +125,7 @@ class Q0SetupWorker(RFWorker):
             return
         
         try:
+            self.status.emit(f"CM{self.cryomodule.name} setting up for RF measurement")
             self.cryomodule.setup_for_q0(desiredAmplitudes=self.desired_amplitudes,
                                          desired_ll=self.desired_ll,
                                          jt_search_start=self.jt_search_start,
