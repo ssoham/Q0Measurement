@@ -552,7 +552,7 @@
          <item row="0" column="1">
           <widget class="QDoubleSpinBox" name="start_heat_spinbox">
            <property name="minimum">
-            <double>100.000000000000000</double>
+            <double>75.000000000000000</double>
            </property>
            <property name="maximum">
             <double>130.000000000000000</double>
