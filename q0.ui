@@ -297,8 +297,11 @@
            <property name="toolTip">
             <string/>
            </property>
+           <property name="minimum">
+            <double>5.000000000000000</double>
+           </property>
            <property name="maximum">
-            <double>75.000000000000000</double>
+            <double>70.000000000000000</double>
            </property>
            <property name="showUnits" stdset="0">
             <bool>true</bool>
