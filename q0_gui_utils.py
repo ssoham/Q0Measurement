@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Dict
+from typing import Dict, Optional
 
 import numpy as np
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (
     QRadioButton,
 )
 from epics import caget, caput
-from lcls_tools.superconducting.scLinac import Cavity
 from lcls_tools.superconducting.sc_linac_utils import CavityAbortError
 from pydm.widgets import PyDMLabel
 from requests import ConnectTimeout
@@ -96,8 +95,8 @@ class RFWorker(Worker):
     def __init__(
         self,
         cryomodule: Q0Cryomodule,
-        jt_search_start: datetime,
-        jt_search_end: datetime,
+        jt_search_start: Optional[datetime],
+        jt_search_end: Optional[datetime],
         desired_ll,
         ll_drop,
         desired_amplitudes,
@@ -149,7 +148,7 @@ class Q0SetupWorker(RFWorker):
 
 
 class CavityRampWorker(Worker):
-    def __init__(self, cavity: Cavity, des_amp: float):
+    def __init__(self, cavity: Q0Cavity, des_amp: float):
         super().__init__()
         self.cavity: Q0Cavity = cavity
         self.des_amp = des_amp
@@ -157,7 +156,7 @@ class CavityRampWorker(Worker):
     def run(self) -> None:
         try:
             self.status.emit(f"Ramping Cavity {self.cavity.number} to {self.des_amp}")
-            self.cavity.turnOn()
+            self.cavity.turn_on()
             self.cavity.walk_amp(self.des_amp, step_size=0.1)
             self.finished.emit(
                 f"Cavity {self.cavity.number} ramped up to {self.des_amp}"
@@ -170,8 +169,8 @@ class CalibrationWorker(Worker):
     def __init__(
         self,
         cryomodule: Q0Cryomodule,
-        jt_search_start: datetime,
-        jt_search_end: datetime,
+        jt_search_start: Optional[datetime],
+        jt_search_end: Optional[datetime],
         desired_ll,
         num_cal_steps,
         ll_drop,
@@ -243,10 +242,9 @@ class CavAmpControl:
 
     def connect(self, cavity: Q0Cavity):
         self.groupbox.setTitle(f"Cavity {cavity.number}")
-        amax = caget(cavity.ades_max_PV.pvname)
-        self.desAmpSpinbox.setValue(min(16.6, amax))
-        self.desAmpSpinbox.setRange(0, amax)
-        self.aact_label.channel = cavity.selAmplitudeActPV.pvname
+        self.desAmpSpinbox.setValue(min(16.6, cavity.ades_max))
+        self.desAmpSpinbox.setRange(0, cavity.ades_max)
+        self.aact_label.channel = cavity.aact_pv
 
 
 class Q0Options(QObject):

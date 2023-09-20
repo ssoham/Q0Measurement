@@ -185,36 +185,36 @@ def update_json_data(filepath, time_stamp, new_data):
 # (drury@jlab.org) to calculate Q0 from the measured heat load on a cavity,
 # the RF gradient used during the test, and the pressure of the incoming
 # 2 K helium.
-def calcQ0(
+def calc_q0(
     amplitude: float,
-    rfHeatLoad: float,
-    avgPressure: float,
+    rf_heat_load: float,
+    avg_pressure: float,
     cav_length: float,
     use_correction: bool = False,
 ) -> float:
     # The initial Q0 calculation doesn't account for the temperature
     # variation of the 2 K helium
-    rUponQ = 1012
+    r_over_q = 1012
 
-    uncorrected_q0 = ((amplitude * 1e6) ** 2) / (rUponQ * rfHeatLoad)
+    uncorrected_q0 = ((amplitude * 1e6) ** 2) / (r_over_q * rf_heat_load)
     print(f"Uncorrected Q0: {uncorrected_q0}")
 
     # We can correct Q0 for the helium temperature
     mbar_to_torr = 0.750062
-    tempFromPress = (mbar_to_torr * avgPressure * 0.0125) + 1.705
+    temp_from_press = (mbar_to_torr * avg_pressure * 0.0125) + 1.705
 
-    C1 = 271
-    C2 = 0.0000726
-    C3 = 0.00000214
-    C4 = amplitude / cav_length - 0.7
-    C5 = 0.000000043
-    C6 = -17.02
-    C7 = C2 - (C3 * C4) + (C5 * (C4**2))
+    c1 = 271
+    c2 = 0.0000726
+    c3 = 0.00000214
+    c4 = amplitude / cav_length - 0.7
+    c5 = 0.000000043
+    c6 = -17.02
+    c7 = c2 - (c3 * c4) + (c5 * (c4**2))
 
-    corrected_q0 = C1 / (
-        (C7 / 2) * np.exp(C6 / 2)
-        + C1 / uncorrected_q0
-        - (C7 / tempFromPress) * np.exp(C6 / tempFromPress)
+    corrected_q0 = c1 / (
+        (c7 / 2) * np.exp(c6 / 2)
+        + c1 / uncorrected_q0
+        - (c7 / temp_from_press) * np.exp(c6 / temp_from_press)
     )
     print(f"Corrected Q0: {corrected_q0}")
 
@@ -249,17 +249,17 @@ class CryoError(Exception):
     pass
 
 
-def q0Hash(argList: List[Any]):
+def q0_hash(arg_list: List[Any]):
     """
     A hash is effectively a unique numerical identifier. The purpose of a
     hash function is to generate an ID for an object. This function
-    takes all of the input parameters and XORs (the ^ symbol) them.
+    takes all the input parameters and XORs (the ^ symbol) them.
 
     What is an XOR? It's an operator that takes two bit strings and goes
     through them, bit by bit, returning True (1) only if one bit is 0 and the
     other is 1
 
-    EX) consider the following two bit strings a, b, and c = a^b:
+    EX: consider the following two bit strings a, b, and c = a^b:
           a: 101010010010 (2706 in base 10)
           b: 100010101011 (2219)
           ---------------
@@ -275,11 +275,11 @@ def q0Hash(argList: List[Any]):
     data sessions.
     """
 
-    if len(argList) == 1:
-        return hash(argList.pop())
+    if len(arg_list) == 1:
+        return hash(arg_list.pop())
 
-    for arg in argList:
-        return hash(arg) ^ q0Hash(argList[1:])
+    for arg in arg_list:
+        return hash(arg) ^ q0_hash(arg_list[1:])
 
 
 @dataclass
@@ -289,7 +289,7 @@ class ValveParams:
     refHeatLoadAct: float
 
 
-def genAxis(title, xlabel, ylabel):
+def gen_axis(title, xlabel, ylabel):
     # type: (str, str, str) -> Axes
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -299,7 +299,7 @@ def genAxis(title, xlabel, ylabel):
     return ax
 
 
-def redrawAxis(canvas, title, xlabel, ylabel):
+def redraw_axis(canvas, title, xlabel, ylabel):
     # type: (FigureCanvasQTAgg, str, str, str) -> None
     canvas.axes.cla()
     canvas.draw_idle()
@@ -308,7 +308,7 @@ def redrawAxis(canvas, title, xlabel, ylabel):
     canvas.axes.set_ylabel(ylabel)
 
 
-def drawAndShow():
+def draw_and_show():
     # type: () -> None
     plt.draw()
     plt.show()

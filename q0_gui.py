@@ -35,33 +35,33 @@ class Q0GUI(Display):
         self.cal_option_windows: Dict[str, Display] = {}
         self.ui.show_cal_data_button.clicked.connect(self.show_calibration_data)
 
-        self.ui.new_rf_button.clicked.connect(self.takeNewQ0Measurement)
+        self.ui.new_rf_button.clicked.connect(self.take_new_q0_measurement)
         self.ui.load_rf_button.clicked.connect(self.load_q0)
         self.rf_option_windows: Dict[str, Display] = {}
         self.ui.show_rf_button.clicked.connect(self.show_q0_data)
 
-        self.calibration_worker: CalibrationWorker = None
-        self.q0_setup_worker: q0_gui_utils.Q0SetupWorker = None
+        self.calibration_worker: Optional[CalibrationWorker] = None
+        self.q0_setup_worker: Optional[q0_gui_utils.Q0SetupWorker] = None
         self.q0_ramp_workers: Dict[int, q0_gui_utils.CavityRampWorker] = {
             i: None for i in range(1, 9)
         }
-        self.q0_meas_worker: q0_gui_utils.Q0Worker = None
-        self.cryo_param_setup_worker: q0_gui_utils.CryoParamSetupWorker = None
+        self.q0_meas_worker: Optional[q0_gui_utils.Q0Worker] = None
+        self.cryo_param_setup_worker: Optional[q0_gui_utils.CryoParamSetupWorker] = None
 
         self.ui.setup_param_button.clicked.connect(self.setup_for_cryo_params)
 
-        self.calibration_data_plot: PlotWidget = None
+        self.calibration_data_plot: Optional[PlotWidget] = None
         self.calibration_data_plot_items = []
-        self.calibration_fit_plot: PlotWidget = None
+        self.calibration_fit_plot: Optional[PlotWidget] = None
         self.calibration_fit_plot_items = []
 
-        self.q0_data_plot: PlotWidget = None
+        self.q0_data_plot: PlotWidget = Optional[None]
         self.q0_data_plot_items = []
-        self.q0_fit_plot: PlotWidget = None
+        self.q0_fit_plot: Optional[PlotWidget] = None
         self.q0_fit_plot_items = []
 
-        self.calibration_window: Display = None
-        self.q0_window: Display = None
+        self.calibration_window: Optional[Display] = None
+        self.q0_window: Optional[Display] = None
 
         self.cav_amp_controls: Dict[int, q0_gui_utils.CavAmpControl] = {}
 
@@ -112,7 +112,7 @@ class Q0GUI(Display):
             self.ui.jt_auto_button.channel = self.selectedCM.jtAutoSelectPV
             self.ui.jt_mode_label.channel = self.selectedCM.jt_mode_str_pv
             self.ui.jt_setpoint_spinbox.channel = self.selectedCM.jtManPosSetpointPV
-            self.ui.jt_setpoint_readback.channel = self.selectedCM.jtValveReadbackPV
+            self.ui.jt_setpoint_readback.channel = self.selectedCM.jt_valve_readback_pv
 
             self.ui.heater_man_button.channel = self.selectedCM.heater_manual_pv
             self.ui.heater_seq_button.channel = self.selectedCM.heater_sequencer_pv
@@ -370,7 +370,7 @@ class Q0GUI(Display):
         self.q0_meas_worker.start()
 
     @pyqtSlot()
-    def takeNewQ0Measurement(self):
+    def take_new_q0_measurement(self):
         self.selectedCM.valveParams = ValveParams(
             refHeatLoadDes=self.ui.ref_heat_spinbox.value(),
             refValvePos=self.ui.jt_pos_spinbox.value(),
