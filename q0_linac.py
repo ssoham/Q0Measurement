@@ -6,10 +6,10 @@ from typing import Dict, List, Optional
 
 import numpy as np
 from epics import caget, camonitor, camonitor_clear, caput
-from lcls_tools.common.pyepics_tools.pyepics_utils import PV
-from lcls_tools.superconducting.scLinac import (
+from lcls_tools.common.controls.pyepics.utils import PV
+from lcls_tools.superconducting.sc_linac import (
     Cavity,
-    CryoDict,
+    Machine,
     Cryomodule,
     Magnet,
     Piezo,
@@ -321,13 +321,13 @@ class Q0Measurement:
 class Q0Cavity(Cavity):
     def __init__(
         self,
-        cavityNum,
-        rackObject,
+        cavity_num,
+        rack_object,
         ssaClass=SSA,
         stepperClass=StepperTuner,
         piezoClass=Piezo,
     ):
-        super().__init__(cavityNum, rackObject)
+        super().__init__(cavity_num, rack_object)
         self.ready_for_q0 = False
 
     def mark_ready(self):
@@ -350,8 +350,8 @@ class Q0Cryomodule(Cryomodule):
         super().__init__(
             cryo_name,
             linac_object,
-            is_harmonic_linearizer=is_harmonic_linearizer,
-            cavity_class=Q0Cavity,
+            # is_harmonic_linearizer=is_harmonic_linearizer,
+            # cavity_class=Q0Cavity,
         )
 
         self.jtModePV: str = self.jt_prefix + "MODE"
@@ -535,7 +535,7 @@ class Q0Cryomodule(Cryomodule):
             self.check_abort()
             print(f"\nChecking window {window_start} to {window_end}")
 
-            data = q0_utils.ARCHIVER.getValuesOverTimeRange(
+            data = q0_utils.get_values_over_time_range(
                 pvList=[self.ds_level_pv], startTime=window_start, endTime=window_end
             )
             llVals = medfilt(data.values[self.ds_level_pv])
@@ -554,7 +554,7 @@ class Q0Cryomodule(Cryomodule):
                     self.heater_readback_pv,
                 ]
 
-                data = q0_utils.ARCHIVER.getValuesOverTimeRange(
+                data = q0_utils.get_values_over_time_range(
                     startTime=window_start, endTime=window_end, pvList=signals
                 )
 
@@ -854,6 +854,6 @@ class Q0Cryomodule(Cryomodule):
         print("downstream liquid level at required value.")
 
 
-Q0_CRYOMODULES: Dict[str, Q0Cryomodule] = CryoDict(
-    cryomoduleClass=Q0Cryomodule, cavityClass=Q0Cavity
+Q0_CRYOMODULES = Machine(
+    cryomodule_class=Q0Cryomodule, cavity_class=Q0Cavity
 )

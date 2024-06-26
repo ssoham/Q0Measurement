@@ -3,7 +3,7 @@ from typing import Dict, Optional
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout
-from lcls_tools.common.pydm_tools.displayUtils import showDisplay
+from lcls_tools.common.frontend.display.util import showDisplay
 from lcls_tools.superconducting.sc_linac_utils import ALL_CRYOMODULES
 from pydm import Display
 from pyqtgraph import PlotWidget, plot
@@ -104,7 +104,7 @@ class Q0GUI(Display):
         if not current_text:
             self.selectedCM = None
         else:
-            self.selectedCM = Q0_CRYOMODULES[current_text]
+            self.selectedCM = Q0_CRYOMODULES.cryomodules[current_text]
             self.ui.perm_byte.channel = self.selectedCM.cryo_access_pv
             self.ui.perm_label.channel = self.selectedCM.cryo_access_pv
 

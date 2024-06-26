@@ -7,7 +7,7 @@ from os.path import isfile
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from lcls_tools.common.data_analysis.archiver import Archiver
+from lcls_tools.common.data_analysis.archiver import *
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
@@ -81,7 +81,7 @@ HEATER_SEQUENCER_VALUE = 2
 CRYO_ACCESS_VALUE = 1
 MINIMUM_HEATLOAD = 48
 
-ARCHIVER = Archiver("lcls")
+# ARCHIVER = Archiver("lcls")
 
 JSON_START_KEY = "Start Time"
 JSON_END_KEY = "End Time"
