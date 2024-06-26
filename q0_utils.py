@@ -7,7 +7,6 @@ from os.path import isfile
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from lcls_tools.common.data_analysis.archiver import *
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg

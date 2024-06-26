@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 import numpy as np
 from epics import caget, camonitor, camonitor_clear, caput
 from lcls_tools.common.controls.pyepics.utils import PV
+from lcls_tools.common.data_analysis.archiver import get_values_over_time_range
 from lcls_tools.superconducting.sc_linac import (
     Cavity,
     Machine,
@@ -533,8 +534,8 @@ class Q0Cryomodule(Cryomodule):
             self.check_abort()
             print(f"\nChecking window {window_start} to {window_end}")
 
-            data = q0_utils.get_values_over_time_range(
-                pvList=[self.ds_level_pv], startTime=window_start, endTime=window_end
+            data = get_values_over_time_range(
+                pv_list=[self.ds_level_pv], start_time=window_start, end_time=window_end
             )
             llVals = medfilt(data.values[self.ds_level_pv])
 
@@ -552,8 +553,8 @@ class Q0Cryomodule(Cryomodule):
                     self.heater_readback_pv,
                 ]
 
-                data = q0_utils.get_values_over_time_range(
-                    startTime=window_start, endTime=window_end, pvList=signals
+                data = get_values_over_time_range(
+                    pv_list=signals, start_time=window_start, end_time=window_end
                 )
 
                 des_val_set = set(data.values[self.heater_setpoint_pv])
