@@ -81,8 +81,6 @@ HEATER_SEQUENCER_VALUE = 2
 CRYO_ACCESS_VALUE = 1
 MINIMUM_HEATLOAD = 48
 
-# ARCHIVER = Archiver("lcls")
-
 JSON_START_KEY = "Start Time"
 JSON_END_KEY = "End Time"
 JSON_LL_KEY = "Liquid Level Data"

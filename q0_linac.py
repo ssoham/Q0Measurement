@@ -349,9 +349,7 @@ class Q0Cryomodule(Cryomodule):
     ):
         super().__init__(
             cryo_name,
-            linac_object,
-            # is_harmonic_linearizer=is_harmonic_linearizer,
-            # cavity_class=Q0Cavity,
+            linac_object
         )
 
         self.jtModePV: str = self.jt_prefix + "MODE"
@@ -854,6 +852,6 @@ class Q0Cryomodule(Cryomodule):
         print("downstream liquid level at required value.")
 
 
-Q0_CRYOMODULES = Machine(
+Q0_CRYOMODULES: Dict[str, Cryomodule] = Machine(
     cryomodule_class=Q0Cryomodule, cavity_class=Q0Cavity
-)
+).cryomodules

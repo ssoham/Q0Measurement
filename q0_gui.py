@@ -104,7 +104,7 @@ class Q0GUI(Display):
         if not current_text:
             self.selectedCM = None
         else:
-            self.selectedCM = Q0_CRYOMODULES.cryomodules[current_text]
+            self.selectedCM = Q0_CRYOMODULES[current_text]
             self.ui.perm_byte.channel = self.selectedCM.cryo_access_pv
             self.ui.perm_label.channel = self.selectedCM.cryo_access_pv
 
