@@ -1,14 +1,16 @@
 from functools import partial
 from typing import Dict, Optional
 
+import numpy as np
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout
 from lcls_tools.common.frontend.display.util import showDisplay
 from lcls_tools.superconducting.sc_linac_utils import ALL_CRYOMODULES
 from pydm import Display
-from pyqtgraph import PlotWidget, plot
+from pyqtgraph import LinearRegionItem, PlotWidget, plot
 
 import q0_gui_utils
+import q0_utils
 from q0_gui_utils import CalibrationWorker
 from q0_linac import Q0Cryomodule, Q0_CRYOMODULES
 from q0_utils import ValveParams
@@ -78,6 +80,8 @@ class Q0GUI(Display):
 
         self.ui.restore_cryo_button.clicked.connect(self.restore_cryo)
 
+        self.selection_linear_items = []
+
     @pyqtSlot()
     def restore_cryo(self):
         self.selectedCM.restore_cryo()
@@ -143,7 +147,38 @@ class Q0GUI(Display):
         while self.q0_fit_plot_items:
             self.q0_fit_plot.removeItem(self.q0_fit_plot_items.pop())
 
+        while self.selection_linear_items:
+            self.q0_data_plot.removeItem(self.selection_linear_items.pop())
+
         measurement = self.selectedCM.q0_measurement
+
+        def region_updated(region_item):
+            updated_runs = {}
+            for i, run in enumerate([measurement.heater_run, measurement.rf_run]):
+                lo, hi = self.selection_linear_items[i].getRegion()
+                spliced_ll_run_data = {k: v for k, v in run.ll_data.items() if lo <= k <= hi}
+
+                heater_data = {
+                    q0_utils.JSON_START_KEY: run.start_time,
+                    q0_utils.JSON_END_KEY: run.end_time,
+                    q0_utils.JSON_HEATER_READBACK_KEY: run.average_heat,
+                    q0_utils.JSON_DLL_KEY: run.dll_dt,
+                    q0_utils.JSON_LL_KEY: spliced_ll_run_data,
+                }
+
+                if run is measurement.rf_run:
+                    key = q0_utils.JSON_RF_RUN_KEY
+                    heater_data.update({
+                        q0_utils.JSON_AVG_PRESS_KEY: run.avg_pressure,
+                        q0_utils.JSON_CAV_AMPS_KEY: run.amplitudes
+                    })
+                else:
+                    key = q0_utils.JSON_HEATER_RUN_KEY
+
+                updated_runs[key] = heater_data
+            q0_utils.update_json_data(self.selectedCM.selected_q0_data_file,
+                                      time_stamp=self.selectedCM.q0_measurement.start_time, new_data=updated_runs)
+
         self.q0_data_plot_items.append(
             self.q0_data_plot.plot(
                 list(measurement.rf_run.ll_data.keys()),
@@ -156,6 +191,14 @@ class Q0GUI(Display):
                 list(measurement.heater_run.ll_data.values()),
             )
         )
+
+        for item in [measurement.heater_run, measurement.rf_run]:
+            lls = np.array(list(item.ll_data.keys()))
+            linear_item = LinearRegionItem([np.min(lls), np.max(lls)])
+            linear_item.sigRegionChangeFinished.connect(region_updated)
+            self.selection_linear_items.append(linear_item)
+            self.q0_data_plot.addItem(linear_item)
+
 
         dll_dts = [measurement.rf_run.dll_dt, measurement.heater_run.dll_dt]
         self.q0_fit_plot_items.append(
@@ -178,6 +221,9 @@ class Q0GUI(Display):
 
     @pyqtSlot()
     def show_calibration_data(self):
+        while self.selection_linear_items:
+            self.q0_data_plot.removeItem(self.selection_linear_items.pop())
+
         if not self.calibration_window:
             self.calibration_window = Display()
             self.calibration_window.setWindowTitle("Calibration Plots")
@@ -200,13 +246,44 @@ class Q0GUI(Display):
 
         dll_dts = []
 
+        def region_updated(region_item):
+            updated_runs = {}
+            for i, run in enumerate(self.selectedCM.calibration.heater_runs):
+                lo, hi = self.selection_linear_items[i].getRegion()
+                print(f"region {i}: {self.selection_linear_items[i].getRegion()}")
+
+                spliced_ll_run_data = {k: v for k, v in run.ll_data.items() if lo <= k <= hi}
+                print(len(spliced_ll_run_data))
+
+                key = run.start_time
+                heater_data = {
+                    q0_utils.JSON_START_KEY: run.start_time,
+                    q0_utils.JSON_END_KEY: run.end_time,
+                    "Desired Heat Load": run.heat_load_des,
+                    q0_utils.JSON_HEATER_READBACK_KEY: run.average_heat,
+                    q0_utils.JSON_DLL_KEY: run.dll_dt,
+                    q0_utils.JSON_LL_KEY: spliced_ll_run_data,
+                }
+
+                updated_runs[key] = heater_data
+            q0_utils.update_json_data(self.selectedCM.selected_calib_data_file,
+                                      time_stamp=self.selectedCM.calibration.time_stamp, new_data=updated_runs)
+
         for heater_run in self.selectedCM.calibration.heater_runs:
             self.calibration_data_plot_items.append(
                 self.calibration_data_plot.plot(
                     list(heater_run.ll_data.keys()), list(heater_run.ll_data.values())
                 )
             )
+
+            liquid_levels = np.array(list(heater_run.ll_data.keys()))
+            linear_item = LinearRegionItem([np.min(liquid_levels), np.max(liquid_levels)])
+            linear_item.sigRegionChangeFinished.connect(region_updated)
+            self.calibration_data_plot.addItem(linear_item)
+            self.selection_linear_items.append(linear_item)
+
             dll_dts.append(heater_run.dll_dt)
+
             self.calibration_fit_plot_items.append(
                 self.calibration_fit_plot.plot(
                     [heater_run.average_heat], [heater_run.dll_dt], pen=None, symbol="o"

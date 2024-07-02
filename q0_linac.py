@@ -40,38 +40,43 @@ class Calibration:
         self.heater_runs: List[q0_utils.HeaterRun] = []
 
         with open(self.cryomodule.calib_data_file, "r+") as f:
-            all_data: Dict = json.load(f)
-            data: Dict = all_data[self.time_stamp]
-
-            for heater_run_data in data.values():
-                run = q0_utils.HeaterRun(heater_run_data["Desired Heat Load"])
-                run._start_time = datetime.strptime(
-                    heater_run_data[q0_utils.JSON_START_KEY],
-                    q0_utils.DATETIME_FORMATTER,
-                )
-                run._end_time = datetime.strptime(
-                    heater_run_data[q0_utils.JSON_END_KEY], q0_utils.DATETIME_FORMATTER
-                )
-
-                ll_data = {}
-                for timestamp_str, val in heater_run_data[q0_utils.JSON_LL_KEY].items():
-                    ll_data[float(timestamp_str)] = val
-
-                run.ll_data = ll_data
-                run.average_heat = heater_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
-
-                self.heater_runs.append(run)
-
-            with open(self.cryomodule.calib_idx_file, "r+") as f:
+            with open(self.cryomodule.selected_calib_data_file, "r+") as sf:
                 all_data: Dict = json.load(f)
-                data: Dict = all_data[self.time_stamp]
+                selected_data: Dict = json.load(sf)
+                if self.time_stamp in selected_data:
+                    data: Dict = selected_data[self.time_stamp]
+                else:
+                    data: Dict = all_data[self.time_stamp]
 
-                self.cryomodule.valveParams = q0_utils.ValveParams(
-                    refValvePos=data["JT Valve Position"],
-                    refHeatLoadDes=data["Total Reference Heater Setpoint"],
-                    refHeatLoadAct=data["Total Reference Heater Readback"],
-                )
-                print("Loaded new reference parameters")
+                for heater_run_data in data.values():
+                    run = q0_utils.HeaterRun(heater_run_data["Desired Heat Load"])
+                    run._start_time = datetime.strptime(
+                        heater_run_data[q0_utils.JSON_START_KEY],
+                        q0_utils.DATETIME_FORMATTER,
+                    )
+                    run._end_time = datetime.strptime(
+                        heater_run_data[q0_utils.JSON_END_KEY], q0_utils.DATETIME_FORMATTER
+                    )
+
+                    ll_data = {}
+                    for timestamp_str, val in heater_run_data[q0_utils.JSON_LL_KEY].items():
+                        ll_data[float(timestamp_str)] = val
+
+                    run.ll_data = ll_data
+                    run.average_heat = heater_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
+
+                    self.heater_runs.append(run)
+
+                with open(self.cryomodule.calib_idx_file, "r+") as f:
+                    all_data: Dict = json.load(f)
+                    data: Dict = all_data[self.time_stamp]
+
+                    self.cryomodule.valveParams = q0_utils.ValveParams(
+                        refValvePos=data["JT Valve Position"],
+                        refHeatLoadDes=data["Total Reference Heater Setpoint"],
+                        refHeatLoadAct=data["Total Reference Heater Readback"],
+                    )
+                    print("Loaded new reference parameters")
 
     def save_data(self):
         new_data = {}
@@ -192,48 +197,53 @@ class Q0Measurement:
         self.start_time = datetime.strptime(time_stamp, q0_utils.DATETIME_FORMATTER)
 
         with open(self.cryomodule.q0_data_file, "r+") as f:
-            all_data: Dict = json.load(f)
-            q0_meas_data: Dict = all_data[time_stamp]
+            with open(self.cryomodule.selected_q0_data_file, "r+") as sf:
+                all_data: Dict = json.load(f)
+                selected_data: Dict = json.load(sf)
+                if time_stamp not in selected_data:
+                    q0_meas_data: Dict = all_data[time_stamp]
+                else:
+                    q0_meas_data: Dict = selected_data[time_stamp]
 
-            heater_run_data: Dict = q0_meas_data[q0_utils.JSON_HEATER_RUN_KEY]
+                heater_run_data: Dict = q0_meas_data[q0_utils.JSON_HEATER_RUN_KEY]
 
-            self.heater_run_heatload = heater_run_data[
-                q0_utils.JSON_HEATER_READBACK_KEY
-            ]
-            self.heater_run.average_heat = heater_run_data[
-                q0_utils.JSON_HEATER_READBACK_KEY
-            ]
-            self.heater_run.start_time = datetime.strptime(
-                heater_run_data[q0_utils.JSON_START_KEY], q0_utils.DATETIME_FORMATTER
-            )
-            self.heater_run.end_time = datetime.strptime(
-                heater_run_data[q0_utils.JSON_END_KEY], q0_utils.DATETIME_FORMATTER
-            )
-            ll_data = {}
-            for time_str, val in heater_run_data[q0_utils.JSON_LL_KEY].items():
-                ll_data[float(time_str)] = val
-            self.heater_run.ll_data = ll_data
+                self.heater_run_heatload = heater_run_data[
+                    q0_utils.JSON_HEATER_READBACK_KEY
+                ]
+                self.heater_run.average_heat = heater_run_data[
+                    q0_utils.JSON_HEATER_READBACK_KEY
+                ]
+                self.heater_run.start_time = datetime.strptime(
+                    heater_run_data[q0_utils.JSON_START_KEY], q0_utils.DATETIME_FORMATTER
+                )
+                self.heater_run.end_time = datetime.strptime(
+                    heater_run_data[q0_utils.JSON_END_KEY], q0_utils.DATETIME_FORMATTER
+                )
+                ll_data = {}
+                for time_str, val in heater_run_data[q0_utils.JSON_LL_KEY].items():
+                    ll_data[float(time_str)] = val
+                self.heater_run.ll_data = ll_data
 
-            rf_run_data: Dict = q0_meas_data[q0_utils.JSON_RF_RUN_KEY]
-            cav_amps = {}
-            for cav_num_str, amp in rf_run_data[q0_utils.JSON_CAV_AMPS_KEY].items():
-                cav_amps[int(cav_num_str)] = amp
+                rf_run_data: Dict = q0_meas_data[q0_utils.JSON_RF_RUN_KEY]
+                cav_amps = {}
+                for cav_num_str, amp in rf_run_data[q0_utils.JSON_CAV_AMPS_KEY].items():
+                    cav_amps[int(cav_num_str)] = amp
 
-            self.amplitudes = cav_amps
-            self.rf_run.start_time = datetime.strptime(
-                rf_run_data[q0_utils.JSON_START_KEY], q0_utils.DATETIME_FORMATTER
-            )
-            self.rf_run.end_time = datetime.strptime(
-                rf_run_data[q0_utils.JSON_END_KEY], q0_utils.DATETIME_FORMATTER
-            )
-            self.rf_run.average_heat = rf_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
+                self.amplitudes = cav_amps
+                self.rf_run.start_time = datetime.strptime(
+                    rf_run_data[q0_utils.JSON_START_KEY], q0_utils.DATETIME_FORMATTER
+                )
+                self.rf_run.end_time = datetime.strptime(
+                    rf_run_data[q0_utils.JSON_END_KEY], q0_utils.DATETIME_FORMATTER
+                )
+                self.rf_run.average_heat = rf_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
 
-            ll_data = {}
-            for time_str, val in rf_run_data[q0_utils.JSON_LL_KEY].items():
-                ll_data[float(time_str)] = val
-            self.rf_run.ll_data = ll_data
+                ll_data = {}
+                for time_str, val in rf_run_data[q0_utils.JSON_LL_KEY].items():
+                    ll_data[float(time_str)] = val
+                self.rf_run.ll_data = ll_data
 
-            self.rf_run.avg_pressure = rf_run_data[q0_utils.JSON_AVG_PRESS_KEY]
+                self.rf_run.avg_pressure = rf_run_data[q0_utils.JSON_AVG_PRESS_KEY]
 
         self.save_data()
 
@@ -376,8 +386,10 @@ class Q0Cryomodule(Cryomodule):
 
         self._calib_idx_file = "calibrations/cm{CM}.json".format(CM=self.name)
         self._calib_data_file = f"data/calibrations/cm{self.name}.json"
+        self._calib_selected_calib_data_file = f"data/edited_calibrations/cm{self.name}.json"
         self._q0_idx_file = "q0_measurements/cm{CM}.json".format(CM=self.name)
         self._q0_data_file = f"data/q0_measurements/cm{self.name}.json"
+        self._q0_selected_data_file = f"data/edited_q0_measurements/cm{self.name}.json"
 
         self.ll_buffer: np.array = np.empty(q0_utils.NUM_LL_POINTS_TO_AVG)
         self.ll_buffer[:] = np.nan
@@ -414,10 +426,22 @@ class Q0Cryomodule(Cryomodule):
         return self._calib_data_file
 
     @property
+    def selected_calib_data_file(self):
+        if not isfile(self._calib_selected_calib_data_file):
+            q0_utils.make_json_file(self._calib_selected_calib_data_file)
+        return self._calib_selected_calib_data_file
+
+    @property
     def q0_data_file(self):
         if not isfile(self._q0_data_file):
             q0_utils.make_json_file(self._q0_data_file)
         return self._q0_data_file
+
+    @property
+    def selected_q0_data_file(self):
+        if not isfile(self._q0_selected_data_file):
+            q0_utils.make_json_file(self._q0_selected_data_file)
+        return self._q0_selected_data_file
 
     @property
     def ll_buffer_size(self):
@@ -469,8 +493,8 @@ class Q0Cryomodule(Cryomodule):
         caput(self.jtAutoSelectPV, 1, wait=True)
         print("Turning cavities and SSAs off")
         for cavity in self.cavities.values():
-            cavity.turnOff()
-            cavity.ssa.turnOff()
+            cavity.turn_off()
+            cavity.ssa.turn_off()
 
     @property
     def heater_power(self):
@@ -510,7 +534,7 @@ class Q0Cryomodule(Cryomodule):
 
         if turn_cavities_off:
             for cavity in self.cavities.values():
-                cavity.turnOff()
+                cavity.turn_off()
 
         self.waitForLL(desired_level)
 
@@ -565,7 +589,7 @@ class Q0Cryomodule(Cryomodule):
                 # We only want to use time periods in which there were no
                 # changes made to the heater settings
                 if len(des_val_set) == 1:
-                    des_pos = round(np.mean(data.values[self.jtValveReadbackPV]), 1)
+                    des_pos = round(np.mean(data.values[self.jt_valve_readback_pv]), 1)
                     heater_des = des_val_set.pop()
                     heater_act = np.mean(data.values[self.heater_readback_pv])
 
