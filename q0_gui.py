@@ -222,7 +222,7 @@ class Q0GUI(Display):
     @pyqtSlot()
     def show_calibration_data(self):
         while self.selection_linear_items:
-            self.q0_data_plot.removeItem(self.selection_linear_items.pop())
+            self.calibration_data_plot.removeItem(self.selection_linear_items.pop())
 
         if not self.calibration_window:
             self.calibration_window = Display()
@@ -250,10 +250,8 @@ class Q0GUI(Display):
             updated_runs = {}
             for i, run in enumerate(self.selectedCM.calibration.heater_runs):
                 lo, hi = self.selection_linear_items[i].getRegion()
-                print(f"region {i}: {self.selection_linear_items[i].getRegion()}")
 
                 spliced_ll_run_data = {k: v for k, v in run.ll_data.items() if lo <= k <= hi}
-                print(len(spliced_ll_run_data))
 
                 key = run.start_time
                 heater_data = {
