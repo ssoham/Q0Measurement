@@ -19,6 +19,7 @@ from lcls_tools.superconducting.sc_linac import (
     StepperTuner,
 )
 from numpy import floor, linspace, sign
+from pyqtgraph import LinearRegionItem
 from scipy.signal import medfilt
 from scipy.stats import linregress
 
@@ -58,6 +59,11 @@ class Calibration:
 
                 run.ll_data = ll_data
                 run.average_heat = heater_run_data[q0_utils.JSON_HEATER_READBACK_KEY]
+                
+                times = np.array(list(run.ll_data.keys()))
+                run.region = LinearRegionItem(values=[np.min(times), np.max(times)],
+                                              bounds=[np.min(times), np.max(times)],
+                                              swapMode='block')
 
                 self.heater_runs.append(run)
 
@@ -106,20 +112,19 @@ class Calibration:
 
     @property
     def dLLdt_dheat(self):
-        if not self._slope:
-            heat_loads = []
-            dll_dts = []
-            for run in self.heater_runs:
-                heat_loads.append(run.average_heat)
-                dll_dts.append(run.dll_dt)
+        heat_loads = []
+        dll_dts = []
+        for run in self.heater_runs:
+            heat_loads.append(run.average_heat)
+            dll_dts.append(run.dll_dt)
 
-            slope, intercept, r_val, p_val, std_err = linregress(heat_loads, dll_dts)
+        slope, intercept, r_val, p_val, std_err = linregress(heat_loads, dll_dts)
 
-            if np.isnan(slope):
-                self._slope = None
-            else:
-                self.adjustment = intercept
-                self._slope = slope
+        if np.isnan(slope):
+            self._slope = None
+        else:
+            self.adjustment = intercept
+            self._slope = slope
         return self._slope
 
     @dLLdt_dheat.setter
@@ -237,6 +242,11 @@ class Q0Measurement:
 
             self.rf_run.avg_pressure = rf_run_data[q0_utils.JSON_AVG_PRESS_KEY]
 
+            for run in [self.heater_run, self.rf_run]:
+                times = np.array(list(run.ll_data.keys()))
+                run.region = LinearRegionItem(values=[np.min(times), np.max(times)],
+                                              bounds=[np.min(times), np.max(times)],
+                                              swapMode='block')
         self.save_data()
 
     def save_data(self):
@@ -283,8 +293,7 @@ class Q0Measurement:
 
     @property
     def raw_heat(self):
-        if not self._raw_heat:
-            self._raw_heat = self.cryomodule.calibration.get_heat(self.rf_run.dll_dt)
+        self._raw_heat = self.cryomodule.calibration.get_heat(self.rf_run.dll_dt)
         return self._raw_heat
 
     @property
@@ -298,26 +307,24 @@ class Q0Measurement:
 
     @property
     def heat_load(self):
-        if not self._heat_load:
-            self._heat_load = self.raw_heat + self.adjustment
+        self._heat_load = self.raw_heat + self.adjustment
         return self._heat_load
 
     @property
     def q0(self):
-        if not self._q0:
-            sum_square_amp = 0
+        sum_square_amp = 0
 
-            for amp in self.rf_run.amplitudes.values():
-                sum_square_amp += amp**2
+        for amp in self.rf_run.amplitudes.values():
+            sum_square_amp += amp**2
 
-            effective_amplitude = np.sqrt(sum_square_amp)
+        effective_amplitude = np.sqrt(sum_square_amp)
 
-            self._q0 = q0_utils.calc_q0(
-                amplitude=effective_amplitude,
-                rf_heat_load=self.heat_load,
-                avg_pressure=self.rf_run.avg_pressure,
-                cav_length=self.cryomodule.cavities[1].length,
-            )
+        self._q0 = q0_utils.calc_q0(
+            amplitude=effective_amplitude,
+            rf_heat_load=self.heat_load,
+            avg_pressure=self.rf_run.avg_pressure,
+            cav_length=self.cryomodule.cavities[1].length,
+        )
         return self._q0
 
     @q0.setter

@@ -82,8 +82,6 @@ class Q0GUI(Display):
 
         self.ui.restore_cryo_button.clicked.connect(self.restore_cryo)
 
-        self.region_selection_items = []
-
     @pyqtSlot()
     def restore_cryo(self):
         self.selectedCM.restore_cryo()
@@ -129,21 +127,29 @@ class Q0GUI(Display):
             for cavity in self.selectedCM.cavities.values():
                 self.cav_amp_controls[cavity.number].connect(cavity)
 
-    def q0_measurement_region_updated(self):
-        measurement = self.selectedCM.q0_measurement
-        for i, run in enumerate([measurement.heater_run, measurement.rf_run]):
-            lo, hi = self.region_selection_items[i].getRegion()
-            spliced_ll_run_data = {k: v for k, v in run.ll_data.items() if lo <= k <= hi}
+    def show_hide_regions(self, runs, measurement_plot, plot_items, region_event=None):
+        if any(isinstance(region_selector, LinearRegionItem) for region_selector in plot_items):
+            self.region_button_text = 'Show Measurement Regions'
+            self.region_button.setText(self.region_button_text)
 
-            measurement.rf_run.ll_data.update(spliced_ll_run_data)
+            for run in runs:
+                region_item = run.region
+                measurement_plot.removeItem(region_item)
+                plot_items.remove(region_item)
+        else:
+            self.region_button_text = 'Hide Measurement Regions'
+            self.region_button.setText(self.region_button_text)
+            for heater_run in runs:
+                linear_item = heater_run.region
+                if region_event:
+                    linear_item.sigRegionChangeFinished.connect(region_event)
+                measurement_plot.addItem(linear_item)
+                plot_items.append(linear_item)
 
-            run.ll_data = spliced_ll_run_data
-            run.dll_dt = None
-            if run == measurement.heater_run:
-                self.selectedCM.q0_measurement_buffer_plots[measurement.start_time].heater_run = run
-            else:
-                self.selectedCM.q0_measurement_buffer_plots[measurement.start_time].rf_run = run
-
+    def q0_update(self, region_item):
+        if region_item == self.selectedCM.q0_measurement.rf_run.region:
+            print("Updated Q0 -------------")
+            _ = self.selectedCM.q0_measurement.q0
 
     @pyqtSlot()
     def show_q0_data(self):
@@ -166,8 +172,7 @@ class Q0GUI(Display):
             self.region_button.clicked.connect(
                 lambda: self.show_hide_regions([measurement.heater_run, measurement.rf_run],
                                                self.q0_data_plot,
-                                               self.q0_data_plot_items,
-                                               self.q0_measurement_region_updated))
+                                               self.q0_data_plot_items, region_event=self.q0_update))
 
         self.region_button_text = 'Show Measurement Regions'
         self.region_button.setText(self.region_button_text)
@@ -178,21 +183,18 @@ class Q0GUI(Display):
         while self.q0_fit_plot_items:
             self.q0_fit_plot.removeItem(self.q0_fit_plot_items.pop())
 
-        while self.region_selection_items:
-            self.q0_data_plot.removeItem(self.region_selection_items.pop())
-
         measurement = self.selectedCM.q0_measurement
 
         self.q0_data_plot_items.append(
             self.q0_data_plot.plot(
-                list(measurement.rf_run.ll_data.keys()),
-                list(measurement.rf_run.ll_data.values()),
+                list(measurement.rf_run.complete_ll_data().keys()),
+                list(measurement.rf_run.complete_ll_data().values()),
             )
         )
         self.q0_data_plot_items.append(
             self.q0_data_plot.plot(
-                list(measurement.heater_run.ll_data.keys()),
-                list(measurement.heater_run.ll_data.values()),
+                list(measurement.heater_run.complete_ll_data().keys()),
+                list(measurement.heater_run.complete_ll_data().values()),
             )
         )
 
@@ -215,40 +217,8 @@ class Q0GUI(Display):
 
         showDisplay(self.q0_window)
 
-    def calibration_region_updated(self):
-        for i, run in enumerate(self.selectedCM.calibration.heater_runs):
-            lo, hi = self.region_selection_items[i].getRegion()
-
-            spliced_ll_run_data = {k: v for k, v in run.ll_data.items() if lo <= k <= hi}
-            run.ll_data = spliced_ll_run_data
-            old_dll_dt = run.dll_dt
-            run.dll_dt = None
-            if old_dll_dt != run.dll_dt:
-                print(f'Updated dLL/dt for calibration: {run.dll_dt}')
-                self.selectedCM.calibration.dLLdt_dheat = None
-                print(f'Updated dLL/dt vs Heat slope: {self.selectedCM.calibration.dLLdt_dheat}')
-            self.selectedCM.calibration_buffer_plots[self.selectedCM.calibration.time_stamp].heater_runs[i] = run
-
-    def show_hide_regions(self, regions, measurement_plot, plot_items, region_update):
-        if len(self.region_selection_items) > 0:
-            self.region_button_text = 'Show Measurement Regions'
-            self.region_button.setText(self.region_button_text)
-
-            while self.region_selection_items:
-                popped = self.region_selection_items.pop()
-                measurement_plot.removeItem(popped)
-                plot_items.remove(popped)
-        else:
-            self.region_button_text = 'Hide Measurement Regions'
-            self.region_button.setText(self.region_button_text)
-            for heater_run in regions:
-                liquid_levels = np.array(list(heater_run.ll_data.keys()))
-                linear_item = LinearRegionItem(values=[np.min(liquid_levels), np.max(liquid_levels)],
-                                               bounds=[np.min(liquid_levels), np.max(liquid_levels)], swapMode='block')
-                linear_item.sigRegionChangeFinished.connect(region_update)
-                measurement_plot.addItem(linear_item)
-                plot_items.append(linear_item)
-                self.region_selection_items.append(linear_item)
+    def calibration_update(self):
+        print(f"Updated dLL/dt/dheat: {self.selectedCM.calibration.dLLdt_dheat}")
 
     @pyqtSlot()
     def show_calibration_data(self):
@@ -273,7 +243,7 @@ class Q0GUI(Display):
                                                                               ].heater_runs,
                                                                               self.calibration_data_plot,
                                                                               self.calibration_data_plot_items,
-                                                                              self.calibration_region_updated))
+                                                                              region_event=self.calibration_update))
         self.region_button_text = 'Show Measurement Regions'
         self.region_button.setText(self.region_button_text)
 
@@ -285,9 +255,6 @@ class Q0GUI(Display):
         while self.calibration_fit_plot_items:
             self.calibration_fit_plot.removeItem(self.calibration_fit_plot_items.pop())
 
-        while self.region_selection_items:
-            self.calibration_data_plot.removeItem(self.region_selection_items.pop())
-
         dll_dts = []
         if self.selectedCM.calibration.time_stamp not in self.selectedCM.calibration_buffer_plots:
             self.selectedCM.calibration_buffer_plots[self.selectedCM.calibration.time_stamp] = self.selectedCM.calibration
@@ -295,7 +262,7 @@ class Q0GUI(Display):
         for heater_run in self.selectedCM.calibration_buffer_plots[self.selectedCM.calibration.time_stamp].heater_runs:
             self.calibration_data_plot_items.append(
                 self.calibration_data_plot.plot(
-                    list(heater_run.ll_data.keys()), list(heater_run.ll_data.values())
+                    list(heater_run.complete_ll_data().keys()), list(heater_run.complete_ll_data().values())
                 )
             )
 
